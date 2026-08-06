@@ -1,0 +1,168 @@
+package db
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
+	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
+)
+
+var _ ports.StreamRepository = (*SQLiteStreamRepository)(nil)
+
+// SQLiteStreamRepository implementa ports.StreamRepository sobre SQLite.
+// Persiste las URLs de stream que antes solo vivían en el caché en memoria
+// del provider, para que /channels/stream sobreviva reinicios sin re-sync.
+type SQLiteStreamRepository struct {
+	db *sql.DB
+}
+
+func NewStreamRepository(db *sql.DB) *SQLiteStreamRepository {
+	return &SQLiteStreamRepository{db: db}
+}
+
+const streamColumns = ` id, channel_id, url, protocol, latency_ms, is_alive, last_checked `
+
+// El upsert preserva latency_ms/is_alive/last_checked: son resultado del
+// health-check, no del sync, y un re-sync no debe borrarlos.
+const upsertStreamSQL = `
+	INSERT INTO streams (id, channel_id, url, protocol, latency_ms, is_alive, last_checked, created_at, updated_at)
+	VALUES (?, ?, ?, ?, NULL, 0, NULL, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		channel_id = excluded.channel_id,
+		url        = excluded.url,
+		protocol   = excluded.protocol,
+		updated_at = excluded.updated_at`
+
+func (r *SQLiteStreamRepository) Save(ctx context.Context, s domain.Stream) error {
+	now := time.Now().Unix()
+	if _, err := r.db.ExecContext(ctx, upsertStreamSQL,
+		s.ID, string(s.ChannelID), s.URL, string(s.Protocol), now, now,
+	); err != nil {
+		return fmt.Errorf("db.Stream.Save (id=%s): %w", s.ID, err)
+	}
+	return nil
+}
+
+// SaveBatch hace upsert de streams en una sola transacción con statement
+// preparado, siguiendo el mismo patrón que ChannelRepository.SaveBatch.
+func (r *SQLiteStreamRepository) SaveBatch(ctx context.Context, streams []domain.Stream) error {
+	if len(streams) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("db.Stream.SaveBatch (BeginTx): %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck — Rollback es no-op si Commit tuvo éxito
+
+	stmt, err := tx.PrepareContext(ctx, upsertStreamSQL)
+	if err != nil {
+		return fmt.Errorf("db.Stream.SaveBatch (Prepare): %w", err)
+	}
+	defer stmt.Close()
+
+	now := time.Now().Unix()
+	for _, s := range streams {
+		if _, err := stmt.ExecContext(ctx,
+			s.ID, string(s.ChannelID), s.URL, string(s.Protocol), now, now,
+		); err != nil {
+			return fmt.Errorf("db.Stream.SaveBatch (Exec id=%s): %w", s.ID, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *SQLiteStreamRepository) FindByChannelID(ctx context.Context, channelID domain.ChannelID) ([]domain.Stream, error) {
+	rows, err := r.db.QueryContext(ctx,
+		"SELECT"+streamColumns+"FROM streams WHERE channel_id = ? ORDER BY id", string(channelID))
+	if err != nil {
+		return nil, fmt.Errorf("db.Stream.FindByChannelID (channel=%s): %w", channelID, err)
+	}
+	defer rows.Close()
+
+	var streams []domain.Stream
+	for rows.Next() {
+		s, err := scanStream(rows)
+		if err != nil {
+			return nil, fmt.Errorf("db.Stream.FindByChannelID (scan): %w", err)
+		}
+		streams = append(streams, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("db.Stream.FindByChannelID (rows.Err): %w", err)
+	}
+	return streams, nil
+}
+
+// FindBestByChannelID devuelve el stream vivo de menor latencia.
+// Aprovecha el índice parcial idx_streams_latency (WHERE is_alive = 1).
+func (r *SQLiteStreamRepository) FindBestByChannelID(ctx context.Context, channelID domain.ChannelID) (domain.Stream, error) {
+	rows, err := r.db.QueryContext(ctx,
+		"SELECT"+streamColumns+`FROM streams
+		 WHERE channel_id = ? AND is_alive = 1
+		 ORDER BY latency_ms ASC LIMIT 1`, string(channelID))
+	if err != nil {
+		return domain.Stream{}, fmt.Errorf("db.Stream.FindBestByChannelID (channel=%s): %w", channelID, err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return domain.Stream{}, fmt.Errorf("db.Stream.FindBestByChannelID (rows.Err): %w", err)
+		}
+		return domain.Stream{}, fmt.Errorf("db.Stream.FindBestByChannelID: sin streams vivos para canal %s", channelID)
+	}
+	s, err := scanStream(rows)
+	if err != nil {
+		return domain.Stream{}, fmt.Errorf("db.Stream.FindBestByChannelID (scan): %w", err)
+	}
+	return s, nil
+}
+
+func (r *SQLiteStreamRepository) MarkAlive(ctx context.Context, streamID string, latencyMs int64) error {
+	now := time.Now().Unix()
+	if _, err := r.db.ExecContext(ctx,
+		`UPDATE streams SET is_alive = 1, latency_ms = ?, last_checked = ?, updated_at = ? WHERE id = ?`,
+		latencyMs, now, now, streamID,
+	); err != nil {
+		return fmt.Errorf("db.Stream.MarkAlive (id=%s): %w", streamID, err)
+	}
+	return nil
+}
+
+func (r *SQLiteStreamRepository) MarkDead(ctx context.Context, streamID string) error {
+	now := time.Now().Unix()
+	if _, err := r.db.ExecContext(ctx,
+		`UPDATE streams SET is_alive = 0, last_checked = ?, updated_at = ? WHERE id = ?`,
+		now, now, streamID,
+	); err != nil {
+		return fmt.Errorf("db.Stream.MarkDead (id=%s): %w", streamID, err)
+	}
+	return nil
+}
+
+func scanStream(rows *sql.Rows) (domain.Stream, error) {
+	var (
+		s           domain.Stream
+		latencyMs   sql.NullInt64
+		isAlive     int
+		lastChecked sql.NullInt64
+	)
+	if err := rows.Scan(
+		&s.ID, (*string)(&s.ChannelID), &s.URL, (*string)(&s.Protocol),
+		&latencyMs, &isAlive, &lastChecked,
+	); err != nil {
+		return domain.Stream{}, err
+	}
+	s.LatencyMs = latencyMs.Int64
+	s.IsAlive = isAlive == 1
+	if lastChecked.Valid {
+		s.LastChecked = time.Unix(lastChecked.Int64, 0)
+	}
+	return s, nil
+}

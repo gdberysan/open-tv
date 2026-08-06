@@ -12,7 +12,7 @@ import (
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
 )
 
-func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort) http.Handler {
+func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.CORS)
@@ -22,7 +22,7 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	r.Use(middleware.Recover(logger))
 	r.Use(middleware.RateLimiter(100))
 
-	ch := handlers.NewChannelHandler(repo, provider)
+	ch := handlers.NewChannelHandler(repo, provider, streams)
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

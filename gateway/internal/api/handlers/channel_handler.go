@@ -14,10 +14,11 @@ import (
 type ChannelHandler struct {
 	repo     ports.ChannelRepository
 	provider ports.ProviderPort
+	streams  ports.StreamRepository
 }
 
-func NewChannelHandler(repo ports.ChannelRepository, provider ports.ProviderPort) *ChannelHandler {
-	return &ChannelHandler{repo: repo, provider: provider}
+func NewChannelHandler(repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository) *ChannelHandler {
+	return &ChannelHandler{repo: repo, provider: provider, streams: streams}
 }
 
 // GetChannels aplica filtros combinados y devuelve canales paginados.
@@ -61,8 +62,14 @@ func (h *ChannelHandler) GetStreamURL(w http.ResponseWriter, r *http.Request) {
 	}
 	url, err := h.provider.GetStreamURL(r.Context(), domain.ChannelID(id))
 	if err != nil {
-		h.writeError(w, http.StatusNotFound, "Stream no encontrado")
-		return
+		// Caché del provider vacío (p.ej. tras un reinicio, antes del primer
+		// sync): caer a los streams persistidos en DB por el último sync.
+		persisted, dbErr := h.streams.FindByChannelID(r.Context(), domain.ChannelID(id))
+		if dbErr != nil || len(persisted) == 0 {
+			h.writeError(w, http.StatusNotFound, "Stream no encontrado")
+			return
+		}
+		url = persisted[0].URL
 	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"url": url})
 }

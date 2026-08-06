@@ -12,6 +12,7 @@ import (
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/db"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/providers/opensource"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/api"
+	"github.com/tu-org/iptv-ecosystem/gateway/internal/services"
 )
 
 func main() {
@@ -31,8 +32,9 @@ func main() {
 	defer sqlDB.Close()
 	logger.Info("SQLite abierta", slog.String("path", dbPath))
 
-	// 2. Repositorio y proveedor IPTV-org
+	// 2. Repositorios y proveedor IPTV-org
 	channelRepo := db.NewChannelRepository(sqlDB)
+	streamRepo := db.NewStreamRepository(sqlDB)
 
 	iptvOrgURL := os.Getenv("IPTV_ORG_URL")
 	if iptvOrgURL == "" {
@@ -40,22 +42,22 @@ func main() {
 	}
 	provider := opensource.NewProvider("opensource", iptvOrgURL, nil)
 
-	// 3. Sync inicial en background
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		logger.Info("Iniciando sync de canales desde IPTV-org...")
-		channels, err := provider.GetLiveChannels(ctx)
-		if err != nil {
-			logger.Error("Sync IPTV-org fallido", slog.Any("error", err))
-			return
+	// 3. Sync periódico en background: reintenta con backoff si el proveedor
+	// falla y persiste los streams para que /channels/stream sobreviva reinicios.
+	syncInterval := 12 * time.Hour
+	if v := os.Getenv("SYNC_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			syncInterval = d
+		} else {
+			logger.Warn("SYNC_INTERVAL inválido, usando default 12h", slog.String("valor", v))
 		}
-		if err := channelRepo.SaveBatch(ctx, channels); err != nil {
-			logger.Error("SaveBatch fallido", slog.Any("error", err))
-			return
-		}
-		logger.Info("Sync completado", slog.Int("canales", len(channels)))
-	}()
+	}
+	syncer := services.NewSyncer(logger, provider, channelRepo, streamRepo, services.Config{
+		Interval: syncInterval,
+	})
+	syncCtx, stopSync := context.WithCancel(context.Background())
+	defer stopSync()
+	go syncer.Run(syncCtx)
 
 	// 4. Router y servidor HTTP
 	// Loopback por defecto: la API no tiene auth y solo la consume la app
@@ -65,7 +67,7 @@ func main() {
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:8080"
 	}
-	handler := api.NewRouter(logger, channelRepo, provider)
+	handler := api.NewRouter(logger, channelRepo, provider, streamRepo)
 	srv := &http.Server{
 		Addr:              listenAddr,
 		Handler:           handler,
