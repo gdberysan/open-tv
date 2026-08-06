@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Go
+gateway/server
+gateway/iptv.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Flutter / Dart
+mobile/build/
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/ephemeral/
+mobile/macos/Flutter/ephemeral/
+
+# IDE
+.idea/
+.vscode/
