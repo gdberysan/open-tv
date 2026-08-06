@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
@@ -50,6 +51,9 @@ type Syncer struct {
 	channels ports.ChannelRepository
 	streams  ports.StreamRepository
 	cfg      Config
+
+	firstDone chan struct{}
+	firstOnce sync.Once
 }
 
 func NewSyncer(logger *slog.Logger, provider ports.ProviderPort, channels ports.ChannelRepository, streams ports.StreamRepository, cfg Config) *Syncer {
@@ -57,12 +61,20 @@ func NewSyncer(logger *slog.Logger, provider ports.ProviderPort, channels ports.
 		logger = slog.New(slog.DiscardHandler)
 	}
 	return &Syncer{
-		logger:   logger,
-		provider: provider,
-		channels: channels,
-		streams:  streams,
-		cfg:      cfg.withDefaults(),
+		logger:    logger,
+		provider:  provider,
+		channels:  channels,
+		streams:   streams,
+		cfg:       cfg.withDefaults(),
+		firstDone: make(chan struct{}),
 	}
+}
+
+// FirstSyncDone se cierra tras el primer sync exitoso. Permite a trabajos
+// dependientes (p.ej. el worker EPG, que necesita tvg_id en DB) esperar a
+// que exista el catálogo de canales antes de arrancar.
+func (s *Syncer) FirstSyncDone() <-chan struct{} {
+	return s.firstDone
 }
 
 // Run ejecuta el bucle de sincronización hasta que ctx se cancele.
@@ -81,6 +93,7 @@ func (s *Syncer) Run(ctx context.Context) {
 			wait = backoff
 			backoff = min(backoff*2, s.cfg.RetryMax)
 		} else {
+			s.firstOnce.Do(func() { close(s.firstDone) })
 			wait = s.cfg.Interval
 			backoff = s.cfg.RetryBase
 		}

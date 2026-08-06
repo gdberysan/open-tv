@@ -20,14 +20,15 @@ func NewChannelRepository(db *sql.DB) *SQLiteChannelRepository {
 	return &SQLiteChannelRepository{db: db}
 }
 
-const channelColumns = ` id, name, logo_url, category_id, language_code, country_code,
+const channelColumns = ` id, tvg_id, name, logo_url, category_id, language_code, country_code,
 	provider_id, provider_type, is_adult, created_at, updated_at `
 
 const upsertSQL = `
-	INSERT INTO channels (id, name, logo_url, category_id, language_code, country_code,
+	INSERT INTO channels (id, tvg_id, name, logo_url, category_id, language_code, country_code,
 	                      provider_id, provider_type, is_adult, created_at, updated_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
+		tvg_id        = excluded.tvg_id,
 		name          = excluded.name,
 		logo_url      = excluded.logo_url,
 		category_id   = excluded.category_id,
@@ -56,7 +57,7 @@ func (r *SQLiteChannelRepository) Save(ctx context.Context, ch domain.Channel) e
 	}
 
 	if _, err := r.db.ExecContext(ctx, upsertSQL,
-		string(ch.ID), ch.Name, nullStr(ch.LogoURL), nullStr(ch.CategoryID),
+		string(ch.ID), nullStr(ch.TvgID), ch.Name, nullStr(ch.LogoURL), nullStr(ch.CategoryID),
 		nullStr(ch.LanguageCode), nullStr(ch.CountryCode),
 		ch.ProviderID, string(ch.ProviderType),
 		boolToInt(ch.IsAdult), now, now,
@@ -96,7 +97,7 @@ func (r *SQLiteChannelRepository) SaveBatch(ctx context.Context, channels []doma
 	now := time.Now().Unix()
 	for _, ch := range channels {
 		if _, err := stmt.ExecContext(ctx,
-			string(ch.ID), ch.Name, nullStr(ch.LogoURL), nullStr(ch.CategoryID),
+			string(ch.ID), nullStr(ch.TvgID), ch.Name, nullStr(ch.LogoURL), nullStr(ch.CategoryID),
 			nullStr(ch.LanguageCode), nullStr(ch.CountryCode),
 			ch.ProviderID, string(ch.ProviderType),
 			boolToInt(ch.IsAdult), now, now,
@@ -249,14 +250,14 @@ func (r *SQLiteChannelRepository) Delete(ctx context.Context, id domain.ChannelI
 
 func scanChannel(row *sql.Row) (domain.Channel, error) {
 	var (
-		ch                                              domain.Channel
-		logoURL, categoryID, languageCode, countryCode sql.NullString
-		providerID                                      string
-		isAdult                                         int
-		createdAt, updatedAt                            int64
+		ch                                                    domain.Channel
+		tvgID, logoURL, categoryID, languageCode, countryCode sql.NullString
+		providerID                                            string
+		isAdult                                               int
+		createdAt, updatedAt                                  int64
 	)
 	err := row.Scan(
-		(*string)(&ch.ID), &ch.Name, &logoURL, &categoryID,
+		(*string)(&ch.ID), &tvgID, &ch.Name, &logoURL, &categoryID,
 		&languageCode, &countryCode,
 		&providerID, (*string)(&ch.ProviderType),
 		&isAdult, &createdAt, &updatedAt,
@@ -264,6 +265,7 @@ func scanChannel(row *sql.Row) (domain.Channel, error) {
 	if err != nil {
 		return domain.Channel{}, err
 	}
+	ch.TvgID = tvgID.String
 	ch.LogoURL = logoURL.String
 	ch.CategoryID = categoryID.String
 	ch.LanguageCode = languageCode.String
@@ -279,20 +281,21 @@ func scanChannels(rows *sql.Rows) ([]domain.Channel, error) {
 	var channels []domain.Channel
 	for rows.Next() {
 		var (
-			ch                                              domain.Channel
-			logoURL, categoryID, languageCode, countryCode sql.NullString
-			providerID                                      string
-			isAdult                                         int
-			createdAt, updatedAt                            int64
+			ch                                                    domain.Channel
+			tvgID, logoURL, categoryID, languageCode, countryCode sql.NullString
+			providerID                                            string
+			isAdult                                               int
+			createdAt, updatedAt                                  int64
 		)
 		if err := rows.Scan(
-			(*string)(&ch.ID), &ch.Name, &logoURL, &categoryID,
+			(*string)(&ch.ID), &tvgID, &ch.Name, &logoURL, &categoryID,
 			&languageCode, &countryCode,
 			&providerID, (*string)(&ch.ProviderType),
 			&isAdult, &createdAt, &updatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("db.scanChannels: %w", err)
 		}
+		ch.TvgID = tvgID.String
 		ch.LogoURL = logoURL.String
 		ch.CategoryID = categoryID.String
 		ch.LanguageCode = languageCode.String

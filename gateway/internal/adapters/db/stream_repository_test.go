@@ -39,6 +39,26 @@ func makeStream(id, channelID, url string) domain.Stream {
 	}
 }
 
+// El tvg_id une canales con su EPG XMLTV: debe sobrevivir el roundtrip a DB.
+func TestChannelRepository_PersisteTvgID(t *testing.T) {
+	chRepo, _ := openStreamTestRepos(t)
+	ctx := context.Background()
+
+	ch := makeChannel("ch-tvg", "BBC News", "GB", "news")
+	ch.TvgID = "BBCNews.uk"
+	if err := chRepo.Save(ctx, ch); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := chRepo.FindByID(ctx, "ch-tvg")
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if got.TvgID != "BBCNews.uk" {
+		t.Errorf("TvgID = %q, want BBCNews.uk", got.TvgID)
+	}
+}
+
 func TestStreamRepository_SaveBatchAndFindByChannelID(t *testing.T) {
 	chRepo, stRepo := openStreamTestRepos(t)
 	ctx := context.Background()

@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
 )
@@ -72,21 +71,6 @@ func (h *ChannelHandler) GetStreamURL(w http.ResponseWriter, r *http.Request) {
 		url = persisted[0].URL
 	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"url": url})
-}
-
-// GetEPG devuelve la guía de programación para un canal.
-func (h *ChannelHandler) GetEPG(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		h.writeError(w, http.StatusBadRequest, "id requerido")
-		return
-	}
-	epg, err := h.provider.GetEPGData(r.Context(), domain.ChannelID(id))
-	if err != nil {
-		h.writeError(w, http.StatusInternalServerError, "Error obteniendo EPG")
-		return
-	}
-	h.writeJSON(w, http.StatusOK, epg)
 }
 
 func queryInt(r *http.Request, key string, def, max int) int {

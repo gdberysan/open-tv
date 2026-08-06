@@ -20,9 +20,6 @@ type ProviderPort interface {
 	// Gestiona tokens dinámicos, cookies y rotación de URLs internamente.
 	GetStreamURL(ctx context.Context, channelID domain.ChannelID) (string, error)
 
-	// GetEPGData retorna las entradas de programación para un canal.
-	GetEPGData(ctx context.Context, channelID domain.ChannelID) ([]domain.EPGEntry, error)
-
 	// HealthCheck verifica conectividad con la fuente. Timeout recomendado: 5s.
 	HealthCheck(ctx context.Context) error
 }

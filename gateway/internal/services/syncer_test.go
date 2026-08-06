@@ -24,9 +24,6 @@ type fakeProvider struct {
 func (f *fakeProvider) ID() string                        { return "fake" }
 func (f *fakeProvider) Type() domain.ProviderType         { return domain.ProviderOpenSource }
 func (f *fakeProvider) HealthCheck(context.Context) error { return nil }
-func (f *fakeProvider) GetEPGData(context.Context, domain.ChannelID) ([]domain.EPGEntry, error) {
-	return nil, nil
-}
 
 func (f *fakeProvider) GetLiveChannels(context.Context) ([]domain.Channel, error) {
 	f.mu.Lock()
@@ -259,6 +256,34 @@ func TestSyncer_Run_ResincronizaPeriodicamente(t *testing.T) {
 
 	waitFor(t, 2*time.Second, func() bool { return chRepo.batchCount() >= 2 },
 		"no hubo re-sync periódico tras el primer éxito")
+}
+
+// El worker EPG debe esperar al primer sync de canales: sin tvg_id en DB,
+// todas las entradas EPG se descartarían en silencio.
+func TestSyncer_FirstSyncDone_SeCierraTrasElPrimerExito(t *testing.T) {
+	chs, urls := testChannels()
+	prov := &fakeProvider{channels: chs, urls: urls, failFirst: 1}
+	s := NewSyncer(nil, prov, &fakeChannelRepo{}, &fakeStreamRepo{}, Config{
+		Interval:  time.Hour,
+		RetryBase: time.Millisecond,
+		RetryMax:  time.Millisecond,
+	})
+
+	select {
+	case <-s.FirstSyncDone():
+		t.Fatal("FirstSyncDone no debe estar cerrado antes de sincronizar")
+	default:
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Run(ctx)
+
+	select {
+	case <-s.FirstSyncDone():
+	case <-time.After(2 * time.Second):
+		t.Fatal("FirstSyncDone no se cerró tras el primer sync exitoso")
+	}
 }
 
 func TestSyncer_Run_TerminaAlCancelarContexto(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/db"
+	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/epg"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/providers/opensource"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/api"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/services"
@@ -35,6 +36,7 @@ func main() {
 	// 2. Repositorios y proveedor IPTV-org
 	channelRepo := db.NewChannelRepository(sqlDB)
 	streamRepo := db.NewStreamRepository(sqlDB)
+	epgRepo := db.NewEPGRepository(sqlDB)
 
 	iptvOrgURL := os.Getenv("IPTV_ORG_URL")
 	if iptvOrgURL == "" {
@@ -59,6 +61,33 @@ func main() {
 	defer stopSync()
 	go syncer.Run(syncCtx)
 
+	// 3b. Worker EPG (opt-in): no existe una URL XMLTV pública canónica para
+	// el catálogo completo de IPTV-org, así que la fuente se configura vía
+	// EPG_URL (acepta .xml y .xml.gz). Sin ella el worker no arranca y los
+	// endpoints /epg responden vacío.
+	if epgURL := os.Getenv("EPG_URL"); epgURL != "" {
+		epgInterval := 12 * time.Hour
+		if v := os.Getenv("EPG_INTERVAL"); v != "" {
+			if d, err := time.ParseDuration(v); err == nil && d > 0 {
+				epgInterval = d
+			} else {
+				logger.Warn("EPG_INTERVAL inválido, usando default 12h", slog.String("valor", v))
+			}
+		}
+		epgWorker := epg.NewWorker(epg.NewParser(), epgRepo, epgURL, epgInterval, logger)
+		// Esperar al primer sync de canales: sin tvg_id en DB, el EPG
+		// descartaría todas las entradas en silencio.
+		go func() {
+			select {
+			case <-syncCtx.Done():
+			case <-syncer.FirstSyncDone():
+				epgWorker.Start(syncCtx)
+			}
+		}()
+	} else {
+		logger.Info("EPG_URL no configurada; worker EPG desactivado")
+	}
+
 	// 4. Router y servidor HTTP
 	// Loopback por defecto: la API no tiene auth y solo la consume la app
 	// local. El gateway nunca proxya video (solo devuelve JSON con la URL),
@@ -67,7 +96,7 @@ func main() {
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:8080"
 	}
-	handler := api.NewRouter(logger, channelRepo, provider, streamRepo)
+	handler := api.NewRouter(logger, channelRepo, provider, streamRepo, epgRepo)
 	srv := &http.Server{
 		Addr:              listenAddr,
 		Handler:           handler,

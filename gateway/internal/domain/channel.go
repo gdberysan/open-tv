@@ -13,7 +13,9 @@ const (
 )
 
 type Channel struct {
-	ID           ChannelID
+	ID ChannelID
+	// TvgID es el identificador XMLTV (tvg-id del M3U); une el canal con su EPG.
+	TvgID        string
 	Name         string
 	LogoURL      string
 	CategoryID   string

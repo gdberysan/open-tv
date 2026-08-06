@@ -65,6 +65,12 @@ func migrate(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("db.migrate (ReadFile): %w", err)
 	}
+	// Los ALTER van ANTES del esquema: CREATE TABLE IF NOT EXISTS no añade
+	// columnas a DBs viejas, y los índices del esquema pueden referenciar
+	// columnas nuevas que solo existen tras el ALTER.
+	if err := alterMigrations(db); err != nil {
+		return err
+	}
 	for _, stmt := range strings.Split(string(schema), ";") {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
@@ -76,6 +82,26 @@ func migrate(db *sql.DB) error {
 				short = short[:60]
 			}
 			return fmt.Errorf("db.migrate (%s...): %w", short, err)
+		}
+	}
+	return nil
+}
+
+// alterMigrations añade columnas a tablas de DBs creadas con un esquema
+// anterior. Idempotente: tolera columna duplicada (ya migrada) y tabla
+// inexistente (DB nueva; el CREATE TABLE posterior ya incluye la columna).
+func alterMigrations(db *sql.DB) error {
+	alters := []string{
+		"ALTER TABLE channels ADD COLUMN tvg_id TEXT",
+	}
+	for _, stmt := range alters {
+		if _, err := db.Exec(stmt); err != nil {
+			msg := err.Error()
+			if strings.Contains(msg, "duplicate column name") ||
+				strings.Contains(msg, "no such table") {
+				continue
+			}
+			return fmt.Errorf("db.alterMigrations (%s): %w", stmt, err)
 		}
 	}
 	return nil

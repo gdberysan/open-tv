@@ -96,6 +96,7 @@ func (p *Provider) GetLiveChannels(ctx context.Context) ([]domain.Channel, error
 				ProviderType: domain.ProviderOpenSource,
 			}
 			currentChannel.Name = extractAfterComma(line)
+			currentChannel.TvgID = extractAttr(line, "tvg-id")
 			currentChannel.LogoURL = extractAttr(line, "tvg-logo")
 			currentChannel.CategoryID = extractAttr(line, "group-title")
 			currentChannel.LanguageCode = strings.ToLower(extractAttr(line, "tvg-language"))
@@ -139,10 +140,6 @@ func (p *Provider) GetStreamURL(_ context.Context, channelID domain.ChannelID) (
 		return "", fmt.Errorf("opensource.GetStreamURL: canal %s no encontrado (sync pendiente?)", channelID)
 	}
 	return u, nil
-}
-
-func (p *Provider) GetEPGData(_ context.Context, _ domain.ChannelID) ([]domain.EPGEntry, error) {
-	return []domain.EPGEntry{}, nil
 }
 
 func (p *Provider) HealthCheck(ctx context.Context) error {

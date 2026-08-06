@@ -43,9 +43,6 @@ func (m *mockProvider) GetLiveChannels(ctx context.Context) ([]domain.Channel, e
 func (m *mockProvider) GetStreamURL(ctx context.Context, channelID domain.ChannelID) (string, error) {
 	return "http://mock.com/" + string(channelID) + ".ts", nil
 }
-func (m *mockProvider) GetEPGData(ctx context.Context, channelID domain.ChannelID) ([]domain.EPGEntry, error) {
-	return []domain.EPGEntry{{Title: "Mock Program"}}, nil
-}
 func (m *mockProvider) HealthCheck(ctx context.Context) error { return nil }
 
 // mockProviderSinCache simula un provider recién reiniciado: el caché en
@@ -80,7 +77,6 @@ func setupRouterWith(provider ports.ProviderPort, streams ports.StreamRepository
 	h := NewChannelHandler(&mockRepo{}, provider, streams)
 	r.Get("/channels", h.GetChannels)
 	r.Get("/channels/stream", h.GetStreamURL)
-	r.Get("/channels/{id}/epg", h.GetEPG)
 	return r
 }
 
@@ -154,23 +150,5 @@ func TestChannelHandler_GetStreamURL_SinCacheNiDB(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("status = %v, want %v", rr.Code, http.StatusNotFound)
-	}
-}
-
-func TestChannelHandler_GetEPG(t *testing.T) {
-	r := setupRouter()
-	req := httptest.NewRequest(http.MethodGet, "/channels/123/epg", nil)
-	rr := httptest.NewRecorder()
-
-	r.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %v, want %v", rr.Code, http.StatusOK)
-	}
-
-	var epg []domain.EPGEntry
-	json.NewDecoder(rr.Body).Decode(&epg)
-	if len(epg) != 1 || epg[0].Title != "Mock Program" {
-		t.Errorf("Unexpected epg: %v", epg)
 	}
 }
