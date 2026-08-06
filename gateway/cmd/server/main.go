@@ -12,6 +12,7 @@ import (
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/db"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/epg"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/providers/opensource"
+	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/validator"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/api"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/services"
 )
@@ -61,7 +62,27 @@ func main() {
 	defer stopSync()
 	go syncer.Run(syncCtx)
 
-	// 3b. Worker EPG (opt-in): no existe una URL XMLTV pública canónica para
+	// 3b. Health-check de streams (Fase 7): valida las URLs con el pool
+	// HEAD→GET y marca is_alive/latency en DB. Espera al primer sync para
+	// tener el catálogo de streams. HEALTH_INTERVAL default 60m.
+	healthInterval := 60 * time.Minute
+	if v := os.Getenv("HEALTH_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			healthInterval = d
+		} else {
+			logger.Warn("HEALTH_INTERVAL inválido, usando default 60m", slog.String("valor", v))
+		}
+	}
+	healthWorker := validator.NewWorker(streamRepo, validator.DefaultConfig(), healthInterval, logger)
+	go func() {
+		select {
+		case <-syncCtx.Done():
+		case <-syncer.FirstSyncDone():
+			healthWorker.Start(syncCtx)
+		}
+	}()
+
+	// 3c. Worker EPG (opt-in): no existe una URL XMLTV pública canónica para
 	// el catálogo completo de IPTV-org, así que la fuente se configura vía
 	// EPG_URL (acepta .xml y .xml.gz). Sin ella el worker no arranca y los
 	// endpoints /epg responden vacío.

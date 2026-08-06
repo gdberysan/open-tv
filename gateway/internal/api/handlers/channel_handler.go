@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
@@ -35,11 +36,18 @@ func (h *ChannelHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
 		quality = ""
 	}
 
+	// AliveOnly por defecto (Fase 7): los canales cuyos streams están todos
+	// chequeados y muertos se ocultan salvo ?alive=all (o false/0).
+	alive := r.URL.Query().Get("alive")
+	aliveOnly := !strings.EqualFold(alive, "all") &&
+		!strings.EqualFold(alive, "false") && alive != "0"
+
 	channels, err := h.repo.FindFiltered(r.Context(), ports.ChannelFilter{
 		Query:      r.URL.Query().Get("q"),
 		Country:    r.URL.Query().Get("country"),
 		Category:   r.URL.Query().Get("category"),
 		MinQuality: quality,
+		AliveOnly:  aliveOnly,
 		Limit:      queryInt(r, "limit", 500, 1000),
 		Offset:     queryInt(r, "offset", 0, -1),
 	})
@@ -71,6 +79,54 @@ func (h *ChannelHandler) GetStreamURL(w http.ResponseWriter, r *http.Request) {
 		url = persisted[0].URL
 	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"url": url})
+}
+
+// GetHealth resume el estado de salud de un canal a partir de sus streams.
+// Ruta: GET /channels/{id}/health → {alive, latency_ms, checked_at}
+func (h *ChannelHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
+	id := pathParam(r, "id")
+	if id == "" {
+		h.writeError(w, http.StatusBadRequest, "id requerido")
+		return
+	}
+
+	streams, err := h.streams.FindByChannelID(r.Context(), domain.ChannelID(id))
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, "Error obteniendo salud del canal")
+		return
+	}
+	if len(streams) == 0 {
+		h.writeError(w, http.StatusNotFound, "Canal sin streams")
+		return
+	}
+
+	// alive si algún stream lo está; latencia = la mejor entre los vivos;
+	// checked_at = el chequeo más reciente de cualquiera de sus streams.
+	var (
+		alive       bool
+		bestLatency int64
+		lastChecked time.Time
+	)
+	for _, s := range streams {
+		if s.IsAlive && (!alive || s.LatencyMs < bestLatency) {
+			alive = true
+			bestLatency = s.LatencyMs
+		}
+		if s.LastChecked.After(lastChecked) {
+			lastChecked = s.LastChecked
+		}
+	}
+
+	res := map[string]any{
+		"alive":      alive,
+		"latency_ms": bestLatency,
+	}
+	if lastChecked.IsZero() {
+		res["checked_at"] = nil // aún sin pasada del health-worker
+	} else {
+		res["checked_at"] = lastChecked.Format(time.RFC3339)
+	}
+	h.writeJSON(w, http.StatusOK, res)
 }
 
 func queryInt(r *http.Request, key string, def, max int) int {

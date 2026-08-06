@@ -7,6 +7,7 @@ import (
 
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/db"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
+	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
 )
 
 // openStreamTestRepos abre una DB de test y devuelve ambos repos: los streams
@@ -109,6 +110,83 @@ func TestStreamRepository_SaveBatchIsUpsert(t *testing.T) {
 	}
 	if got[0].URL != "http://a.example/nueva.m3u8" {
 		t.Errorf("URL = %q, quiere la actualizada", got[0].URL)
+	}
+}
+
+// El health-worker necesita el listado completo para chequear cada stream.
+func TestStreamRepository_FindAll(t *testing.T) {
+	chRepo, stRepo := openStreamTestRepos(t)
+	ctx := context.Background()
+	seedChannel(t, chRepo, "ch-1")
+	seedChannel(t, chRepo, "ch-2")
+
+	if err := stRepo.SaveBatch(ctx, []domain.Stream{
+		makeStream("st-1", "ch-1", "http://a.example/1.m3u8"),
+		makeStream("st-2", "ch-2", "http://b.example/2.m3u8"),
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+
+	got, err := stRepo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].URL == "" || got[0].ID == "" {
+		t.Errorf("stream incompleto: %+v", got[0])
+	}
+}
+
+// AliveOnly oculta solo canales con TODOS sus streams chequeados y muertos.
+// Sin chequear (last_checked NULL) o sin streams → visibles, para no vaciar
+// la app antes de la primera pasada del health-worker.
+func TestChannelRepository_FindFiltered_AliveOnly(t *testing.T) {
+	chRepo, stRepo := openStreamTestRepos(t)
+	ctx := context.Background()
+
+	seedChannel(t, chRepo, "ch-vivo")      // stream chequeado y vivo
+	seedChannel(t, chRepo, "ch-muerto")    // stream chequeado y muerto
+	seedChannel(t, chRepo, "ch-pendiente") // stream sin chequear
+	seedChannel(t, chRepo, "ch-sin-streams")
+
+	if err := stRepo.SaveBatch(ctx, []domain.Stream{
+		makeStream("st-v", "ch-vivo", "http://v.example/1.m3u8"),
+		makeStream("st-m", "ch-muerto", "http://m.example/1.m3u8"),
+		makeStream("st-p", "ch-pendiente", "http://p.example/1.m3u8"),
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+	if err := stRepo.MarkAlive(ctx, "st-v", 100); err != nil {
+		t.Fatalf("MarkAlive: %v", err)
+	}
+	if err := stRepo.MarkDead(ctx, "st-m"); err != nil {
+		t.Fatalf("MarkDead: %v", err)
+	}
+
+	got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{AliveOnly: true, MinQuality: "none"})
+	if err != nil {
+		t.Fatalf("FindFiltered: %v", err)
+	}
+	ids := make(map[string]bool)
+	for _, ch := range got {
+		ids[string(ch.ID)] = true
+	}
+	if !ids["ch-vivo"] || !ids["ch-pendiente"] || !ids["ch-sin-streams"] {
+		t.Errorf("visibles = %v; vivo, pendiente y sin-streams deben verse", ids)
+	}
+	if ids["ch-muerto"] {
+		t.Error("ch-muerto (todos sus streams chequeados y muertos) debe ocultarse")
+	}
+
+	// Sin AliveOnly todos son visibles
+	all, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{MinQuality: "none"})
+	if err != nil {
+		t.Fatalf("FindFiltered sin AliveOnly: %v", err)
+	}
+	if len(all) != 4 {
+		t.Errorf("sin AliveOnly len = %d, want 4", len(all))
 	}
 }
 

@@ -13,8 +13,12 @@ type ChannelFilter struct {
 	Country    string // ISO 3166-1 alpha-2
 	Category   string // ID exacto de categoría
 	MinQuality string // "4k" | "fhd" (1080p+) | "hd" (720p+) | "" (todos)
-	Limit      int
-	Offset     int
+	// AliveOnly oculta canales cuyos streams fueron TODOS chequeados y están
+	// TODOS muertos. Canales sin chequear (o sin streams) siguen visibles:
+	// antes de la primera pasada del health-worker nada está "vivo" aún.
+	AliveOnly bool
+	Limit     int
+	Offset    int
 }
 
 // Normalize estandariza los campos del filtro antes de usarlo.

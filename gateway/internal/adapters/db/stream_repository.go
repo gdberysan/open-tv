@@ -77,6 +77,27 @@ func (r *SQLiteStreamRepository) SaveBatch(ctx context.Context, streams []domain
 	return tx.Commit()
 }
 
+func (r *SQLiteStreamRepository) FindAll(ctx context.Context) ([]domain.Stream, error) {
+	rows, err := r.db.QueryContext(ctx, "SELECT"+streamColumns+"FROM streams ORDER BY id")
+	if err != nil {
+		return nil, fmt.Errorf("db.Stream.FindAll: %w", err)
+	}
+	defer rows.Close()
+
+	var streams []domain.Stream
+	for rows.Next() {
+		s, err := scanStream(rows)
+		if err != nil {
+			return nil, fmt.Errorf("db.Stream.FindAll (scan): %w", err)
+		}
+		streams = append(streams, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("db.Stream.FindAll (rows.Err): %w", err)
+	}
+	return streams, nil
+}
+
 func (r *SQLiteStreamRepository) FindByChannelID(ctx context.Context, channelID domain.ChannelID) ([]domain.Stream, error) {
 	rows, err := r.db.QueryContext(ctx,
 		"SELECT"+streamColumns+"FROM streams WHERE channel_id = ? ORDER BY id", string(channelID))

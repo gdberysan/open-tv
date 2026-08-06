@@ -34,6 +34,7 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 		r.Get("/", ch.GetChannels)
 		r.Get("/stream", ch.GetStreamURL) // ?id=<channelID>
 		r.Get("/{id}/epg", eh.GetByChannel)
+		r.Get("/{id}/health", ch.GetHealth)
 	})
 
 	r.Route("/epg", func(r chi.Router) {

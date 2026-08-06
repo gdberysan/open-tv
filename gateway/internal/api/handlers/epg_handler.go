@@ -4,10 +4,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
 )
@@ -77,16 +75,10 @@ func (h *EPGHandler) GetWindow(w http.ResponseWriter, r *http.Request) {
 // canal. Nota: los IDs con "/" no funcionan como path param; para esos casos
 // existe GET /epg?channel=.
 func (h *EPGHandler) GetByChannel(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	id := pathParam(r, "id")
 	if id == "" {
 		h.writeError(w, http.StatusBadRequest, "id requerido")
 		return
-	}
-	// chi entrega el param aún escapado cuando la URL original conserva
-	// RawPath (p.ej. "BBC%20Alba%20(1080p)"). Si el des-escape falla — un
-	// nombre con "%" literal — se usa el valor tal cual.
-	if unescaped, err := url.PathUnescape(id); err == nil {
-		id = unescaped
 	}
 	now := time.Now()
 	entries, err := h.repo.FindByChannelAndWindow(r.Context(), domain.ChannelID(id), now, now.Add(defaultEPGWindow))

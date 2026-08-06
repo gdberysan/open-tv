@@ -86,6 +86,9 @@ type fakeStreamRepo struct {
 }
 
 func (f *fakeStreamRepo) Save(context.Context, domain.Stream) error { return nil }
+func (f *fakeStreamRepo) FindAll(context.Context) ([]domain.Stream, error) {
+	return nil, nil
+}
 func (f *fakeStreamRepo) SaveBatch(_ context.Context, ss []domain.Stream) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
