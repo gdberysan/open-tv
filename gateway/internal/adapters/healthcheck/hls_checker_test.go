@@ -21,6 +21,9 @@ const mockSegmentData = "FAKE_TS_DATA_1234567890" // Simulamos datos de segmento
 
 func TestHLSChecker_CheckOne_AliveStream(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Latencia artificial: en localhost el check completo puede tardar <1ms
+		// y LatencyMs redondearía a 0, haciendo flaky la aserción de latencia.
+		time.Sleep(5 * time.Millisecond)
 		if r.URL.Path == "/stream.m3u8" {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(mockPlaylist))

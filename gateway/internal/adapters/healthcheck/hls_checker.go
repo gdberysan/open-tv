@@ -13,13 +13,13 @@ import (
 
 // HLSSegmentResult contiene las métricas derivadas de una verificación de salud HLS.
 type HLSSegmentResult struct {
-	MirrorURL    string
-	IsAlive      bool
-	LatencyMs    int64
-	BitrateKbps  int64
-	BufferRatio  float64 // download_time / segment_duration (>0.8 = en riesgo)
-	JitterMs     int64
-	Error        error
+	MirrorURL   string
+	IsAlive     bool
+	LatencyMs   int64
+	BitrateKbps int64
+	BufferRatio float64 // download_time / segment_duration (>0.8 = en riesgo)
+	JitterMs    int64
+	Error       error
 }
 
 // HLSChecker realiza health-checks predictivos sobre streams HLS.
