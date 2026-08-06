@@ -101,6 +101,23 @@ void main() {
       expect(visto!.queryParameters['quality'], 'hd');
     });
 
+    test('con showOffline pide alive=all; por defecto no envía alive',
+        () async {
+      Uri? visto;
+      final repo = ChannelRepository(
+        baseUrl: 'http://x',
+        client: clientRespondiendo('[]', onRequest: (r) => visto = r.url),
+      );
+
+      await repo.getChannels();
+      expect(visto!.queryParameters.containsKey('alive'), isFalse,
+          reason: 'el default del gateway ya oculta los muertos');
+
+      await repo.getChannels(
+          filter: const ChannelFilter(showOffline: true));
+      expect(visto!.queryParameters['alive'], 'all');
+    });
+
     test('parsea la respuesta a modelos Channel', () async {
       final repo = ChannelRepository(
         baseUrl: 'http://x',

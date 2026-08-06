@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/channel.dart';
 import '../../domain/models/channel_filter.dart';
 import '../providers/channel_provider.dart';
+import '../widgets/signal_bars.dart';
 import 'player_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -95,6 +96,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               onPressed: () => setState(() => _searching = true),
             ),
             IconButton(
+              icon: Icon(ref.watch(showOfflineProvider)
+                  ? Icons.visibility
+                  : Icons.visibility_off),
+              tooltip: ref.watch(showOfflineProvider)
+                  ? 'Ocultar canales offline'
+                  : 'Mostrar canales offline',
+              onPressed: () =>
+                  ref.read(showOfflineProvider.notifier).toggle(),
+            ),
+            IconButton(
               icon: const Icon(Icons.refresh),
               tooltip: 'Recargar',
               onPressed: () => ref.invalidate(channelListProvider),
@@ -177,6 +188,8 @@ class _ChannelList extends StatelessWidget {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              SignalBars(alive: ch.alive, latencyMs: ch.latencyMs),
+              const SizedBox(width: 8),
               if (ch.countryCode.isNotEmpty)
                 Text(_flag(ch.countryCode),
                     style: const TextStyle(fontSize: 16)),

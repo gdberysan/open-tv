@@ -191,7 +191,13 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 		whereSQL = strings.Join(where, " AND ")
 	}
 
-	q := "SELECT" + channelColumns + "FROM channels WHERE " + whereSQL +
+	// Salud agregada incrustada: la lista pinta el indicador de señal sin
+	// N+1 requests a /channels/{id}/health.
+	q := "SELECT" + channelColumns + `,
+		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.last_checked IS NOT NULL) AS any_checked,
+		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS any_alive,
+		(SELECT MIN(s.latency_ms) FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS best_latency
+		FROM channels WHERE ` + whereSQL +
 		" ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?"
 	args = append(args, f.Limit, f.Offset)
 
@@ -200,7 +206,7 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 		return nil, fmt.Errorf("db.FindFiltered: %w", err)
 	}
 	defer rows.Close()
-	return scanChannels(rows)
+	return scanChannelsWithHealth(rows)
 }
 
 // qualityPatterns mapea nivel de calidad mínimo a los tokens que aparecen en
@@ -318,6 +324,51 @@ func scanChannels(rows *sql.Rows) ([]domain.Channel, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("db.scanChannels (rows.Err): %w", err)
+	}
+	return channels, nil
+}
+
+// scanChannelsWithHealth escanea filas de FindFiltered, que añaden las tres
+// columnas de salud agregada (any_checked, any_alive, best_latency).
+func scanChannelsWithHealth(rows *sql.Rows) ([]domain.Channel, error) {
+	var channels []domain.Channel
+	for rows.Next() {
+		var (
+			ch                                                    domain.Channel
+			tvgID, logoURL, categoryID, languageCode, countryCode sql.NullString
+			providerID                                            string
+			isAdult                                               int
+			createdAt, updatedAt                                  int64
+			anyChecked, anyAlive                                  int
+			bestLatency                                           sql.NullInt64
+		)
+		if err := rows.Scan(
+			(*string)(&ch.ID), &tvgID, &ch.Name, &logoURL, &categoryID,
+			&languageCode, &countryCode,
+			&providerID, (*string)(&ch.ProviderType),
+			&isAdult, &createdAt, &updatedAt,
+			&anyChecked, &anyAlive, &bestLatency,
+		); err != nil {
+			return nil, fmt.Errorf("db.scanChannelsWithHealth: %w", err)
+		}
+		ch.TvgID = tvgID.String
+		ch.LogoURL = logoURL.String
+		ch.CategoryID = categoryID.String
+		ch.LanguageCode = languageCode.String
+		ch.CountryCode = countryCode.String
+		ch.ProviderID = providerID
+		ch.IsAdult = isAdult == 1
+		ch.CreatedAt = time.Unix(createdAt, 0)
+		ch.UpdatedAt = time.Unix(updatedAt, 0)
+		if anyChecked == 1 {
+			alive := anyAlive == 1
+			ch.Alive = &alive
+			ch.LatencyMs = bestLatency.Int64
+		}
+		channels = append(channels, ch)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("db.scanChannelsWithHealth (rows.Err): %w", err)
 	}
 	return channels, nil
 }

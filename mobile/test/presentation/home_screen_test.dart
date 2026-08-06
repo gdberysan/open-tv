@@ -1,17 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:iptv_ecosystem/presentation/providers/channel_provider.dart';
 import 'package:iptv_ecosystem/presentation/screens/home_screen.dart';
+import 'package:iptv_ecosystem/presentation/widgets/signal_bars.dart';
 
 import 'channel_list_notifier_test.dart' show FakeRepo;
 
 void main() {
   Future<void> pumpHome(WidgetTester tester, FakeRepo repo) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [channelRepositoryProvider.overrideWithValue(repo)],
+        overrides: [
+          channelRepositoryProvider.overrideWithValue(repo),
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
         child: const MaterialApp(home: HomeScreen()),
       ),
     );
@@ -23,6 +30,30 @@ void main() {
 
     expect(find.text('Canal Par 0'), findsOneWidget);
     expect(find.text('Canal Impar 1'), findsOneWidget);
+  });
+
+  testWidgets('cada canal muestra su indicador de señal', (tester) async {
+    await pumpHome(tester, FakeRepo(total: 6));
+
+    // ch-0 vivo con 100ms → buena; ch-1 muerto; ch-2 sin chequear
+    final bars = tester.widgetList<SignalBars>(find.byType(SignalBars)).toList();
+    expect(bars, hasLength(6));
+    expect(bars.any((b) => b.alive == true && b.latencyMs > 0), isTrue);
+    expect(bars.any((b) => b.alive == false), isTrue);
+    expect(bars.any((b) => b.alive == null), isTrue);
+  });
+
+  testWidgets('el toggle de offline pide alive=all y persiste', (tester) async {
+    final repo = FakeRepo(total: 6);
+    await pumpHome(tester, repo);
+    expect(repo.lastFilter?.showOffline, isFalse);
+
+    await tester.tap(find.byTooltip('Mostrar canales offline'));
+    await tester.pumpAndSettle();
+
+    expect(repo.lastFilter?.showOffline, isTrue);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool('show_offline'), isTrue);
   });
 
   testWidgets('la búsqueda filtra en el servidor, no sobre lo ya cargado',

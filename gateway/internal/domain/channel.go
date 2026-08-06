@@ -22,6 +22,11 @@ type Channel struct {
 	LanguageCode string // ISO 639-1
 	CountryCode  string // ISO 3166-1 alpha-2
 	ProviderID   string
+	// Salud agregada de los streams del canal, rellenada por FindFiltered
+	// para que la lista pinte el indicador sin N+1 a /channels/{id}/health.
+	// Alive nil = ningún stream chequeado aún.
+	Alive        *bool
+	LatencyMs    int64 // mejor latencia entre streams vivos; 0 si no aplica
 	ProviderType ProviderType
 	IsAdult      bool
 	CreatedAt    time.Time

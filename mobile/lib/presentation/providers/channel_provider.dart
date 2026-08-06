@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/models/channel.dart';
 import '../../domain/models/channel_filter.dart';
 import '../../data/repositories/channel_repository.dart';
@@ -6,6 +7,29 @@ import '../../data/repositories/channel_repository.dart';
 final channelRepositoryProvider = Provider<IChannelRepository>((ref) {
   return ChannelRepository();
 });
+
+/// Instancia de SharedPreferences cargada en main() antes de runApp.
+final sharedPreferencesProvider = Provider<SharedPreferences>(
+  (_) => throw UnimplementedError('override en main() con la instancia real'),
+);
+
+/// Preferencia persistida "mostrar canales offline" (Fase 7.2).
+/// El gateway oculta los muertos por defecto; esto lo desactiva.
+class ShowOfflineNotifier extends Notifier<bool> {
+  static const _key = 'show_offline';
+
+  @override
+  bool build() =>
+      ref.watch(sharedPreferencesProvider).getBool(_key) ?? false;
+
+  void toggle() {
+    state = !state;
+    ref.read(sharedPreferencesProvider).setBool(_key, state);
+  }
+}
+
+final showOfflineProvider =
+    NotifierProvider<ShowOfflineNotifier, bool>(ShowOfflineNotifier.new);
 
 final channelFilterProvider = StateProvider<ChannelFilter>(
   (_) => const ChannelFilter(),
@@ -39,14 +63,22 @@ class ChannelListState {
 class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
   static const pageSize = 500;
 
+  /// Filtro efectivo: el transitorio (búsqueda, país…) + la preferencia
+  /// persistida de mostrar canales offline.
+  ChannelFilter _effectiveFilter() => ref
+      .read(channelFilterProvider)
+      .copyWith(showOffline: ref.read(showOfflineProvider));
+
   @override
   Future<ChannelListState> build() async {
-    // Watch del filtro: cualquier cambio (búsqueda, país, etc.) re-ejecuta
+    // Watch del filtro y la preferencia: cualquier cambio re-ejecuta
     // build() y por tanto resetea la lista a la primera página.
-    final filter = ref.watch(channelFilterProvider);
+    ref.watch(channelFilterProvider);
+    ref.watch(showOfflineProvider);
     final repo = ref.watch(channelRepositoryProvider);
 
-    final page = await repo.getChannels(filter: filter, limit: pageSize);
+    final page =
+        await repo.getChannels(filter: _effectiveFilter(), limit: pageSize);
     return ChannelListState(
       channels: page,
       hasMore: page.length == pageSize,
@@ -61,10 +93,9 @@ class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
 
     state = AsyncData(current.copyWith(isLoadingMore: true));
     try {
-      final filter = ref.read(channelFilterProvider);
       final repo = ref.read(channelRepositoryProvider);
       final page = await repo.getChannels(
-        filter: filter,
+        filter: _effectiveFilter(),
         limit: pageSize,
         offset: current.channels.length,
       );

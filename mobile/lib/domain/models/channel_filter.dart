@@ -6,11 +6,16 @@ class ChannelFilter {
   /// '' = all, 'hd' = 720p+, 'fhd' = 1080p+ (default), '4k' = 4K+
   final String quality;
 
+  /// Mostrar también canales cuyos streams están todos muertos.
+  /// El gateway los oculta por defecto (Fase 7).
+  final bool showOffline;
+
   const ChannelFilter({
     this.query = '',
     this.country = '',
     this.category = '',
     this.quality = 'fhd',
+    this.showOffline = false,
   });
 
   ChannelFilter copyWith({
@@ -18,12 +23,14 @@ class ChannelFilter {
     String? country,
     String? category,
     String? quality,
+    bool? showOffline,
   }) =>
       ChannelFilter(
         query: query ?? this.query,
         country: country ?? this.country,
         category: category ?? this.category,
         quality: quality ?? this.quality,
+        showOffline: showOffline ?? this.showOffline,
       );
 
   bool get hasActiveFilters =>

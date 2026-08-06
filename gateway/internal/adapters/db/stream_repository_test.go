@@ -190,6 +190,64 @@ func TestChannelRepository_FindFiltered_AliveOnly(t *testing.T) {
 	}
 }
 
+// FindFiltered incrusta la salud agregada para que la lista pinte el
+// indicador de señal sin hacer N+1 requests a /channels/{id}/health.
+func TestChannelRepository_FindFiltered_IncluyeSalud(t *testing.T) {
+	chRepo, stRepo := openStreamTestRepos(t)
+	ctx := context.Background()
+
+	seedChannel(t, chRepo, "ch-vivo")
+	seedChannel(t, chRepo, "ch-muerto")
+	seedChannel(t, chRepo, "ch-pendiente")
+
+	if err := stRepo.SaveBatch(ctx, []domain.Stream{
+		makeStream("st-v1", "ch-vivo", "http://v.example/1.m3u8"),
+		makeStream("st-v2", "ch-vivo", "http://v.example/2.m3u8"),
+		makeStream("st-m", "ch-muerto", "http://m.example/1.m3u8"),
+		makeStream("st-p", "ch-pendiente", "http://p.example/1.m3u8"),
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+	if err := stRepo.MarkAlive(ctx, "st-v1", 500); err != nil {
+		t.Fatalf("MarkAlive v1: %v", err)
+	}
+	if err := stRepo.MarkAlive(ctx, "st-v2", 90); err != nil {
+		t.Fatalf("MarkAlive v2: %v", err)
+	}
+	if err := stRepo.MarkDead(ctx, "st-m"); err != nil {
+		t.Fatalf("MarkDead: %v", err)
+	}
+
+	got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{})
+	if err != nil {
+		t.Fatalf("FindFiltered: %v", err)
+	}
+	byID := make(map[string]domain.Channel)
+	for _, ch := range got {
+		byID[string(ch.ID)] = ch
+	}
+
+	vivo := byID["ch-vivo"]
+	if vivo.Alive == nil || !*vivo.Alive {
+		t.Errorf("ch-vivo: Alive = %v, want true", vivo.Alive)
+	}
+	if vivo.LatencyMs != 90 {
+		t.Errorf("ch-vivo: LatencyMs = %d, want 90 (la mejor entre vivos)", vivo.LatencyMs)
+	}
+
+	muerto := byID["ch-muerto"]
+	if muerto.Alive == nil || *muerto.Alive {
+		t.Errorf("ch-muerto: Alive = %v, want false", muerto.Alive)
+	}
+
+	// Sin chequear: Alive nil, para que el cliente distinga "muerto" de
+	// "aún sin datos" (barras grises vs apagadas)
+	pendiente := byID["ch-pendiente"]
+	if pendiente.Alive != nil {
+		t.Errorf("ch-pendiente: Alive = %v, want nil (sin chequear)", pendiente.Alive)
+	}
+}
+
 func TestStreamRepository_FindBestByChannelID(t *testing.T) {
 	chRepo, stRepo := openStreamTestRepos(t)
 	ctx := context.Background()

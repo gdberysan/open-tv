@@ -44,6 +44,7 @@ class ChannelRepository implements IChannelRepository {
     if (filter.country.isNotEmpty) params['country'] = filter.country;
     if (filter.category.isNotEmpty) params['category'] = filter.category;
     if (filter.query.isNotEmpty) params['q'] = filter.query;
+    if (filter.showOffline) params['alive'] = 'all';
 
     final response = await client.get(_endpoint('/channels', params));
 
