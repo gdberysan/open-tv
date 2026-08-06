@@ -27,5 +27,8 @@ class ChannelFilter {
       );
 
   bool get hasActiveFilters =>
-      country.isNotEmpty || category.isNotEmpty || quality != 'fhd';
+      query.isNotEmpty ||
+      country.isNotEmpty ||
+      category.isNotEmpty ||
+      quality != 'fhd';
 }

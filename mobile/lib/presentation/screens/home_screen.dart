@@ -1,86 +1,132 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../domain/models/channel.dart';
 import '../../domain/models/channel_filter.dart';
 import '../providers/channel_provider.dart';
 import 'player_screen.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final channelsAsync = ref.watch(channelsProvider);
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  final _scrollCtrl = ScrollController();
+  final _searchCtrl = TextEditingController();
+  Timer? _debounce;
+  bool _searching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollCtrl.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _scrollCtrl.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    // Cargar la siguiente página cuando queda poco por debajo del viewport
+    if (_scrollCtrl.position.extentAfter < 600) {
+      ref.read(channelListProvider.notifier).loadMore();
+    }
+  }
+
+  /// La búsqueda viaja al gateway (param q): busca sobre los ~12k canales
+  /// de la DB, no solo sobre la página ya descargada.
+  void _onSearchChanged(String q) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      final filter = ref.read(channelFilterProvider);
+      ref.read(channelFilterProvider.notifier).state =
+          filter.copyWith(query: q.trim());
+    });
+  }
+
+  void _closeSearch() {
+    _debounce?.cancel();
+    _searchCtrl.clear();
+    setState(() => _searching = false);
+    final filter = ref.read(channelFilterProvider);
+    if (filter.query.isNotEmpty) {
+      ref.read(channelFilterProvider.notifier).state =
+          filter.copyWith(query: '');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final listAsync = ref.watch(channelListProvider);
     final filter = ref.watch(channelFilterProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('IPTV'),
+        title: _searching
+            ? TextField(
+                controller: _searchCtrl,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Buscar canal…',
+                  border: InputBorder.none,
+                ),
+                onChanged: _onSearchChanged,
+              )
+            : const Text('IPTV'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            tooltip: 'Buscar canal',
-            onPressed: () => _showSearch(context, ref),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Recargar',
-            onPressed: () => ref.invalidate(channelsProvider),
-          ),
+          if (_searching)
+            IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: 'Cerrar búsqueda',
+              onPressed: _closeSearch,
+            )
+          else ...[
+            IconButton(
+              icon: const Icon(Icons.search),
+              tooltip: 'Buscar canal',
+              onPressed: () => setState(() => _searching = true),
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Recargar',
+              onPressed: () => ref.invalidate(channelListProvider),
+            ),
+          ],
         ],
       ),
       body: Column(
         children: [
-          _FilterBar(filter: filter, ref: ref),
+          const _FilterBar(),
           Expanded(
-            child: channelsAsync.when(
-              data: (channels) {
-                if (channels.isEmpty) {
+            child: listAsync.when(
+              data: (state) {
+                if (state.channels.isEmpty) {
                   return _EmptyState(
                     message: filter.hasActiveFilters
                         ? 'Sin canales con estos filtros'
                         : 'El gateway está sincronizando canales.\nEspera y recarga.',
-                    onRetry: () => ref.invalidate(channelsProvider),
+                    onRetry: () => ref.invalidate(channelListProvider),
                   );
                 }
-                return ListView.builder(
-                  itemCount: channels.length,
-                  itemBuilder: (ctx, i) {
-                    final ch = channels[i];
-                    return ListTile(
-                      leading: _ChannelLogo(url: ch.logoUrl),
-                      title: Text(ch.name),
-                      subtitle: ch.categoryId.isNotEmpty
-                          ? Text(ch.categoryId,
-                              style: const TextStyle(fontSize: 11))
-                          : null,
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (ch.countryCode.isNotEmpty)
-                            Text(_flag(ch.countryCode),
-                                style: const TextStyle(fontSize: 16)),
-                          const SizedBox(width: 4),
-                          const Icon(Icons.play_circle_outline),
-                        ],
-                      ),
-                      onTap: () => Navigator.of(ctx).push(
-                        MaterialPageRoute(
-                          builder: (_) => PlayerScreen(
-                            channelId: ch.id,
-                            channelName: ch.name,
-                            countryCode: ch.countryCode,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
+                return _ChannelList(
+                  channels: state.channels,
+                  showTailLoader: state.hasMore,
+                  controller: _scrollCtrl,
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => _EmptyState(
                 message: e.toString(),
                 icon: Icons.error_outline,
-                onRetry: () => ref.invalidate(channelsProvider),
+                onRetry: () => ref.invalidate(channelListProvider),
               ),
             ),
           ),
@@ -88,11 +134,67 @@ class HomeScreen extends ConsumerWidget {
       ),
     );
   }
+}
 
-  void _showSearch(BuildContext context, WidgetRef ref) {
-    showSearch(
-      context: context,
-      delegate: _ChannelSearchDelegate(ref),
+// ── Channel list ─────────────────────────────────────────────────────────────
+
+class _ChannelList extends StatelessWidget {
+  final List<Channel> channels;
+  final bool showTailLoader;
+  final ScrollController controller;
+
+  const _ChannelList({
+    required this.channels,
+    required this.showTailLoader,
+    required this.controller,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      controller: controller,
+      itemCount: channels.length + (showTailLoader ? 1 : 0),
+      itemBuilder: (ctx, i) {
+        if (i >= channels.length) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
+        final ch = channels[i];
+        return ListTile(
+          leading: _ChannelLogo(url: ch.logoUrl),
+          title: Text(ch.name),
+          subtitle: ch.categoryId.isNotEmpty
+              ? Text(ch.categoryId, style: const TextStyle(fontSize: 11))
+              : null,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (ch.countryCode.isNotEmpty)
+                Text(_flag(ch.countryCode),
+                    style: const TextStyle(fontSize: 16)),
+              const SizedBox(width: 4),
+              const Icon(Icons.play_circle_outline),
+            ],
+          ),
+          onTap: () => Navigator.of(ctx).push(
+            MaterialPageRoute(
+              builder: (_) => PlayerScreen(
+                channelId: ch.id,
+                channelName: ch.name,
+                countryCode: ch.countryCode,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -106,14 +208,13 @@ class HomeScreen extends ConsumerWidget {
 
 // ── Filter bar ───────────────────────────────────────────────────────────────
 
-class _FilterBar extends StatelessWidget {
-  final ChannelFilter filter;
-  final WidgetRef ref;
-
-  const _FilterBar({required this.filter, required this.ref});
+class _FilterBar extends ConsumerWidget {
+  const _FilterBar();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final filter = ref.watch(channelFilterProvider);
+
     return Container(
       color: Theme.of(context).colorScheme.surface,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -141,7 +242,7 @@ class _FilterBar extends StatelessWidget {
               label: filter.country.isEmpty ? 'País' : filter.country,
               icon: Icons.flag_outlined,
               active: filter.country.isNotEmpty,
-              onTap: () => _pickCountry(context),
+              onTap: () => _pickCountry(context, ref, filter),
             ),
             const SizedBox(width: 6),
             // Category filter
@@ -149,7 +250,7 @@ class _FilterBar extends StatelessWidget {
               label: filter.category.isEmpty ? 'Categoría' : filter.category,
               icon: Icons.category_outlined,
               active: filter.category.isNotEmpty,
-              onTap: () => _pickCategory(context),
+              onTap: () => _pickCategory(context, ref, filter),
             ),
             // Clear all filters
             if (filter.hasActiveFilters) ...[
@@ -176,7 +277,8 @@ class _FilterBar extends StatelessWidget {
     ('', 'Todos'),
   ];
 
-  Future<void> _pickCountry(BuildContext context) async {
+  Future<void> _pickCountry(
+      BuildContext context, WidgetRef ref, ChannelFilter filter) async {
     final picked = await showDialog<String>(
       context: context,
       builder: (_) => _PickerDialog(
@@ -191,7 +293,8 @@ class _FilterBar extends StatelessWidget {
     }
   }
 
-  Future<void> _pickCategory(BuildContext context) async {
+  Future<void> _pickCategory(
+      BuildContext context, WidgetRef ref, ChannelFilter filter) async {
     final picked = await showDialog<String>(
       context: context,
       builder: (_) => _PickerDialog(
@@ -405,76 +508,6 @@ class _ChannelLogo extends StatelessWidget {
       height: 40,
       fit: BoxFit.contain,
       errorBuilder: (_, __, ___) => const Icon(Icons.tv, size: 40),
-    );
-  }
-}
-
-// ── Search delegate ──────────────────────────────────────────────────────────
-
-class _ChannelSearchDelegate extends SearchDelegate<String> {
-  final WidgetRef ref;
-  _ChannelSearchDelegate(this.ref);
-
-  @override
-  String get searchFieldLabel => 'Buscar canal...';
-
-  @override
-  List<Widget> buildActions(BuildContext context) => [
-        IconButton(
-          icon: const Icon(Icons.clear),
-          onPressed: () => query = '',
-        ),
-      ];
-
-  @override
-  Widget buildLeading(BuildContext context) => IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () => close(context, ''),
-      );
-
-  @override
-  Widget buildResults(BuildContext context) => _buildList(context);
-
-  @override
-  Widget buildSuggestions(BuildContext context) => _buildList(context);
-
-  Widget _buildList(BuildContext context) {
-    final channelsAsync = ref.watch(channelsProvider);
-    return channelsAsync.when(
-      data: (channels) {
-        final hits = query.isEmpty
-            ? channels
-            : channels
-                .where((c) =>
-                    c.name.toLowerCase().contains(query.toLowerCase()))
-                .toList();
-
-        if (hits.isEmpty) {
-          return Center(child: Text('Sin resultados para "$query"'));
-        }
-        return ListView.builder(
-          itemCount: hits.length,
-          itemBuilder: (ctx, i) {
-            final ch = hits[i];
-            return ListTile(
-              leading: _ChannelLogo(url: ch.logoUrl),
-              title: Text(ch.name),
-              onTap: () {
-                close(context, ch.id);
-                Navigator.of(ctx).push(MaterialPageRoute(
-                  builder: (_) => PlayerScreen(
-                    channelId: ch.id,
-                    channelName: ch.name,
-                    countryCode: ch.countryCode,
-                  ),
-                ));
-              },
-            );
-          },
-        );
-      },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Error: $e')),
     );
   }
 }
