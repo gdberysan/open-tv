@@ -3,6 +3,7 @@ package validator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -116,6 +117,45 @@ func TestWorker_MarcaVivosYMuertos(t *testing.T) {
 	// Dedupe: la URL viva se chequea una sola vez (1 HEAD, sin fallback GET)
 	if got := hits.Load(); got != 1 {
 		t.Errorf("requests al server vivo = %d, want 1 (URL deduplicada)", got)
+	}
+}
+
+// Sin límite por host, 50 workers golpeando al mismo servidor (jmp2.uk aloja
+// 1400+ streams) disparan los limit_conn de nginx: el servidor rechaza
+// conexiones ("connection refused") tanto al checker (falsos muertos) como al
+// usuario reproduciendo en paralelo. Reproducido en vivo el 2026-08-06.
+func TestWorker_LimitaConexionesPorHost(t *testing.T) {
+	var current, peak atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := current.Add(1)
+		for {
+			p := peak.Load()
+			if c <= p || peak.CompareAndSwap(p, c) {
+				break
+			}
+		}
+		time.Sleep(30 * time.Millisecond)
+		current.Add(-1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	streams := make([]domain.Stream, 24)
+	for i := range streams {
+		streams[i] = stream(fmt.Sprintf("st-%d", i), fmt.Sprintf("ch-%d", i),
+			fmt.Sprintf("%s/stream-%d.m3u8", server.URL, i))
+	}
+	repo := newFakeStreamRepo(streams)
+
+	w := NewWorker(repo, Config{MaxWorkers: 12, Timeout: 5 * time.Second}, time.Hour, nil)
+	w.checkOnce(context.Background())
+
+	alive, _ := repo.estado()
+	if len(alive) != 24 {
+		t.Fatalf("vivos = %d, want 24", len(alive))
+	}
+	if got := peak.Load(); got > maxConnsPerHost {
+		t.Errorf("pico de conexiones simultáneas al mismo host = %d, want <= %d", got, maxConnsPerHost)
 	}
 }
 

@@ -13,6 +13,12 @@ type HTTPChecker interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
+// maxConnsPerHost acota las conexiones simultáneas al mismo servidor.
+// Hosts como jmp2.uk alojan 1400+ streams: sin límite, el pool de 50
+// workers dispara los limit_conn de nginx y el servidor rechaza conexiones
+// tanto al checker (falsos muertos) como al usuario reproduciendo.
+const maxConnsPerHost = 4
+
 // Checker se encarga de validar una única URL.
 type Checker struct {
 	client  HTTPChecker
@@ -24,6 +30,9 @@ func NewChecker(client HTTPChecker, timeout time.Duration) *Checker {
 	if client == nil {
 		client = &http.Client{
 			Timeout: timeout,
+			Transport: &http.Transport{
+				MaxConnsPerHost: maxConnsPerHost,
+			},
 		}
 	}
 	return &Checker{
