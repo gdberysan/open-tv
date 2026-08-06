@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
 )
@@ -17,6 +19,10 @@ type Provider struct {
 	baseURL string
 	client  *http.Client
 
+	// maxBodyBytes limita el tamaño del M3U descargado para evitar
+	// consumo de memoria/disco descontrolado ante un proveedor hostil o roto.
+	maxBodyBytes int64
+
 	// streamURLs almacena la URL de stream por channelID tras cada sync.
 	// Las URLs de M3U público son estáticas, así que el caché en memoria
 	// es suficiente para MVP; no se necesita persistencia en DB.
@@ -24,19 +30,28 @@ type Provider struct {
 	streamURLs map[domain.ChannelID]string
 }
 
+const (
+	// defaultClientTimeout cubre la descarga completa del M3U (~12k canales).
+	defaultClientTimeout = 5 * time.Minute
+	// defaultMaxM3UBytes: el índice completo de IPTV-org pesa unos pocos MB;
+	// 50MB deja margen de sobra sin permitir descargas descontroladas.
+	defaultMaxM3UBytes = 50 << 20
+)
+
 func NewProvider(id, baseURL string, client *http.Client) *Provider {
 	if client == nil {
-		client = http.DefaultClient
+		client = &http.Client{Timeout: defaultClientTimeout}
 	}
 	return &Provider{
-		id:         id,
-		baseURL:    baseURL,
-		client:     client,
-		streamURLs: make(map[domain.ChannelID]string),
+		id:           id,
+		baseURL:      baseURL,
+		client:       client,
+		maxBodyBytes: defaultMaxM3UBytes,
+		streamURLs:   make(map[domain.ChannelID]string),
 	}
 }
 
-func (p *Provider) ID() string               { return p.id }
+func (p *Provider) ID() string                { return p.id }
 func (p *Provider) Type() domain.ProviderType { return domain.ProviderOpenSource }
 
 // GetLiveChannels descarga y parsea el M3U en streaming línea a línea.
@@ -57,7 +72,9 @@ func (p *Provider) GetLiveChannels(ctx context.Context) ([]domain.Channel, error
 		return nil, fmt.Errorf("opensource.GetLiveChannels (Status): HTTP %d", resp.StatusCode)
 	}
 
-	scanner := bufio.NewScanner(resp.Body)
+	// N+1 para distinguir "justo en el límite" de "excedido"
+	limited := &io.LimitedReader{R: resp.Body, N: p.maxBodyBytes + 1}
+	scanner := bufio.NewScanner(limited)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
@@ -100,6 +117,9 @@ func (p *Provider) GetLiveChannels(ctx context.Context) ([]domain.Channel, error
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("opensource.GetLiveChannels (Scan): %w", err)
+	}
+	if limited.N <= 0 {
+		return nil, fmt.Errorf("opensource.GetLiveChannels: M3U excede el tamaño máximo de %d bytes", p.maxBodyBytes)
 	}
 
 	// Reemplazar caché completo al finalizar el parse

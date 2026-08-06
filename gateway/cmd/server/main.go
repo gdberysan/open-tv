@@ -58,12 +58,21 @@ func main() {
 	}()
 
 	// 4. Router y servidor HTTP
+	// Loopback por defecto: la API no tiene auth y solo la consume la app
+	// local. El gateway nunca proxya video (solo devuelve JSON con la URL),
+	// así que un WriteTimeout corto es seguro.
+	listenAddr := os.Getenv("LISTEN_ADDR")
+	if listenAddr == "" {
+		listenAddr = "127.0.0.1:8080"
+	}
 	handler := api.NewRouter(logger, channelRepo, provider)
 	srv := &http.Server{
-		Addr:         ":8080",
-		Handler:      handler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 0, // streams continuos — sin timeout de escritura
+		Addr:              listenAddr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

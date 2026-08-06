@@ -53,6 +53,39 @@ func TestProvider_GetLiveChannels(t *testing.T) {
 	}
 }
 
+func TestNewProvider_NilClientGetsTimeout(t *testing.T) {
+	p := NewProvider("prov_1", "http://example.com", nil)
+
+	if p.client == http.DefaultClient {
+		t.Fatal("NewProvider(nil) no debe usar http.DefaultClient (sin timeout)")
+	}
+	if p.client.Timeout <= 0 {
+		t.Fatalf("El cliente por defecto debe tener timeout > 0, tiene %v", p.client.Timeout)
+	}
+}
+
+func TestProvider_GetLiveChannels_RejectsOversizedM3U(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("#EXTM3U\n"))
+		for i := 0; i < 100; i++ {
+			_, _ = w.Write([]byte(mockM3U))
+		}
+	}))
+	defer server.Close()
+
+	p := NewProvider("prov_1", server.URL, server.Client())
+	p.maxBodyBytes = 1024 // forzar un límite pequeño para el test
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	channels, err := p.GetLiveChannels(ctx)
+	if err == nil {
+		t.Fatalf("Se esperaba error por M3U demasiado grande, se obtuvieron %d canales", len(channels))
+	}
+}
+
 func TestProvider_HealthCheck(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodHead {
