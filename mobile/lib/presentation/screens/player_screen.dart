@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import '../player/playback_guard.dart';
 import '../providers/channel_provider.dart';
 
 const _kPlayTimeout = Duration(seconds: 15);
@@ -31,7 +32,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   String? _error;
 
   final List<StreamSubscription<dynamic>> _subs = [];
-  Timer? _timeoutTimer;
+  PlaybackGuard? _guard;
 
   @override
   void initState() {
@@ -41,8 +42,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _loadAndPlay();
   }
 
+  /// Fatal real decidido por el PlaybackGuard: parar el player (si no, el
+  /// audio sigue sonando detrás de la pantalla de error) y mostrar el fallo.
+  void _onFatal(String message) {
+    _player.stop();
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        _error = message;
+      });
+    }
+  }
+
   Future<void> _loadAndPlay() async {
-    _timeoutTimer?.cancel();
+    _guard?.dispose();
     for (final s in _subs) {
       s.cancel();
     }
@@ -52,6 +65,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _isLoading = true;
       _error = null;
     });
+
+    final guard = PlaybackGuard(onFatal: _onFatal, loadTimeout: _kPlayTimeout);
+    _guard = guard;
 
     try {
       final repo = ref.read(channelRepositoryProvider);
@@ -63,37 +79,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         await mpv.setProperty('demuxer-max-bytes', '4MiB');
       }
 
-      await _player.open(Media(streamUrl));
-
       _subs.add(_player.stream.playing.listen((playing) {
+        guard.onPlaying(playing);
         if (playing && _isLoading && mounted) {
-          _timeoutTimer?.cancel();
           setState(() => _isLoading = false);
         }
       }));
+      _subs.add(_player.stream.position.listen(guard.onPosition));
+      // Los errores de mpv pasan por el guard: los transitorios de HLS en
+      // vivo (EOF de segmento, reconexiones) NO matan la reproducción.
+      _subs.add(_player.stream.error.listen(guard.onError));
 
-      _subs.add(_player.stream.error.listen((err) {
-        if (err.isNotEmpty && mounted) {
-          _timeoutTimer?.cancel();
-          setState(() {
-            _isLoading = false;
-            _error = err;
-          });
-        }
-      }));
-
-      _timeoutTimer = Timer(_kPlayTimeout, () {
-        if (_isLoading && mounted) {
-          setState(() {
-            _isLoading = false;
-            _error =
-                'El canal no respondió en ${_kPlayTimeout.inSeconds}s.\n'
-                'Puede estar offline o la URL expiró.';
-          });
-        }
-      });
+      // Armar ANTES de open(): si open se cuelga, el timeout salta igual.
+      guard.armLoadTimeout();
+      await _player.open(Media(streamUrl));
     } catch (e) {
-      _timeoutTimer?.cancel();
+      guard.dispose();
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -105,7 +106,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   @override
   void dispose() {
-    _timeoutTimer?.cancel();
+    _guard?.dispose();
     for (final s in _subs) {
       s.cancel();
     }
