@@ -6,6 +6,7 @@ import '../../domain/models/channel.dart';
 import '../../domain/models/channel_filter.dart';
 import '../providers/channel_provider.dart';
 import '../widgets/signal_bars.dart';
+import 'guide_screen.dart';
 import 'player_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -90,6 +91,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               onPressed: _closeSearch,
             )
           else ...[
+            IconButton(
+              icon: const Icon(Icons.calendar_view_day),
+              tooltip: 'Guía de programación',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const GuideScreen()),
+              ),
+            ),
             IconButton(
               icon: const Icon(Icons.search),
               tooltip: 'Buscar canal',

@@ -4,10 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:iptv_ecosystem/presentation/providers/channel_provider.dart';
+import 'package:iptv_ecosystem/presentation/providers/epg_provider.dart';
 import 'package:iptv_ecosystem/presentation/screens/home_screen.dart';
 import 'package:iptv_ecosystem/presentation/widgets/signal_bars.dart';
 
 import 'channel_list_notifier_test.dart' show FakeRepo;
+import 'guide_screen_test.dart' show FakeEPGRepo;
 
 void main() {
   Future<void> pumpHome(WidgetTester tester, FakeRepo repo) async {
@@ -18,6 +20,7 @@ void main() {
         overrides: [
           channelRepositoryProvider.overrideWithValue(repo),
           sharedPreferencesProvider.overrideWithValue(prefs),
+          epgRepositoryProvider.overrideWithValue(FakeEPGRepo()),
         ],
         child: const MaterialApp(home: HomeScreen()),
       ),
@@ -30,6 +33,16 @@ void main() {
 
     expect(find.text('Canal Par 0'), findsOneWidget);
     expect(find.text('Canal Impar 1'), findsOneWidget);
+  });
+
+  testWidgets('el botón de guía abre la parrilla EPG', (tester) async {
+    await pumpHome(tester, FakeRepo(total: 4));
+
+    await tester.tap(find.byTooltip('Guía de programación'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Guía de programación'), findsOneWidget);
+    expect(find.text('Canal Par 0'), findsOneWidget);
   });
 
   testWidgets('cada canal muestra su indicador de señal', (tester) async {
