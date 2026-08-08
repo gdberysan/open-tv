@@ -223,7 +223,10 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS any_alive,
 		(SELECT MIN(s.latency_ms) FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS best_latency
 		FROM channels WHERE ` + whereSQL +
-		" ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?"
+		// Desempate por id: sin él, SQLite no garantiza un orden estable entre
+		// nombres iguales, y sobre 12k canales con nombres repetidos una fila
+		// puede repetirse entre páginas u omitirse.
+		" ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?"
 	args = append(args, f.Limit, f.Offset)
 
 	rows, err := r.db.QueryContext(ctx, q, args...)

@@ -309,3 +309,44 @@ func TestDeleteStaleBorraCanalesNoVistosEnElUltimoSync(t *testing.T) {
 		t.Errorf("los streams del canal borrado deben caer por cascada; quedan %d", len(streams))
 	}
 }
+
+// Sin desempate, dos canales con el mismo nombre pueden salir en distinto
+// orden entre dos queries independientes: una fila se repite en una página y
+// desaparece de la otra.
+func TestFindFilteredPaginacionEstableConNombresRepetidos(t *testing.T) {
+	ctx := context.Background()
+	repo := openTestDB(t)
+
+	// 6 canales, todos con el mismo nombre: solo el ID los distingue.
+	for _, id := range []string{"f", "e", "d", "c", "b", "a"} {
+		ch := makeChannel(id, "Canal Duplicado", "ES", "news")
+		if err := repo.Save(ctx, ch); err != nil {
+			t.Fatalf("Save(%s): %v", id, err)
+		}
+	}
+
+	var vistos []string
+	for offset := 0; offset < 6; offset += 2 {
+		page, err := repo.FindFiltered(ctx, ports.ChannelFilter{Limit: 2, Offset: offset})
+		if err != nil {
+			t.Fatalf("FindFiltered(offset=%d): %v", offset, err)
+		}
+		for _, ch := range page {
+			vistos = append(vistos, string(ch.ID))
+		}
+	}
+
+	if len(vistos) != 6 {
+		t.Fatalf("quiero 6 filas paginadas, tengo %d", len(vistos))
+	}
+	unicos := map[string]bool{}
+	for _, id := range vistos {
+		if unicos[id] {
+			t.Errorf("el canal %q apareció en dos páginas distintas", id)
+		}
+		unicos[id] = true
+	}
+	if len(unicos) != 6 {
+		t.Errorf("la paginación omitió canales: %d únicos de 6", len(unicos))
+	}
+}
