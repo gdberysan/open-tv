@@ -199,16 +199,21 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 		args = append(args, qargs...)
 	}
 	if f.AliveOnly {
-		// Visible si tiene al menos un stream vivo o aún sin chequear (antes de
-		// la primera pasada del health-worker nada está "vivo"). Los canales SIN
-		// NINGÚN stream quedan fuera: son injugables — /channels/stream devuelve
-		// 404 — y aparecen cuando el proveedor renombra un canal y deja huérfana
-		// la fila anterior.
-		where = append(where, `EXISTS (
+		// Visible mientras el canal no esté PROBADO muerto: basta con un stream
+		// vivo, o uno que aún no haya agotado DeadFailThreshold fallos
+		// consecutivos (lo que incluye los que nunca se han chequeado, con
+		// fail_count 0). Mirar solo is_alive dejaría la histéresis en nada: un
+		// stream que nunca llegó a estar vivo arranca en is_alive=0, así que su
+		// primer fallo transitorio ya lo ocultaría.
+		//
+		// Los canales SIN NINGÚN stream quedan fuera: son injugables
+		// —/channels/stream devuelve 404— y aparecen cuando el proveedor
+		// renombra un canal y deja huérfana la fila anterior.
+		where = append(where, fmt.Sprintf(`EXISTS (
 			SELECT 1 FROM streams s
 			WHERE s.channel_id = channels.id
-			  AND (s.is_alive = 1 OR s.last_checked IS NULL)
-		)`)
+			  AND (s.is_alive = 1 OR s.fail_count < %d)
+		)`, DeadFailThreshold))
 	}
 
 	whereSQL := "1=1"

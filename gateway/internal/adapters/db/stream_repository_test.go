@@ -162,8 +162,11 @@ func TestChannelRepository_FindFiltered_AliveOnly(t *testing.T) {
 	if err := stRepo.MarkAlive(ctx, "st-v", 100); err != nil {
 		t.Fatalf("MarkAlive: %v", err)
 	}
-	if err := stRepo.MarkDead(ctx, "st-m"); err != nil {
-		t.Fatalf("MarkDead: %v", err)
+	// Hasta agotar la histéresis: un solo fallo ya no basta para darlo por muerto.
+	for i := int64(0); i < db.DeadFailThreshold; i++ {
+		if err := stRepo.MarkDead(ctx, "st-m"); err != nil {
+			t.Fatalf("MarkDead #%d: %v", i, err)
+		}
 	}
 
 	got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{AliveOnly: true, MinQuality: "none"})
@@ -376,5 +379,50 @@ func TestMarkAliveReseteaElContadorDeFallos(t *testing.T) {
 	}
 	if !streams[0].IsAlive {
 		t.Errorf("MarkAlive debe resetear el contador; un solo fallo posterior no puede matarlo")
+	}
+}
+
+// La histéresis no sirve de nada si el filtro ignora fail_count: un stream que
+// nunca llegó a estar vivo arranca con is_alive=0, así que su PRIMER fallo ya
+// lo ocultaba pese a que fail_count fuese 1. Un canal solo desaparece cuando
+// está probado muerto, es decir al alcanzar el umbral.
+func TestFindFilteredAliveOnlyRespetaLaHisteresis(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	seedChannel(t, chRepo, "ch-un-fallo")
+	seedChannel(t, chRepo, "ch-agotado")
+
+	if err := stRepo.SaveBatch(ctx, []domain.Stream{
+		makeStream("st-1", "ch-un-fallo", "http://a/1.m3u8"),
+		makeStream("st-2", "ch-agotado", "http://b/1.m3u8"),
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+
+	// Un solo fallo: aún no está probado muerto.
+	if err := stRepo.MarkDead(ctx, "st-1"); err != nil {
+		t.Fatalf("MarkDead: %v", err)
+	}
+	// Fallos hasta agotar el umbral.
+	for i := int64(0); i < db.DeadFailThreshold; i++ {
+		if err := stRepo.MarkDead(ctx, "st-2"); err != nil {
+			t.Fatalf("MarkDead st-2 #%d: %v", i, err)
+		}
+	}
+
+	got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{AliveOnly: true, Limit: 100})
+	if err != nil {
+		t.Fatalf("FindFiltered: %v", err)
+	}
+	ids := map[string]bool{}
+	for _, ch := range got {
+		ids[string(ch.ID)] = true
+	}
+	if !ids["ch-un-fallo"] {
+		t.Errorf("un solo fallo no prueba que el canal esté muerto; debe seguir visible")
+	}
+	if ids["ch-agotado"] {
+		t.Errorf("tras %d fallos consecutivos el canal debe ocultarse", db.DeadFailThreshold)
 	}
 }
