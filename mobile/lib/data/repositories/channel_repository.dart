@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../api_config.dart';
+import '../api_error.dart';
 import '../../domain/models/channel.dart';
 import '../../domain/models/channel_filter.dart';
 
@@ -13,22 +15,41 @@ abstract class IChannelRepository {
 }
 
 class ChannelRepository implements IChannelRepository {
-  /// URL del gateway. Inyectable por constructor y sobreescribible en build
-  /// con --dart-define=GATEWAY_URL=http://host:puerto
-  static const _defaultBaseUrl = String.fromEnvironment(
-    'GATEWAY_URL',
-    defaultValue: 'http://127.0.0.1:8080',
-  );
-
   final Uri _base;
   final http.Client client;
 
-  ChannelRepository({String? baseUrl, http.Client? client})
-      : _base = Uri.parse(baseUrl ?? _defaultBaseUrl),
-        client = client ?? http.Client();
+  /// Inyectable para que los tests no esperen el deadline real de 10 s.
+  final Duration timeout;
+
+  ChannelRepository({String? baseUrl, http.Client? client, Duration? timeout})
+      : _base = Uri.parse(baseUrl ?? ApiConfig.baseUrl),
+        client = client ?? http.Client(),
+        timeout = timeout ?? ApiConfig.timeout;
 
   Uri _endpoint(String path, Map<String, String> params) =>
       _base.replace(path: path, queryParameters: params);
+
+  /// Toda petición pasa por aquí: impone el deadline y traduce cualquier fallo
+  /// de red a un ApiError con mensaje legible.
+  Future<http.Response> _get(Uri uri) async {
+    try {
+      return await client.get(uri).timeout(timeout);
+    } catch (e) {
+      throw ApiError.desde(e);
+    }
+  }
+
+  /// El gateway responde {"error": "..."} en los fallos; aprovecharlo da un
+  /// mensaje mejor que el código de estado a secas.
+  String? _detalleDeError(http.Response r) {
+    try {
+      final body = json.decode(r.body);
+      if (body is Map<String, dynamic>) return body['error'] as String?;
+    } catch (_) {
+      // cuerpo no-JSON: no hay detalle que extraer
+    }
+    return null;
+  }
 
   @override
   Future<List<Channel>> getChannels({
@@ -46,7 +67,7 @@ class ChannelRepository implements IChannelRepository {
     if (filter.query.isNotEmpty) params['q'] = filter.query;
     if (filter.showOffline) params['alive'] = 'all';
 
-    final response = await client.get(_endpoint('/channels', params));
+    final response = await _get(_endpoint('/channels', params));
 
     if (response.statusCode == 200) {
       // El gateway (Go) serializa un slice nil como `null`, no como `[]`
@@ -55,20 +76,19 @@ class ChannelRepository implements IChannelRepository {
           .map((j) => Channel.fromJson(j as Map<String, dynamic>))
           .toList();
     }
-    throw Exception('Failed to load channels: ${response.statusCode}');
+    throw ApiError.deRespuesta(response.statusCode, _detalleDeError(response));
   }
 
   @override
   Future<String> getStreamUrl(String channelId) async {
     // Usamos query param ?id= (no path param) porque los IDs pueden contener
     // "/" (ej: "24/7 News"), lo que rompe el routing de path segments.
-    final response =
-        await client.get(_endpoint('/channels/stream', {'id': channelId}));
+    final response = await _get(_endpoint('/channels/stream', {'id': channelId}));
 
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       return data['url'] as String;
     }
-    throw Exception('Failed to get stream url: ${response.statusCode}');
+    throw ApiError.deRespuesta(response.statusCode, _detalleDeError(response));
   }
 }

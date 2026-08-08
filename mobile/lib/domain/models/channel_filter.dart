@@ -38,4 +38,21 @@ class ChannelFilter {
       country.isNotEmpty ||
       category.isNotEmpty ||
       quality != 'fhd';
+
+  // Igualdad por valor: StateProvider compara con == para decidir si notifica,
+  // y copyWith siempre construye un objeto nuevo. Sin esto, volver a tocar el
+  // chip ya activo se veía como un cambio de filtro y descartaba todas las
+  // páginas acumuladas, devolviendo al usuario al principio de la lista.
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ChannelFilter &&
+          other.query == query &&
+          other.country == country &&
+          other.category == category &&
+          other.quality == quality &&
+          other.showOffline == showOffline;
+
+  @override
+  int get hashCode => Object.hash(query, country, category, quality, showOffline);
 }

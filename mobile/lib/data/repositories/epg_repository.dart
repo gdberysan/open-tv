@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../api_config.dart';
+import '../api_error.dart';
 import '../../domain/models/epg_entry.dart';
 
 abstract class IEPGRepository {
@@ -9,17 +11,16 @@ abstract class IEPGRepository {
 }
 
 class EPGRepository implements IEPGRepository {
-  static const _defaultBaseUrl = String.fromEnvironment(
-    'GATEWAY_URL',
-    defaultValue: 'http://127.0.0.1:8080',
-  );
-
   final Uri _base;
   final http.Client client;
 
-  EPGRepository({String? baseUrl, http.Client? client})
-      : _base = Uri.parse(baseUrl ?? _defaultBaseUrl),
-        client = client ?? http.Client();
+  /// Inyectable para que los tests no esperen el deadline real de 10 s.
+  final Duration timeout;
+
+  EPGRepository({String? baseUrl, http.Client? client, Duration? timeout})
+      : _base = Uri.parse(baseUrl ?? ApiConfig.baseUrl),
+        client = client ?? http.Client(),
+        timeout = timeout ?? ApiConfig.timeout;
 
   @override
   Future<List<EPGEntry>> getForChannel(String channelId,
@@ -29,7 +30,13 @@ class EPGRepository implements IEPGRepository {
       'from': from.toUtc().toIso8601String(),
       'to': to.toUtc().toIso8601String(),
     });
-    final response = await client.get(uri);
+
+    final http.Response response;
+    try {
+      response = await client.get(uri).timeout(timeout);
+    } catch (e) {
+      throw ApiError.desde(e);
+    }
 
     if (response.statusCode == 200) {
       final data = json.decode(response.body) as List<dynamic>? ?? const [];
@@ -37,6 +44,6 @@ class EPGRepository implements IEPGRepository {
           .map((j) => EPGEntry.fromJson(j as Map<String, dynamic>))
           .toList();
     }
-    throw Exception('Failed to load EPG: ${response.statusCode}');
+    throw ApiError.deRespuesta(response.statusCode, null);
   }
 }

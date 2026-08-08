@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,6 +16,18 @@ class FakeRepo implements IChannelRepository {
   int getChannelsCalls = 0;
   bool failNext = false;
   ChannelFilter? lastFilter;
+
+  /// Cuando está activo, getChannels deja la petición en vuelo hasta que el
+  /// test llame a completarPendiente(). Sirve para reproducir la carrera entre
+  /// una página en curso y un cambio de filtro.
+  bool retenerSiguiente = false;
+  Completer<List<Channel>>? _pendiente;
+
+  void completarPendiente() {
+    final p = _pendiente;
+    _pendiente = null;
+    if (p != null && !p.isCompleted) p.complete(const []);
+  }
 
   // Salud rotativa: i%3==0 vivo (latencia 100·i), i%3==1 muerto, i%3==2 sin
   // chequear — cubre los tres estados del indicador de señal.
@@ -41,6 +54,11 @@ class FakeRepo implements IChannelRepository {
   }) async {
     getChannelsCalls++;
     lastFilter = filter;
+    if (retenerSiguiente) {
+      retenerSiguiente = false;
+      _pendiente = Completer<List<Channel>>();
+      return _pendiente!.future;
+    }
     if (failNext) {
       failNext = false;
       throw Exception('gateway caído');
@@ -132,5 +150,47 @@ void main() {
     final state = container.read(channelListProvider).requireValue;
     expect(state.channels, hasLength(500));
     expect(state.isLoadingMore, isFalse);
+  });
+
+  test('loadMore no pisa el resultado de un filtro cambiado a media carga',
+      () async {
+    final repo = FakeRepo(total: 1200);
+    final container = await containerCon(repo);
+    await container.read(channelListProvider.future);
+
+    // Página en vuelo que no resolverá hasta que lo digamos.
+    repo.retenerSiguiente = true;
+    final enVuelo = container.read(channelListProvider.notifier).loadMore();
+
+    // El usuario escribe en el buscador mientras tanto.
+    // "Impar" discrimina de verdad: "Canal Par N" NO lo contiene, mientras
+    // que query 'Par' casaría también con "Impar" y el test no probaría nada.
+    container.read(channelFilterProvider.notifier).state =
+        const ChannelFilter(query: 'Impar');
+    await container.read(channelListProvider.future);
+    final trasFiltro = container.read(channelListProvider).requireValue;
+
+    // Ahora resuelve la página vieja: no debe tocar nada.
+    repo.completarPendiente();
+    await enVuelo;
+
+    final estadoFinal = container.read(channelListProvider).requireValue;
+    expect(estadoFinal.channels.length, trasFiltro.channels.length,
+        reason: 'la continuación obsoleta no puede reintroducir la lista vieja');
+    // El fake filtra sin distinguir mayúsculas, igual que el gateway.
+    expect(
+      estadoFinal.channels.every((c) => c.name.toLowerCase().contains('impar')),
+      isTrue,
+      reason: 'solo deben quedar los canales del filtro vigente',
+    );
+  });
+
+  test('ChannelFilter compara por valor', () {
+    expect(const ChannelFilter(query: 'a', country: 'ES'),
+        const ChannelFilter(query: 'a', country: 'ES'));
+    expect(const ChannelFilter(query: 'a').hashCode,
+        const ChannelFilter(query: 'a').hashCode);
+    expect(const ChannelFilter(query: 'a'),
+        isNot(const ChannelFilter(query: 'b')));
   });
 }
