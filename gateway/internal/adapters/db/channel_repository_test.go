@@ -217,3 +217,51 @@ func itoa(n int) string {
 	}
 	return string(buf)
 }
+
+// Un canal sin ninguna fila en streams es injugable: /channels/stream
+// devuelve 404 al pulsarlo. No debe listarse cuando AliveOnly está activo.
+func TestFindFilteredAliveOnlyOcultaCanalesSinStreams(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	seedChannel(t, chRepo, "con-stream")
+	seedChannel(t, chRepo, "sin-stream")
+
+	if err := stRepo.Save(ctx, makeStream("st-1", "con-stream", "http://a/1.m3u8")); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{AliveOnly: true, Limit: 100})
+	if err != nil {
+		t.Fatalf("FindFiltered: %v", err)
+	}
+
+	for _, ch := range got {
+		if ch.ID == "sin-stream" {
+			t.Errorf("el canal sin streams no debería listarse con AliveOnly")
+		}
+	}
+	if len(got) != 1 || got[0].ID != "con-stream" {
+		t.Errorf("quiero solo [con-stream], tengo %d canales", len(got))
+	}
+}
+
+// Antes de la primera pasada del health-worker nada está "vivo". Un canal con
+// streams sin chequear debe seguir visible para no vaciar la app al arrancar.
+func TestFindFilteredAliveOnlyMuestraStreamsSinChequear(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	seedChannel(t, chRepo, "sin-chequear")
+	if err := stRepo.Save(ctx, makeStream("st-1", "sin-chequear", "http://a/1.m3u8")); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{AliveOnly: true, Limit: 100})
+	if err != nil {
+		t.Fatalf("FindFiltered: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("un canal con streams sin chequear debe seguir visible; tengo %d", len(got))
+	}
+}

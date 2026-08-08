@@ -139,9 +139,10 @@ func TestStreamRepository_FindAll(t *testing.T) {
 	}
 }
 
-// AliveOnly oculta solo canales con TODOS sus streams chequeados y muertos.
-// Sin chequear (last_checked NULL) o sin streams → visibles, para no vaciar
-// la app antes de la primera pasada del health-worker.
+// AliveOnly oculta los canales con TODOS sus streams chequeados y muertos, y
+// también los que no tienen ningún stream (injugables: /channels/stream da
+// 404). Los que tienen streams sin chequear (last_checked NULL) siguen
+// visibles, para no vaciar la app antes de la primera pasada del health-worker.
 func TestChannelRepository_FindFiltered_AliveOnly(t *testing.T) {
 	chRepo, stRepo := openStreamTestRepos(t)
 	ctx := context.Background()
@@ -173,11 +174,14 @@ func TestChannelRepository_FindFiltered_AliveOnly(t *testing.T) {
 	for _, ch := range got {
 		ids[string(ch.ID)] = true
 	}
-	if !ids["ch-vivo"] || !ids["ch-pendiente"] || !ids["ch-sin-streams"] {
-		t.Errorf("visibles = %v; vivo, pendiente y sin-streams deben verse", ids)
+	if !ids["ch-vivo"] || !ids["ch-pendiente"] {
+		t.Errorf("visibles = %v; vivo y pendiente deben verse", ids)
 	}
 	if ids["ch-muerto"] {
 		t.Error("ch-muerto (todos sus streams chequeados y muertos) debe ocultarse")
+	}
+	if ids["ch-sin-streams"] {
+		t.Error("ch-sin-streams no tiene URL que reproducir; debe ocultarse")
 	}
 
 	// Sin AliveOnly todos son visibles

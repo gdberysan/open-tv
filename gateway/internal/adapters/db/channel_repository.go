@@ -176,13 +176,15 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 		args = append(args, qargs...)
 	}
 	if f.AliveOnly {
-		// Ocultar solo canales con TODOS sus streams chequeados y muertos.
-		// Sin streams o sin chequear (last_checked NULL) siguen visibles:
-		// antes de la primera pasada del health-worker nada está "vivo".
-		where = append(where, `(
-			NOT EXISTS (SELECT 1 FROM streams s WHERE s.channel_id = channels.id)
-			OR EXISTS (SELECT 1 FROM streams s WHERE s.channel_id = channels.id
-			           AND (s.is_alive = 1 OR s.last_checked IS NULL))
+		// Visible si tiene al menos un stream vivo o aún sin chequear (antes de
+		// la primera pasada del health-worker nada está "vivo"). Los canales SIN
+		// NINGÚN stream quedan fuera: son injugables — /channels/stream devuelve
+		// 404 — y aparecen cuando el proveedor renombra un canal y deja huérfana
+		// la fila anterior.
+		where = append(where, `EXISTS (
+			SELECT 1 FROM streams s
+			WHERE s.channel_id = channels.id
+			  AND (s.is_alive = 1 OR s.last_checked IS NULL)
 		)`)
 	}
 
