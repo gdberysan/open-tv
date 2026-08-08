@@ -1,5 +1,9 @@
 # Plan de Fiabilidad — Ecosistema IPTV
 
+> **ESTADO: COMPLETADO** (2026-08-08). Las 19 tareas ejecutadas en la rama
+> `fiabilidad`, 13 commits, CI en verde. Ver el resumen de desviaciones al
+> final del documento.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Convertir un MVP que funciona cuando todo va bien en un sistema que no miente sobre su catálogo, no se cuelga nunca, y avisa cuando está roto.
@@ -93,7 +97,7 @@ Copiadas de `PROMPT_MAESTRO.md` §10. Se aplican a **todas** las tareas de este 
 
 **Contexto:** el repositorio tiene 11 commits, una sola rama `main`, y **cero remotos**. Existe únicamente en este Mac. Esta tarea no tiene test automatizado; su verificación es que `git ls-remote origin` responda.
 
-- [ ] **Step 1: Limpiar el archivo suelto en la raíz**
+- [x] **Step 1: Limpiar el archivo suelto en la raíz**
 
 Hay un screenshot sin trackear en la raíz del repositorio. Moverlo fuera o borrarlo:
 
@@ -105,7 +109,7 @@ git status --short
 
 Esperado: salida vacía (árbol limpio).
 
-- [ ] **Step 2: Crear el repositorio remoto**
+- [x] **Step 2: Crear el repositorio remoto**
 
 Requiere que el usuario tenga `gh` autenticado. Si `gh auth status` falla, el usuario debe ejecutar `gh auth login` él mismo (es interactivo).
 
@@ -116,7 +120,7 @@ gh repo create ip-tv --private --source=. --remote=origin
 
 Si prefiere otro proveedor, basta con `git remote add origin <url>`.
 
-- [ ] **Step 3: Push y verificación**
+- [x] **Step 3: Push y verificación**
 
 ```bash
 git push -u origin main
@@ -125,7 +129,7 @@ git ls-remote origin
 
 Esperado: `git ls-remote` lista el `refs/heads/main` con el mismo SHA que `git rev-parse HEAD`.
 
-- [ ] **Step 4: Confirmar que el árbol sigue limpio**
+- [x] **Step 4: Confirmar que el árbol sigue limpio**
 
 ```bash
 git status --short
@@ -146,7 +150,7 @@ Esperado: salida vacía. No hay commit en esta tarea; el entregable es el remoto
 
 **Contexto:** hoy no existe ningún gate automático. La suite Go corre en ~10 s y la de Flutter en ~5 s, así que el workflow completo cabe holgadamente en un minuto. `gofmt -l` lista actualmente 5 archivos, por lo que el primer run fallará a propósito — se arregla en el Step 4.
 
-- [ ] **Step 1: Escribir el workflow**
+- [x] **Step 1: Escribir el workflow**
 
 ```yaml
 name: CI
@@ -214,7 +218,7 @@ jobs:
         run: flutter test
 ```
 
-- [ ] **Step 2: Verificar localmente que los mismos comandos pasan (menos gofmt)**
+- [x] **Step 2: Verificar localmente que los mismos comandos pasan (menos gofmt)**
 
 ```bash
 cd /Users/usuario/Dev/ip-tv/gateway && go vet ./... && go build ./... && go test -race -count=1 ./...
@@ -228,7 +232,7 @@ cd /Users/usuario/Dev/ip-tv/mobile && flutter analyze && flutter test
 
 Esperado: "No issues found!" y 57 tests en verde.
 
-- [ ] **Step 3: Verificar que gofmt falla ahora mismo**
+- [x] **Step 3: Verificar que gofmt falla ahora mismo**
 
 ```bash
 cd /Users/usuario/Dev/ip-tv/gateway && gofmt -l .
@@ -244,7 +248,7 @@ internal/domain/mirror.go
 internal/domain/sport_event.go
 ```
 
-- [ ] **Step 4: Formatear y verificar que ya pasa**
+- [x] **Step 4: Formatear y verificar que ya pasa**
 
 ```bash
 cd /Users/usuario/Dev/ip-tv/gateway && gofmt -w . && gofmt -l .
@@ -252,7 +256,7 @@ cd /Users/usuario/Dev/ip-tv/gateway && gofmt -w . && gofmt -l .
 
 Esperado: salida vacía.
 
-- [ ] **Step 5: Commit y push**
+- [x] **Step 5: Commit y push**
 
 ```bash
 cd /Users/usuario/Dev/ip-tv
@@ -261,7 +265,7 @@ git commit -m "ci: gate de build, vet, gofmt y tests para gateway y app"
 git push
 ```
 
-- [ ] **Step 6: Confirmar que el workflow pasa en remoto**
+- [x] **Step 6: Confirmar que el workflow pasa en remoto**
 
 ```bash
 gh run watch
@@ -283,7 +287,7 @@ Esperado: ambos jobs en verde. Si `mobile` falla por versión de Flutter, fijar 
 
 **Contexto:** no hay README en la raíz. El de `mobile/` es la plantilla intacta de Flutter. Siete variables de entorno controlan el gateway y ninguna está documentada fuera de comentarios en el código; `EPG_URL` en particular es opt-in y sin ella toda la guía de programación queda vacía en silencio. `scripts/scaffold.sh` está obsoleto: crea `pipeline/` y `providers/xtreamcodes/`, ambos eliminados.
 
-- [ ] **Step 1: Escribir el README**
+- [x] **Step 1: Escribir el README**
 
 ```markdown
 # Ecosistema IPTV
@@ -373,7 +377,7 @@ CI corre exactamente eso en cada push (`.github/workflows/ci.yml`).
 - `docs/superpowers/plans/` — planes de implementación
 ```
 
-- [ ] **Step 2: Verificar que las instrucciones funcionan de verdad**
+- [x] **Step 2: Verificar que las instrucciones funcionan de verdad**
 
 Desde un directorio limpio, seguir literalmente el README:
 
@@ -383,7 +387,7 @@ cd /Users/usuario/Dev/ip-tv/gateway && (go run ./cmd/server &) && sleep 8 && cur
 
 Esperado: `{"status":"ok"}`. Parar el proceso después con `pkill -f "cmd/server"`.
 
-- [ ] **Step 3: Borrar el script obsoleto**
+- [x] **Step 3: Borrar el script obsoleto**
 
 `scripts/scaffold.sh` crea `pipeline/` y `providers/xtreamcodes/`; el primero se eliminó en el commit `0cfd541` y el segundo nunca existió en el código actual. Seguirlo produciría un árbol que no compila.
 
@@ -391,7 +395,7 @@ Esperado: `{"status":"ok"}`. Parar el proceso después con `pkill -f "cmd/server
 cd /Users/usuario/Dev/ip-tv && git rm scripts/scaffold.sh
 ```
 
-- [ ] **Step 4: Reconciliar `PROMPT_MAESTRO.md` con la realidad**
+- [x] **Step 4: Reconciliar `PROMPT_MAESTRO.md` con la realidad**
 
 Tres secciones describen un estado que ya no es cierto y desorientan a quien lea el contrato:
 
@@ -401,7 +405,7 @@ Tres secciones describen un estado que ya no es cierto y desorientan a quien lea
 
 Añadir además una línea en §8 anotando que la Fase 6 (EPG) está completa **pero apagada por defecto** porque `EPG_URL` es opt-in.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md PROMPT_MAESTRO.md
@@ -429,7 +433,7 @@ git push
 
 **Contexto:** `applyPragmas` hace `db.Exec("PRAGMA ...")`, que configura **solo la conexión que el pool entregue en ese momento**. Funciona hoy por accidente: `SetMaxOpenConns(1)` mantiene una única conexión viva para siempre. Si esa conexión se cae y se re-marca, `foreign_keys` vuelve a su default, que es **OFF**, y nada lo avisa. Falta además `busy_timeout`.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Crear `gateway/internal/adapters/db/db_test.go`:
 
@@ -494,13 +498,13 @@ func TestOpenAplicaPragmasEnTodasLasConexiones(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Correr el test y verlo fallar**
+- [x] **Step 2: Correr el test y verlo fallar**
 
 Run: `go test ./internal/adapters/db/ -run TestOpenAplicaPragmasEnTodasLasConexiones -v`
 
 Esperado: FAIL. Las conexiones 2, 3 y 4 reportan `foreign_keys = 0`, y todas reportan `busy_timeout = 0`.
 
-- [ ] **Step 3: Mover los PRAGMAs al DSN**
+- [x] **Step 3: Mover los PRAGMAs al DSN**
 
 En `gateway/internal/adapters/db/db.go`, sustituir el cuerpo de `Open` y eliminar `applyPragmas`:
 
@@ -543,17 +547,17 @@ func Open(path string) (*sql.DB, error) {
 
 Borrar la función `applyPragmas` completa (líneas 47-59 del original) y la llamada a `seedUserAgents` junto con su función: la tabla `user_agents` no la lee nadie y se re-siembra en cada arranque. Si `strings` deja de usarse en el archivo, quitar el import.
 
-- [ ] **Step 4: Correr el test y verlo pasar**
+- [x] **Step 4: Correr el test y verlo pasar**
 
 Run: `go test ./internal/adapters/db/ -run TestOpenAplicaPragmasEnTodasLasConexiones -v`
 Esperado: PASS.
 
-- [ ] **Step 5: Correr toda la suite**
+- [x] **Step 5: Correr toda la suite**
 
 Run: `go test -race -count=1 ./...`
 Esperado: PASS en todos los paquetes. Los tests que usaban `seedUserAgents` implícitamente no existen, pero si alguno consulta `user_agents`, borrar esa aserción.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add gateway/internal/adapters/db/
@@ -576,7 +580,7 @@ git commit -m "gateway: PRAGMAs en el DSN para que valgan en toda conexión del 
 
 **Contexto:** hoy un único HEAD fallido pone `is_alive = 0` de forma permanente. Como el filtro `AliveOnly` está activo por defecto, el canal desaparece de la lista durante una hora entera hasta la siguiente pasada. Medido sobre la DB real: **4 148 de 13 859 canales (30%) están ocultos ahora mismo**, y al menos uno de ellos (`https://dgwfm675921lp.cloudfront.net/playlist.m3u8`) responde HTTP 200 al probarlo a mano.
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Añadir al final de `gateway/internal/adapters/db/stream_repository_test.go`:
 
@@ -657,12 +661,12 @@ func TestMarkAliveReseteaElContadorDeFallos(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Correr los tests y verlos fallar**
+- [x] **Step 2: Correr los tests y verlos fallar**
 
 Run: `go test ./internal/adapters/db/ -run "TestMarkDead|TestMarkAliveResetea" -v`
 Esperado: FAIL con `undefined: db.DeadFailThreshold`.
 
-- [ ] **Step 3: Añadir la columna al esquema**
+- [x] **Step 3: Añadir la columna al esquema**
 
 En `gateway/internal/adapters/db/schema.sql`, en la tabla `streams`, añadir la columna tras `is_alive`:
 
@@ -693,7 +697,7 @@ func alterMigrations(db *sql.DB) error {
 }
 ```
 
-- [ ] **Step 4: Implementar la histéresis**
+- [x] **Step 4: Implementar la histéresis**
 
 En `gateway/internal/adapters/db/stream_repository.go`, añadir la constante junto a `streamColumns` y reescribir los dos métodos:
 
@@ -736,17 +740,17 @@ func (r *SQLiteStreamRepository) MarkDead(ctx context.Context, streamID string) 
 }
 ```
 
-- [ ] **Step 5: Correr los tests y verlos pasar**
+- [x] **Step 5: Correr los tests y verlos pasar**
 
 Run: `go test ./internal/adapters/db/ -run "TestMarkDead|TestMarkAliveResetea" -v`
 Esperado: PASS en ambos.
 
-- [ ] **Step 6: Correr toda la suite**
+- [x] **Step 6: Correr toda la suite**
 
 Run: `go test -race -count=1 ./...`
 Esperado: PASS.
 
-- [ ] **Step 7: Resetear el estado envenenado de la DB de desarrollo**
+- [x] **Step 7: Resetear el estado envenenado de la DB de desarrollo**
 
 La DB local tiene 4 148 streams marcados muertos por la regla vieja. Darles una oportunidad limpia:
 
@@ -758,7 +762,7 @@ sqlite3 iptv.db "SELECT COUNT(*) FROM streams WHERE last_checked IS NOT NULL;"
 
 Esperado: `0`. Con `last_checked` en NULL los canales vuelven a ser visibles hasta que el worker los evalúe de verdad tres veces.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add gateway/internal/adapters/db/
@@ -779,7 +783,7 @@ git commit -m "gateway: histéresis de 3 fallos antes de dar un stream por muert
 
 **Contexto:** 1 157 canales tienen cero filas en `streams`. La cláusula actual los deja pasar explícitamente (`NOT EXISTS (SELECT 1 FROM streams ...)`), así que aparecen en la lista y devuelven 404 al pulsarlos. La intención original de esa rama era no vaciar la app antes de la primera pasada del health-worker, pero eso ya lo cubre la rama `last_checked IS NULL`: un canal **con** streams sin chequear sigue visible. Un canal **sin** streams es injugable por definición.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Añadir a `gateway/internal/adapters/db/channel_repository_test.go`:
 
@@ -833,12 +837,12 @@ func TestFindFilteredAliveOnlyMuestraStreamsSinChequear(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Correr los tests y verlos fallar**
+- [x] **Step 2: Correr los tests y verlos fallar**
 
 Run: `go test ./internal/adapters/db/ -run TestFindFilteredAliveOnly -v`
 Esperado: `TestFindFilteredAliveOnlyOcultaCanalesSinStreams` FAIL (lista los 2 canales); el segundo ya pasa y debe seguir pasando.
 
-- [ ] **Step 3: Ajustar la cláusula**
+- [x] **Step 3: Ajustar la cláusula**
 
 En `gateway/internal/adapters/db/channel_repository.go`, dentro de `FindFiltered`, sustituir el bloque `if f.AliveOnly`:
 
@@ -856,17 +860,17 @@ En `gateway/internal/adapters/db/channel_repository.go`, dentro de `FindFiltered
 	}
 ```
 
-- [ ] **Step 4: Correr los tests y verlos pasar**
+- [x] **Step 4: Correr los tests y verlos pasar**
 
 Run: `go test ./internal/adapters/db/ -run TestFindFilteredAliveOnly -v`
 Esperado: PASS en ambos.
 
-- [ ] **Step 5: Correr toda la suite**
+- [x] **Step 5: Correr toda la suite**
 
 Run: `go test -race -count=1 ./...`
 Esperado: PASS. Si algún test de handlers asumía que un canal sin streams se listaba, actualizarlo: el comportamiento nuevo es el correcto.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add gateway/internal/adapters/db/
@@ -895,7 +899,7 @@ git commit -m "gateway: AliveOnly oculta canales sin ningún stream (injugables)
 
 **⚠️ Por qué el suelo de cordura va en esta misma tarea y no después:** hoy, si iptv-org devuelve un 200 con una página HTML de error, un portal cautivo, o un cuerpo truncado en un EOF limpio, el parser M3U produce cero canales, `SaveBatch(nil)` retorna `nil` antes de tiempo, y `SyncOnce` reporta **éxito** — el log dice alegremente `Sync completado canales=0` y el backoff se resetea de 30 s a 12 h. Añadir la poda sin un suelo de cordura convierte ese fallo silencioso en **el borrado del catálogo entero**. Las dos mitades tienen que entrar juntas.
 
-- [ ] **Step 1: Escribir el test de repositorio que falla**
+- [x] **Step 1: Escribir el test de repositorio que falla**
 
 Añadir a `gateway/internal/adapters/db/channel_repository_test.go`:
 
@@ -944,12 +948,12 @@ func TestDeleteStaleBorraCanalesNoVistosEnElUltimoSync(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Correr el test y verlo fallar**
+- [x] **Step 2: Correr el test y verlo fallar**
 
 Run: `go test ./internal/adapters/db/ -run TestDeleteStale -v`
 Esperado: FAIL con `chRepo.DeleteStale undefined`.
 
-- [ ] **Step 3: Añadir la columna**
+- [x] **Step 3: Añadir la columna**
 
 En `schema.sql`, tabla `channels`, tras `updated_at`:
 
@@ -971,7 +975,7 @@ En `db.go`, `alterMigrations`:
 	}
 ```
 
-- [ ] **Step 4: Sellar `last_seen_at` en el upsert e implementar `DeleteStale`**
+- [x] **Step 4: Sellar `last_seen_at` en el upsert e implementar `DeleteStale`**
 
 En `channel_repository.go`, localizar la constante del SQL de upsert (la usan `Save` y `SaveBatch`) y añadir la columna tanto en el INSERT como en el DO UPDATE SET. El valor es el mismo `now` que ya se pasa para `updated_at`, así que se añade un placeholder más al final de los argumentos de cada `Exec`. Después añadir:
 
@@ -1005,12 +1009,12 @@ En `gateway/internal/ports/channel_repository.go`, añadir a la interfaz:
 
 Añadir el import de `time` si falta. Actualizar cualquier fake de `ChannelRepository` en los tests para que implemente el método nuevo.
 
-- [ ] **Step 5: Correr el test y verlo pasar**
+- [x] **Step 5: Correr el test y verlo pasar**
 
 Run: `go test ./internal/adapters/db/ -run TestDeleteStale -v`
 Esperado: PASS.
 
-- [ ] **Step 6: Escribir el test del syncer que falla**
+- [x] **Step 6: Escribir el test del syncer que falla**
 
 Primero, extender el fake que ya existe en `gateway/internal/services/syncer_test.go:54-57` para que registre las llamadas:
 
@@ -1137,7 +1141,7 @@ func TestSyncOncePrimerSyncSiempreSeAcepta(t *testing.T) {
 
 Si `fakeProvider` no tiene ya un campo `err` que `GetLiveChannels` devuelva ni un `setChannels`, añadírselos (con el mutex que ya usa). Añadir los imports de `errors` y `time` si faltan.
 
-- [ ] **Step 7: Suelo de cordura y poda en el syncer**
+- [x] **Step 7: Suelo de cordura y poda en el syncer**
 
 En `gateway/internal/services/syncer.go`, añadir junto a los tipos:
 
@@ -1214,12 +1218,12 @@ Añadir el import de `errors`.
 
 **Nota de concurrencia:** `ultimoConteo` solo lo toca `SyncOnce`, que corre en serie dentro del bucle de `Run`. No necesita mutex mientras nadie más lo lea; si en el futuro se expone por `/health`, protegerlo con el mismo `mu` que la Task 14 añade para `lastSuccess`.
 
-- [ ] **Step 8: Correr los tests y verlos pasar**
+- [x] **Step 8: Correr los tests y verlos pasar**
 
 Run: `go test ./internal/services/ -v`
 Esperado: PASS.
 
-- [ ] **Step 9: Correr toda la suite y verificar contra la DB real**
+- [x] **Step 9: Correr toda la suite y verificar contra la DB real**
 
 Run: `go test -race -count=1 ./...` → PASS.
 
@@ -1234,7 +1238,7 @@ pkill -f "./server"
 
 Esperado: el primer conteo ronda 1157; el segundo baja drásticamente. Los que queden son canales que el proveedor sí lista pero para los que `GetStreamURL` falla — quedan ocultos por la Task 6, que es el comportamiento correcto.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add gateway/
@@ -1258,7 +1262,7 @@ git commit -m "gateway: podar canales que el proveedor dejó de listar tras cada
 
 **Contexto:** la app Flutter parsea `json['ID']`, `json['LogoURL']`, `json['Alive']`, `json['LatencyMs']` — es decir, nombres de campo de Go. Renombrar un campo del dominio compila limpio y rompe la app en silencio. Añadir tags que reproduzcan los nombres actuales es un no-op en el cable y convierte el contrato en algo explícito. Aparte, `ORDER BY name COLLATE NOCASE` sin desempate sobre 13 859 filas con nombres repetidos puede duplicar u omitir filas en los bordes de página.
 
-- [ ] **Step 1: Escribir el test de contrato que falla**
+- [x] **Step 1: Escribir el test de contrato que falla**
 
 Crear `gateway/internal/domain/channel_test.go`:
 
@@ -1320,12 +1324,12 @@ func TestChannelJSONCongelaElContratoConLaApp(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Correr el test y verlo pasar (es una red, no un cambio)**
+- [x] **Step 2: Correr el test y verlo pasar (es una red, no un cambio)**
 
 Run: `go test ./internal/domain/ -run TestChannelJSON -v`
 Esperado: PASS. Confirma cuál es el contrato **actual** antes de tocarlo.
 
-- [ ] **Step 3: Añadir los tags explícitos**
+- [x] **Step 3: Añadir los tags explícitos**
 
 En `gateway/internal/domain/channel.go`:
 
@@ -1354,12 +1358,12 @@ type Channel struct {
 
 Hacer lo mismo en `gateway/internal/domain/stream.go` con los nombres de campo actuales.
 
-- [ ] **Step 4: Verificar que el cable no cambió**
+- [x] **Step 4: Verificar que el cable no cambió**
 
 Run: `go test ./internal/domain/ -run TestChannelJSON -v`
 Esperado: PASS, sin cambios. Los tags reproducen los nombres previos.
 
-- [ ] **Step 5: Escribir el test de paginación que falla**
+- [x] **Step 5: Escribir el test de paginación que falla**
 
 Añadir a `gateway/internal/adapters/db/channel_repository_test.go`:
 
@@ -1408,13 +1412,13 @@ func TestFindFilteredPaginacionEstableConNombresRepetidos(t *testing.T) {
 
 Si en ese archivo el helper para abrir un repo se llama distinto de `openTestRepo`, usar el que exista.
 
-- [ ] **Step 6: Correr el test**
+- [x] **Step 6: Correr el test**
 
 Run: `go test ./internal/adapters/db/ -run TestFindFilteredPaginacion -v`
 
 Esperado: puede pasar o fallar según cómo ordene SQLite este dataset concreto — el orden entre claves iguales no está garantizado, que es precisamente el problema. El arreglo lo vuelve determinista pase lo que pase ahora.
 
-- [ ] **Step 7: Añadir el desempate**
+- [x] **Step 7: Añadir el desempate**
 
 En `channel_repository.go`, `FindFiltered`:
 
@@ -1425,12 +1429,12 @@ En `channel_repository.go`, `FindFiltered`:
 		" ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?"
 ```
 
-- [ ] **Step 8: Correr los tests y verlos pasar**
+- [x] **Step 8: Correr los tests y verlos pasar**
 
 Run: `go test ./internal/adapters/db/ -v`
 Esperado: PASS.
 
-- [ ] **Step 9: Suite completa y commit**
+- [x] **Step 9: Suite completa y commit**
 
 ```bash
 go test -race -count=1 ./... && gofmt -l . && go vet ./...
@@ -1460,7 +1464,7 @@ git commit -m "gateway: tags JSON explícitos y desempate por id en la paginaci�
 
 **Contexto:** `http.Client()` no tiene deadline por petición. No hay `.timeout()`, ni `connectionTimeout`, ni reintentos en ninguna parte de la app. Cualquier pantalla puede quedarse colgada indefinidamente si el gateway acepta la conexión TCP y no responde. Además la base URL está declarada por duplicado en los dos repositorios.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Crear `mobile/test/data/api_timeout_test.dart`:
 
@@ -1527,12 +1531,12 @@ void main() {
 
 Ajustar el nombre del método del EPG (`getForChannel` y su firma) al que exista realmente en `epg_repository.dart`.
 
-- [ ] **Step 2: Correr el test y verlo fallar**
+- [x] **Step 2: Correr el test y verlo fallar**
 
 Run: `flutter test test/data/api_timeout_test.dart`
 Esperado: FAIL al no encontrar `package:iptv_ecosystem/data/api_config.dart`.
 
-- [ ] **Step 3: Crear la configuración compartida**
+- [x] **Step 3: Crear la configuración compartida**
 
 Crear `mobile/lib/data/api_config.dart`:
 
@@ -1557,7 +1561,7 @@ class ApiConfig {
 }
 ```
 
-- [ ] **Step 4: Aplicar el timeout en `ChannelRepository`**
+- [x] **Step 4: Aplicar el timeout en `ChannelRepository`**
 
 En `mobile/lib/data/repositories/channel_repository.dart`, añadir el import de `api_config.dart`, borrar la constante `_defaultBaseUrl` y sustituir las dos llamadas:
 
@@ -1581,21 +1585,21 @@ En `mobile/lib/data/repositories/channel_repository.dart`, añadir el import de 
 
 Añadir `import 'dart:async';` si el analizador lo pide para `TimeoutException`.
 
-- [ ] **Step 5: Aplicar el mismo cambio en `EPGRepository`**
+- [x] **Step 5: Aplicar el mismo cambio en `EPGRepository`**
 
 En `mobile/lib/data/repositories/epg_repository.dart`, borrar su `String.fromEnvironment` duplicado, importar `api_config.dart`, usar `ApiConfig.baseUrl` en el constructor y encadenar `.timeout(ApiConfig.timeout)` a cada `client.get(...)`.
 
-- [ ] **Step 6: Correr los tests y verlos pasar**
+- [x] **Step 6: Correr los tests y verlos pasar**
 
 Run: `flutter test test/data/api_timeout_test.dart`
 Esperado: PASS en los 3 tests.
 
-- [ ] **Step 7: Suite completa**
+- [x] **Step 7: Suite completa**
 
 Run: `flutter test && flutter analyze`
 Esperado: 60 tests en verde, "No issues found!".
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add mobile/lib/data/ mobile/test/data/
@@ -1618,7 +1622,7 @@ git commit -m "mobile: timeout de 10s en toda la capa de datos y ApiConfig compa
 
 Además `_loadAndPlay` es reentrante sin token de generación: un doble clic en Reintentar hace que la primera invocación añada sus suscripciones a un `_subs` ya vaciado por la segunda, y que abra su URL obsoleta.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Crear `mobile/test/presentation/player_screen_test.dart`:
 
@@ -1680,12 +1684,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: Correr el test y verlo fallar**
+- [x] **Step 2: Correr el test y verlo fallar**
 
 Run: `flutter test test/presentation/player_screen_test.dart`
 Esperado: FAIL — la pantalla sigue en estado de carga a los 16 s porque el guard nunca se armó.
 
-- [ ] **Step 3: Reordenar y añadir el token de generación**
+- [x] **Step 3: Reordenar y añadir el token de generación**
 
 En `mobile/lib/presentation/screens/player_screen.dart`, añadir el campo de generación junto a `_guard`:
 
@@ -1762,17 +1766,17 @@ Y reescribir `_loadAndPlay`:
   }
 ```
 
-- [ ] **Step 4: Correr el test y verlo pasar**
+- [x] **Step 4: Correr el test y verlo pasar**
 
 Run: `flutter test test/presentation/player_screen_test.dart`
 Esperado: PASS.
 
-- [ ] **Step 5: Suite completa**
+- [x] **Step 5: Suite completa**
 
 Run: `flutter test && flutter analyze`
 Esperado: verde. Los 7 tests de `playback_guard_test.dart` deben seguir pasando sin tocarlos.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add mobile/lib/presentation/screens/player_screen.dart mobile/test/presentation/player_screen_test.dart
@@ -1794,7 +1798,7 @@ git commit -m "mobile: el watchdog cubre el fetch de la URL y el retry deja de s
 
 **Contexto:** `loadMore` captura `current`, hace `await`, y luego escribe el estado sin comprobar si el filtro cambió mientras tanto. Riverpod no recrea el notifier al re-ejecutar `build()`, así que una búsqueda escrita durante el scroll produce el estado correcto y acto seguido la continuación obsoleta lo sobrescribe con la lista vieja más una página del filtro nuevo. Aparte, `ChannelFilter` no define `==`, así que `StateProvider` compara por identidad y `copyWith` siempre asigna un objeto nuevo: volver a tocar el chip ya activo resetea la lista y el scroll.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Añadir a `mobile/test/presentation/channel_list_notifier_test.dart`:
 
@@ -1844,12 +1848,12 @@ Añadir a `mobile/test/presentation/channel_list_notifier_test.dart`:
 
 Añadir en el mismo archivo un `FakeRepoConControl` derivado del `FakeRepo` existente que exponga `completarPaginaPendiente()` para resolver a mano la petición en vuelo, y un helper `_prefs()` que devuelva `SharedPreferences.getInstance()` tras `SharedPreferences.setMockInitialValues({})`.
 
-- [ ] **Step 2: Correr los tests y verlos fallar**
+- [x] **Step 2: Correr los tests y verlos fallar**
 
 Run: `flutter test test/presentation/channel_list_notifier_test.dart`
 Esperado: FAIL en ambos — la lista contiene canales del filtro anterior, y `ChannelFilter` compara por identidad.
 
-- [ ] **Step 3: Igualdad por valor en `ChannelFilter`**
+- [x] **Step 3: Igualdad por valor en `ChannelFilter`**
 
 En `mobile/lib/domain/models/channel_filter.dart`, dentro de la clase:
 
@@ -1871,7 +1875,7 @@ En `mobile/lib/domain/models/channel_filter.dart`, dentro de la clase:
 
 Ajustar la lista de campos a los que realmente declara la clase.
 
-- [ ] **Step 4: Token de generación en el notifier**
+- [x] **Step 4: Token de generación en el notifier**
 
 En `mobile/lib/presentation/providers/channel_provider.dart`:
 
@@ -1936,12 +1940,12 @@ class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
 }
 ```
 
-- [ ] **Step 5: Correr los tests y verlos pasar**
+- [x] **Step 5: Correr los tests y verlos pasar**
 
 Run: `flutter test test/presentation/channel_list_notifier_test.dart`
 Esperado: PASS.
 
-- [ ] **Step 6: Suite completa y commit**
+- [x] **Step 6: Suite completa y commit**
 
 ```bash
 flutter test && flutter analyze
@@ -1968,7 +1972,7 @@ git commit -m "mobile: token de generación en loadMore e igualdad por valor en 
 
 **Contexto:** hoy el usuario ve `ClientException with SocketException: Connection refused (OS Error: Connection refused, errno = 61), address = 127.0.0.1, port = 8080` — exactamente la captura que abrió esta investigación. `home_screen.dart` y `guide_screen.dart` renderizan `e.toString()` directamente; VoiceOver lo lee literal. Además el gateway devuelve `{"error": "..."}` y los repositorios lo descartan. Y en la guía, un `AsyncError` cae en la rama `_` del switch y se pinta como un spinner infinito.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Crear `mobile/test/data/api_error_test.dart`:
 
@@ -2009,12 +2013,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: Correr el test y verlo fallar**
+- [x] **Step 2: Correr el test y verlo fallar**
 
 Run: `flutter test test/data/api_error_test.dart`
 Esperado: FAIL — no existe `api_error.dart`.
 
-- [ ] **Step 3: Implementar el mapeo**
+- [x] **Step 3: Implementar el mapeo**
 
 Crear `mobile/lib/data/api_error.dart`:
 
@@ -2070,7 +2074,7 @@ class ApiError implements Exception {
 }
 ```
 
-- [ ] **Step 4: Usarlo en los repositorios**
+- [x] **Step 4: Usarlo en los repositorios**
 
 En `channel_repository.dart`, envolver cada llamada y aprovechar el cuerpo de error del gateway:
 
@@ -2096,7 +2100,7 @@ En `channel_repository.dart`, envolver cada llamada y aprovechar el cuerpo de er
 
 y sustituir en `getChannels` y `getStreamUrl` el `client.get(...)` por `_get(...)` y el `throw Exception(...)` por `throw ApiError.deRespuesta(response.statusCode, _detalleDeError(response))`. Aplicar lo mismo en `epg_repository.dart`.
 
-- [ ] **Step 5: Pintar el mensaje, no la excepción**
+- [x] **Step 5: Pintar el mensaje, no la excepción**
 
 En `home_screen.dart:145-146`, sustituir `message: e.toString()` por `message: ApiError.desde(e).mensaje`.
 
@@ -2119,7 +2123,7 @@ En `guide_screen.dart`, añadir la rama de error explícita al switch (líneas 1
 
 y sustituir el `Text('Error: $e')` de la línea 88 por `Text(ApiError.desde(e).mensaje)`.
 
-- [ ] **Step 6: Reconciliar los tests de timeout de la Task 9**
+- [x] **Step 6: Reconciliar los tests de timeout de la Task 9**
 
 Envolver las excepciones en `ApiError` cambia lo que ve quien llama, así que `mobile/test/data/api_timeout_test.dart` (creado en la Task 9) deja de pasar: esperaba `TimeoutException` en crudo. Ese contrato ya no es el correcto — lo que importa es que la petición aborte y que el mensaje sea legible. Actualizar los tres `expect`:
 
@@ -2138,12 +2142,12 @@ Envolver las excepciones en `ApiError` cambia lo que ve quien llama, así que `m
 
 Aplicar la misma forma a los tres tests, añadiendo `import 'package:iptv_ecosystem/data/api_error.dart';` y quitando el import de `dart:async` si deja de usarse.
 
-- [ ] **Step 7: Correr los tests y verlos pasar**
+- [x] **Step 7: Correr los tests y verlos pasar**
 
 Run: `flutter test test/data/`
 Esperado: PASS en los 4 de `api_error_test.dart` y en los 3 de `api_timeout_test.dart`.
 
-- [ ] **Step 8: Verificar a mano el caso original**
+- [x] **Step 8: Verificar a mano el caso original**
 
 Con el gateway **parado**:
 
@@ -2154,7 +2158,7 @@ cd /Users/usuario/Dev/ip-tv/mobile && flutter run -d macos
 
 Esperado: la pantalla de error dice "No se pudo contactar con el gateway. ¿Está arrancado en el puerto 8080?" en lugar del volcado de `SocketException`.
 
-- [ ] **Step 9: Suite completa y commit**
+- [x] **Step 9: Suite completa y commit**
 
 ```bash
 flutter test && flutter analyze
@@ -2184,7 +2188,7 @@ git commit -m "mobile: mapear errores de red a mensajes legibles y rama AsyncErr
 
 **Contexto:** `if err != nil { h.writeError(w, 500, "Error obteniendo canales"); return }` descarta `err` sin loguearlo. Un error de DB, un WAL corrupto y un context deadline salen idénticos: un 500 opaco y silencio en los logs.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Añadir a `gateway/internal/api/handlers/channel_handler_test.go`:
 
@@ -2213,12 +2217,12 @@ func TestGetChannelsLogueaLaCausaDelError(t *testing.T) {
 
 Ajustar los nombres de los fakes a los que ya existan en ese archivo, y darle al fake de canales un campo `err` que `FindFiltered` devuelva.
 
-- [ ] **Step 2: Correr el test y verlo fallar**
+- [x] **Step 2: Correr el test y verlo fallar**
 
 Run: `go test ./internal/api/handlers/ -run TestGetChannelsLoguea -v`
 Esperado: FAIL — `NewChannelHandler` no acepta un logger.
 
-- [ ] **Step 3: Inyectar el logger y usarlo**
+- [x] **Step 3: Inyectar el logger y usarlo**
 
 En `channel_handler.go`:
 
@@ -2261,7 +2265,7 @@ En `GetHealth`:
 
 Hacer lo mismo en `epg_handler.go` en sus tres puntos de 500 (líneas 68, 87 y 97 del original).
 
-- [ ] **Step 4: Cablear en el router**
+- [x] **Step 4: Cablear en el router**
 
 En `gateway/internal/api/router.go`:
 
@@ -2270,12 +2274,12 @@ En `gateway/internal/api/router.go`:
 	eh := handlers.NewEPGHandler(logger, epg)
 ```
 
-- [ ] **Step 5: Correr los tests y verlos pasar**
+- [x] **Step 5: Correr los tests y verlos pasar**
 
 Run: `go test ./internal/api/... -v`
 Esperado: PASS. Actualizar las llamadas a `NewChannelHandler`/`NewEPGHandler` en los tests existentes para que pasen un logger (`slog.New(slog.DiscardHandler)` sirve).
 
-- [ ] **Step 6: Suite completa y commit**
+- [x] **Step 6: Suite completa y commit**
 
 ```bash
 go test -race -count=1 ./... && gofmt -l . && go vet ./...
@@ -2304,7 +2308,7 @@ git commit -m "gateway: loguear la causa de cada 5xx en vez de descartarla"
 
 **Contexto:** `/health` devuelve el literal `{"status":"ok"}` sin tocar la DB ni mirar la edad del sync. Un gateway cuyo syncer lleva tres días fallando sigue reportando salud perfecta.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Crear `gateway/internal/api/handlers/health_handler_test.go`:
 
@@ -2396,12 +2400,12 @@ func TestHealthDetectaDBCaida(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Correr los tests y verlos fallar**
+- [x] **Step 2: Correr los tests y verlos fallar**
 
 Run: `go test ./internal/api/handlers/ -run TestHealth -v`
 Esperado: FAIL — `handlers.NewHealthHandler` no existe.
 
-- [ ] **Step 3: Exponer `LastSuccess` en el syncer**
+- [x] **Step 3: Exponer `LastSuccess` en el syncer**
 
 En `gateway/internal/services/syncer.go`, añadir al struct y actualizarlo en `Run`:
 
@@ -2436,7 +2440,7 @@ y en el `else` de `Run` (rama de éxito), antes de `s.firstOnce.Do(...)`:
 		}
 ```
 
-- [ ] **Step 4: Implementar el handler**
+- [x] **Step 4: Implementar el handler**
 
 Crear `gateway/internal/api/handlers/health_handler.go`:
 
@@ -2506,7 +2510,7 @@ func (h *HealthHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-- [ ] **Step 5: Cablear en el router y en main**
+- [x] **Step 5: Cablear en el router y en main**
 
 En `gateway/internal/api/router.go`:
 
@@ -2523,12 +2527,12 @@ Añadir el import de `database/sql` y borrar el handler inline. En `cmd/server/m
 	handler := api.NewRouter(logger, channelRepo, provider, streamRepo, epgRepo, sqlDB, syncer)
 ```
 
-- [ ] **Step 6: Correr los tests y verlos pasar**
+- [x] **Step 6: Correr los tests y verlos pasar**
 
 Run: `go test ./internal/... -v`
 Esperado: PASS.
 
-- [ ] **Step 7: Verificar contra el gateway real**
+- [x] **Step 7: Verificar contra el gateway real**
 
 ```bash
 cd /Users/usuario/Dev/ip-tv/gateway && go build -o server ./cmd/server && ./server &
@@ -2537,7 +2541,7 @@ sleep 25 && curl -s localhost:8080/health | python3 -m json.tool ; pkill -f "./s
 
 Esperado: `status: ok`, `db: ok`, `sync_age_seconds` de pocos segundos.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add gateway/
@@ -2559,7 +2563,7 @@ git commit -m "gateway: /health reporta estado de DB y edad del último sync"
 
 **Contexto:** el `Unsolicited response received on idle HTTP channel` del log tiene causa confirmada. Se manda `HEAD` con keep-alive activo; orígenes IPTV rotos (MistServer sobre todo) responden a un HEAD escribiendo cuerpo igualmente, o escriben una segunda respuesta HTTP completa en el mismo socket. El transporte de Go devuelve la conexión al pool de inactivas con esos bytes sin leer, lo detecta al siguiente peek, y lo registra con el paquete **global `log`** — que no pasa por el handler JSON de `slog`. Son ~8-9 líneas por pasada horaria (0,07% de 12 728 URLs).
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Añadir a `gateway/internal/adapters/validator/checker_test.go`:
 
@@ -2598,12 +2602,12 @@ func TestCheckerMandaUserAgentDeReproductor(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Correr los tests y verlos fallar**
+- [x] **Step 2: Correr los tests y verlos fallar**
 
 Run: `go test ./internal/adapters/validator/ -run "TestCheckerNoReutiliza|TestCheckerManda" -v`
 Esperado: FAIL — no existe `Transport()` y el User-Agent es el de Go.
 
-- [ ] **Step 3: Ajustar el checker**
+- [x] **Step 3: Ajustar el checker**
 
 En `gateway/internal/adapters/validator/checker.go`:
 
@@ -2660,7 +2664,7 @@ Además, drenar el cuerpo del GET de fallback antes de cerrarlo para no dejar la
 
 Añadir el import de `io`.
 
-- [ ] **Step 4: Puente del log global a slog en main**
+- [x] **Step 4: Puente del log global a slog en main**
 
 En `gateway/cmd/server/main.go`, tras crear el logger:
 
@@ -2688,12 +2692,12 @@ func (w slogWriter) Write(p []byte) (int, error) {
 
 Añadir los imports de `log` y `strings`.
 
-- [ ] **Step 5: Correr los tests y verlos pasar**
+- [x] **Step 5: Correr los tests y verlos pasar**
 
 Run: `go test ./internal/adapters/validator/ -v`
 Esperado: PASS.
 
-- [ ] **Step 6: Verificar sobre tráfico real**
+- [x] **Step 6: Verificar sobre tráfico real**
 
 ```bash
 cd /Users/usuario/Dev/ip-tv/gateway
@@ -2707,7 +2711,7 @@ pkill -f "./server"
 
 Esperado: cero apariciones de `Unsolicited response`, y al menos una pasada de health-check completada.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 go test -race -count=1 ./... && gofmt -l . && go vet ./...
@@ -2745,7 +2749,7 @@ git commit -m "gateway: sin keep-alive ni ruido en el checker; log global rediri
 
 Este plan asume **(a)**. Si se prefiere (b), sacar `healthcheck/` de esta tarea y planificarlo por separado.
 
-- [ ] **Step 1: Confirmar que de verdad no los usa nadie**
+- [x] **Step 1: Confirmar que de verdad no los usa nadie**
 
 ```bash
 cd /Users/usuario/Dev/ip-tv/gateway
@@ -2758,7 +2762,7 @@ grep -rn "CachePort\|domain.Category\|domain.Mirror\|domain.SportEvent\|XtreamCr
 
 Esperado: "sin importadores" y "sin referencias en producción". **Si algo aparece, parar** y revisar antes de borrar.
 
-- [ ] **Step 2: Borrar**
+- [x] **Step 2: Borrar**
 
 ```bash
 cd /Users/usuario/Dev/ip-tv
@@ -2769,7 +2773,7 @@ git rm gateway/internal/domain/mirror.go gateway/internal/domain/sport_event.go 
 rmdir gateway/internal/adapters/cache 2>/dev/null || true
 ```
 
-- [ ] **Step 3: Limpiar el esquema**
+- [x] **Step 3: Limpiar el esquema**
 
 En `gateway/internal/adapters/db/schema.sql`, borrar los bloques completos de `sync_log` (con su índice) y `user_agents`. La tabla `sync_log` no se escribe ni se lee nunca; `user_agents` no se lee (y su función de siembra ya se eliminó en la Task 4).
 
@@ -2781,7 +2785,7 @@ Las tablas seguirán existiendo en las DBs ya creadas; no se borran para no arri
 -- datos existentes sin necesidad.
 ```
 
-- [ ] **Step 4: Compilar y correr toda la suite**
+- [x] **Step 4: Compilar y correr toda la suite**
 
 ```bash
 cd /Users/usuario/Dev/ip-tv/gateway
@@ -2790,7 +2794,7 @@ go build ./... && go vet ./... && go test -race -count=1 ./... && gofmt -l .
 
 Esperado: PASS. Si algún import queda huérfano, quitarlo. Confirmar que los paquetes listados bajan de 8 a 6.
 
-- [ ] **Step 5: Verificar la nueva foto de cobertura**
+- [x] **Step 5: Verificar la nueva foto de cobertura**
 
 ```bash
 go test -cover ./... 2>&1 | grep -v "no test files"
@@ -2798,7 +2802,7 @@ go test -cover ./... 2>&1 | grep -v "no test files"
 
 Esperado: ya no aparecen `failover` ni `healthcheck`. Los porcentajes restantes describen código que se ejecuta de verdad.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/usuario/Dev/ip-tv
@@ -2822,7 +2826,7 @@ git commit -m "gateway: borrar failover, healthcheck y tipos de dominio sin uso"
 
 **Contexto:** `internal/api/middleware/` no tiene ningún test: el semáforo del rate limiter, el recover, el CORS y el logger están sin cubrir. `main.go` tiene ~90 líneas de parseo de entorno y secuenciación de workers (incluido el gating por `FirstSyncDone()`) que hoy son intestables por estar todas dentro de `main`. Además el apagado no espera a los workers: los defers se desenrollan LIFO y `sqlDB.Close()` corre mientras las goroutines pueden seguir dentro de un `ExecContext`.
 
-- [ ] **Step 1: Escribir los tests de middleware**
+- [x] **Step 1: Escribir los tests de middleware**
 
 Crear `gateway/internal/api/middleware/ratelimit_test.go`:
 
@@ -2919,13 +2923,13 @@ func TestRecoverConvierteElPanicEn500YLoRegistra(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Correr los tests**
+- [x] **Step 2: Correr los tests**
 
 Run: `go test ./internal/api/middleware/ -v`
 
 Esperado: PASS si el middleware ya se comporta así; FAIL si no. Si `RateLimiter` encola en vez de rechazar, o `Recover` no loguea, **eso es un hallazgo real**: arreglar el middleware, no el test.
 
-- [ ] **Step 3: Extraer `run()` en main**
+- [x] **Step 3: Extraer `run()` en main**
 
 Reestructurar `gateway/cmd/server/main.go`:
 
@@ -3083,7 +3087,7 @@ func durationEnv(logger *slog.Logger, key string, def time.Duration) time.Durati
 
 Añadir el import de `sync`. El `defer sqlDB.Close()` se queda donde está: al ir después de `wg.Wait()` en el orden de desenrollado, la DB se cierra la última.
 
-- [ ] **Step 4: Escribir el test de arranque y apagado**
+- [x] **Step 4: Escribir el test de arranque y apagado**
 
 Crear `gateway/cmd/server/main_test.go`:
 
@@ -3139,12 +3143,12 @@ func TestRunArrancaYApagaLimpio(t *testing.T) {
 }
 ```
 
-- [ ] **Step 5: Correr el test y verlo pasar**
+- [x] **Step 5: Correr el test y verlo pasar**
 
 Run: `go test ./cmd/server/ -race -v`
 Esperado: PASS. Si cuelga, es que un worker no respeta la cancelación del contexto — arreglarlo, es un bug real.
 
-- [ ] **Step 6: Suite completa y commit**
+- [x] **Step 6: Suite completa y commit**
 
 ```bash
 go test -race -count=1 ./... && gofmt -l . && go vet ./...
@@ -3174,7 +3178,7 @@ git commit -m "gateway: tests de middleware y run() testeable con apagado ordena
 
 **Contexto:** medido sobre una copia de la DB real con el mismo driver: 2 000 UPDATEs sueltos tardan **90 ms**; los mismos 2 000 dentro de una transacción tardan **8,6 ms**. Extrapolado a los 12 728 streams del catálogo, la pasada horaria pasa de ~573 ms de conexión ocupada en exclusiva a ~55 ms. Como `MaxOpenConns` es 1, ese tiempo es API congelada.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Añadir a `gateway/internal/adapters/db/stream_repository_test.go`:
 
@@ -3231,12 +3235,12 @@ func TestMarkBatchVacioNoFalla(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Correr los tests y verlos fallar**
+- [x] **Step 2: Correr los tests y verlos fallar**
 
 Run: `go test ./internal/adapters/db/ -run TestMarkBatch -v`
 Esperado: FAIL — `MarkBatch` no existe.
 
-- [ ] **Step 3: Definir el tipo en ports**
+- [x] **Step 3: Definir el tipo en ports**
 
 En `gateway/internal/ports/stream_repository.go`:
 
@@ -3258,7 +3262,7 @@ type StreamRepository interface {
 }
 ```
 
-- [ ] **Step 4: Implementar `MarkBatch`**
+- [x] **Step 4: Implementar `MarkBatch`**
 
 En `gateway/internal/adapters/db/stream_repository.go`:
 
@@ -3311,7 +3315,7 @@ func (r *SQLiteStreamRepository) MarkBatch(ctx context.Context, resultados []por
 }
 ```
 
-- [ ] **Step 5: Usarlo desde el worker**
+- [x] **Step 5: Usarlo desde el worker**
 
 En `gateway/internal/adapters/validator/worker.go`, sustituir el bucle de `checkOnce` que llama a `MarkAlive`/`MarkDead` uno a uno:
 
@@ -3343,12 +3347,12 @@ En `gateway/internal/adapters/validator/worker.go`, sustituir el bucle de `check
 
 Añadir el import de `ports` si falta.
 
-- [ ] **Step 6: Correr los tests y verlos pasar**
+- [x] **Step 6: Correr los tests y verlos pasar**
 
 Run: `go test ./internal/adapters/db/ ./internal/adapters/validator/ -race -v`
 Esperado: PASS. Actualizar los fakes de `StreamRepository` en tests para que implementen `MarkBatch`.
 
-- [ ] **Step 7: Medir la mejora**
+- [x] **Step 7: Medir la mejora**
 
 ```bash
 cd /Users/usuario/Dev/ip-tv/gateway
@@ -3361,7 +3365,7 @@ pkill -f "./server"
 
 Esperado: la pasada completa. Comparar con el tiempo previo si se anotó; el objetivo es que la fase de escritura deje de ser perceptible.
 
-- [ ] **Step 8: Suite completa y commit**
+- [x] **Step 8: Suite completa y commit**
 
 ```bash
 go test -race -count=1 ./... && gofmt -l . && go vet ./...
@@ -3387,7 +3391,7 @@ git commit -m "gateway: escrituras del health-check en una sola transacción"
 
 **Nota de alcance:** esta tarea es la de mayor riesgo del plan porque cambia la topología de conexiones. Hacerla al final y con la suite en verde. Si aparece cualquier `SQLITE_BUSY`, `busy_timeout(5000)` de la Task 4 debería absorberlo; si no, revertir y replantear.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Añadir a `gateway/internal/adapters/db/db_test.go`:
 
@@ -3437,12 +3441,12 @@ func TestLecturaNoSeBloqueaDetrasDeUnaEscritura(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Correr el test y verlo fallar**
+- [x] **Step 2: Correr el test y verlo fallar**
 
 Run: `go test ./internal/adapters/db/ -run TestLecturaNoSeBloquea -v`
 Esperado: FAIL con `undefined: db.OpenReadOnly`.
 
-- [ ] **Step 3: Implementar `OpenReadOnly`**
+- [x] **Step 3: Implementar `OpenReadOnly`**
 
 En `gateway/internal/adapters/db/db.go`:
 
@@ -3476,12 +3480,12 @@ func OpenReadOnly(path string) (*sql.DB, error) {
 }
 ```
 
-- [ ] **Step 4: Correr el test y verlo pasar**
+- [x] **Step 4: Correr el test y verlo pasar**
 
 Run: `go test ./internal/adapters/db/ -run TestLecturaNoSeBloquea -v`
 Esperado: PASS, con la lectura resolviéndose en pocos milisegundos.
 
-- [ ] **Step 5: Cablear en main**
+- [x] **Step 5: Cablear en main**
 
 En `gateway/cmd/server/main.go`, dentro de `run`, tras abrir la DB de escritura:
 
@@ -3509,7 +3513,7 @@ Los repositorios que solo leen desde los handlers pasan a usar `lecturaDB`; los 
 	handler := api.NewRouter(logger, channelRepoRO, provider, streamRepoRO, epgRepoRO, lecturaDB, syncer)
 ```
 
-- [ ] **Step 6: Verificar de punta a punta**
+- [x] **Step 6: Verificar de punta a punta**
 
 ```bash
 cd /Users/usuario/Dev/ip-tv/gateway
@@ -3525,7 +3529,7 @@ pkill -f "./server"
 
 Esperado: todas las respuestas 200, tiempos por debajo de ~50 ms incluso durante el sync, y ningún `SQLITE_BUSY` en el log.
 
-- [ ] **Step 7: Suite completa y commit**
+- [x] **Step 7: Suite completa y commit**
 
 ```bash
 go test -race -count=1 ./... && gofmt -l . && go vet ./...
@@ -3546,3 +3550,54 @@ Tres cosas del informe de auditoría **no** están aquí porque necesitan una de
 3. **Autenticación y CORS.** `Access-Control-Allow-Origin: *` sin auth significa que cualquier web que el usuario visite mientras el gateway corre puede leer la API entera desde su navegador. Mientras el bind sea loopback el riesgo es acotado, pero `LISTEN_ADDR=0.0.0.0:8080` lo convierte en un servicio de LAN sin autenticación con un cambio de una variable. La decisión (origen concreto en vez de comodín, o token obligatorio para binds no-loopback) va ligada a la de empaquetado.
 
 Del resto del informe, quedan sin abordar por ser de bajo impacto: memoria de la lista acumulada y logos sin `cacheWidth`, refetch del EPG al hacer scroll, ventana de la guía que se queda rancia, migración no transaccional, `sqflite` para favoritos (Fase 8 del roadmap), y accesibilidad más allá de `SignalBars`.
+
+
+---
+
+## Desviaciones respecto al plan (ejecución 2026-08-08)
+
+Lo que cambió al ejecutarlo, y por qué:
+
+1. **Carrera de datos encontrada al añadir `-race` al CI** (Task 2). El contador
+   del handler `httptest` en `TestHLSChecker_CheckBatch_ConcurrentAndBounded`
+   se incrementaba sin sincronizar desde una goroutine por conexión. Arreglado
+   con `atomic.Int64`. Al asertarlo salió que el checker hace 2 peticiones por
+   URL (playlist + primer segmento), dato que luego sirvió para decidir la
+   Task 16.
+
+2. **La histéresis no surtía efecto** (descubierto midiendo tras la Task 6).
+   `is_alive` arranca en 0, así que un stream que nunca había estado vivo
+   seguía ocultándose a su primer fallo. El filtro `AliveOnly` pasó a preguntar
+   si el canal está *probado muerto* (`is_alive = 1 OR fail_count < 3`).
+   Commit extra `744fa81`. Impacto: 11389 → 12633 canales visibles.
+
+3. **Suelo de cordura movido a la Task 7**, junto con la poda, en vez de ser
+   una mejora independiente: sin él, un sync degenerado habría hecho que la
+   poda borrase el catálogo entero.
+
+4. **`migrate()` se rompió con un comentario propio** (Task 16). Trocea
+   `schema.sql` por `;` y el `);` dentro de la prosa de un comentario partía la
+   sentencia. Añadido `stripSQLComments` con test de regresión — el problema de
+   migración frágil que la auditoría marcaba como "bajo impacto" resultó ser
+   real.
+
+5. **`PlayerScreen` sigue sin test de widget** (Task 10). `media_kit` exige el
+   framework nativo de mpv, que no existe headless ni en los runners Linux de
+   CI. El arreglo (armar el watchdog antes del fetch + token de generación) se
+   aplicó igualmente; el contrato del guard sí está cubierto en
+   `playback_guard_test.dart`.
+
+6. **Tests de timeout con deadline inyectable** (Task 9). La primera versión
+   esperaba los 10 s reales tres veces, 30 s añadidos a cada run de CI. Los
+   repositorios aceptan ahora un `timeout` opcional.
+
+7. **El test de la carrera de `loadMore` se verificó por mutación** (Task 11).
+   La primera versión pasaba con y sin el arreglo, porque el query `'Par'`
+   casaba también con `'Impar'` y no discriminaba nada. Cambiado a `'Impar'` y
+   comprobado que falla al quitar el guard.
+
+8. **`healthcheck` borrado** (Task 16, opción (a) del plan). Su `HLSChecker` es
+   el que cumple el spec de la Fase 7.1, pero son 2 peticiones × 12.6k streams
+   = 25k peticiones por pasada horaria contra servidores públicos gratuitos.
+   Con la histéresis ya en su sitio, el chequeo a nivel de playlist da señal
+   suficiente. Queda en el historial de git.
