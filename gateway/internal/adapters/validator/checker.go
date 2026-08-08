@@ -3,6 +3,7 @@ package validator
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -19,27 +20,44 @@ type HTTPChecker interface {
 // tanto al checker (falsos muertos) como al usuario reproduciendo.
 const maxConnsPerHost = 4
 
+// userAgent identifica al checker como un reproductor. Algunos orígenes
+// filtran el default de Go (Go-http-client/2.0) con un 403.
+const userAgent = "VLC/3.0.20 LibVLC/3.0.20"
+
 // Checker se encarga de validar una única URL.
 type Checker struct {
-	client  HTTPChecker
-	timeout time.Duration
+	client    HTTPChecker
+	transport *http.Transport
+	timeout   time.Duration
 }
 
 // NewChecker instancia un Checker con la configuración dada.
 func NewChecker(client HTTPChecker, timeout time.Duration) *Checker {
+	var tr *http.Transport
 	if client == nil {
-		client = &http.Client{
-			Timeout: timeout,
-			Transport: &http.Transport{
-				MaxConnsPerHost: maxConnsPerHost,
-			},
+		// DisableKeepAlives: los orígenes IPTV rotos (MistServer sobre todo)
+		// responden a un HEAD escribiendo cuerpo igualmente, o escriben una
+		// segunda respuesta completa en el mismo socket. Si esa conexión vuelve
+		// al pool de inactivas con bytes pendientes, el transporte lo detecta al
+		// siguiente peek y lo registra con el paquete log GLOBAL, fuera de slog:
+		// de ahí las líneas "Unsolicited response received on idle HTTP channel"
+		// sueltas entre el JSON. Sin pool de inactivas, ese camino no existe.
+		tr = &http.Transport{
+			MaxConnsPerHost:   maxConnsPerHost,
+			DisableKeepAlives: true,
 		}
+		client = &http.Client{Timeout: timeout, Transport: tr}
 	}
 	return &Checker{
-		client:  client,
-		timeout: timeout,
+		client:    client,
+		transport: tr,
+		timeout:   timeout,
 	}
 }
+
+// Transport expone el transporte propio del checker, o nil si se le inyectó un
+// cliente desde fuera. Solo para tests.
+func (c *Checker) Transport() *http.Transport { return c.transport }
 
 // Check valida una URL usando una estrategia HTTP HEAD con fallback a HTTP GET.
 func (c *Checker) Check(ctx context.Context, url string) StreamResult {
@@ -60,6 +78,8 @@ func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 		result.Error = fmt.Errorf("creando HEAD request: %w", err)
 		return result
 	}
+
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.client.Do(req)
 
@@ -89,12 +109,17 @@ func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 			return result
 		}
 
+		reqGet.Header.Set("User-Agent", userAgent)
+
 		respGet, errGet := c.client.Do(reqGet)
 		if errGet != nil {
 			result.Error = fmt.Errorf("error en GET request: %w", errGet)
 			return result
 		}
 		defer respGet.Body.Close()
+		// Drenar un poco del cuerpo: sin leerlo, la conexión queda inutilizable
+		// y el servidor la ve abortada a media respuesta.
+		_, _ = io.Copy(io.Discard, io.LimitReader(respGet.Body, 64<<10))
 
 		result.IsAlive = respGet.StatusCode >= 200 && respGet.StatusCode < 300
 	}

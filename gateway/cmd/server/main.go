@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,6 +21,14 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+	// El paquete log GLOBAL de la stdlib lo usan dependencias como
+	// net/http.Transport para avisos que no pasan por slog (p.ej. "Unsolicited
+	// response received on idle HTTP channel"). Redirigirlo evita líneas sin
+	// estructurar mezcladas con el JSON, y de paso las hace buscables.
+	log.SetFlags(0)
+	log.SetOutput(slogWriter{logger})
+
 	logger.Info("Iniciando IPTV Ecosystem API Gateway")
 
 	// 1. Base de datos SQLite
@@ -117,7 +127,7 @@ func main() {
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:8080"
 	}
-	handler := api.NewRouter(logger, channelRepo, provider, streamRepo, epgRepo)
+	handler := api.NewRouter(logger, channelRepo, provider, streamRepo, epgRepo, sqlDB, syncer)
 	srv := &http.Server{
 		Addr:              listenAddr,
 		Handler:           handler,
@@ -147,4 +157,13 @@ func main() {
 		logger.Error("Error en apagado forzado", slog.Any("error", err))
 	}
 	logger.Info("Servidor detenido limpiamente")
+}
+
+// slogWriter reencamina lo que escriba el paquete log global hacia slog, para
+// que no haya dos formatos de salida distintos en el mismo stdout.
+type slogWriter struct{ l *slog.Logger }
+
+func (w slogWriter) Write(p []byte) (int, error) {
+	w.l.Warn("stdlib log", slog.String("msg", strings.TrimSpace(string(p))))
+	return len(p), nil
 }

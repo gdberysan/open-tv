@@ -68,6 +68,9 @@ type Syncer struct {
 	firstDone chan struct{}
 	firstOnce sync.Once
 
+	mu          sync.RWMutex
+	lastSuccess time.Time
+
 	// ultimoConteo es el número de canales del último sync aceptado. Cero
 	// significa que aún no hay referencia con la que comparar. Solo lo toca
 	// SyncOnce, que corre en serie dentro del bucle de Run.
@@ -95,6 +98,15 @@ func (s *Syncer) FirstSyncDone() <-chan struct{} {
 	return s.firstDone
 }
 
+// LastSuccess devuelve el instante del último sync exitoso. Cero si aún no ha
+// habido ninguno. Lo consume /health para reportar la edad del catálogo: un
+// syncer que lleva días fallando no debe verse como un gateway sano.
+func (s *Syncer) LastSuccess() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastSuccess
+}
+
 // Run ejecuta el bucle de sincronización hasta que ctx se cancele.
 func (s *Syncer) Run(ctx context.Context) {
 	backoff := s.cfg.RetryBase
@@ -111,6 +123,10 @@ func (s *Syncer) Run(ctx context.Context) {
 			wait = backoff
 			backoff = min(backoff*2, s.cfg.RetryMax)
 		} else {
+			s.mu.Lock()
+			s.lastSuccess = time.Now()
+			s.mu.Unlock()
+
 			s.firstOnce.Do(func() { close(s.firstDone) })
 			wait = s.cfg.Interval
 			backoff = s.cfg.RetryBase

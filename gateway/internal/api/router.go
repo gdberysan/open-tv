@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"log/slog"
 	"net/http"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
 )
 
-func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, epg ports.EPGRepository) http.Handler {
+func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, epg ports.EPGRepository, sqlDB *sql.DB, syncer handlers.SyncStatus) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.CORS)
@@ -22,13 +23,11 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	r.Use(middleware.Recover(logger))
 	r.Use(middleware.RateLimiter(100))
 
-	ch := handlers.NewChannelHandler(repo, provider, streams)
-	eh := handlers.NewEPGHandler(epg)
+	ch := handlers.NewChannelHandler(logger, repo, provider, streams)
+	eh := handlers.NewEPGHandler(logger, epg)
 
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+	hh := handlers.NewHealthHandler(sqlDB, syncer)
+	r.Get("/health", hh.Get)
 
 	r.Route("/channels", func(r chi.Router) {
 		r.Get("/", ch.GetChannels)

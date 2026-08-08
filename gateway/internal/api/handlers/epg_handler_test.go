@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -34,7 +35,7 @@ func (m *mockEPGRepo) DeleteEndedBefore(context.Context, time.Time) (int64, erro
 
 func setupEPGRouter(repo *mockEPGRepo) http.Handler {
 	r := chi.NewRouter()
-	h := NewEPGHandler(repo)
+	h := NewEPGHandler(slog.New(slog.DiscardHandler), repo)
 	r.Get("/epg", h.GetWindow)
 	r.Get("/epg/now", h.GetNow)
 	r.Get("/channels/{id}/epg", h.GetByChannel)
