@@ -97,31 +97,6 @@ CREATE TABLE IF NOT EXISTS epg_entries (
 CREATE INDEX IF NOT EXISTS idx_epg_channel_time ON epg_entries(channel_id, start_at, end_at);
 CREATE INDEX IF NOT EXISTS idx_epg_window       ON epg_entries(start_at, end_at);
 
--- ─────────────────────────────────────────
--- AUDITORÍA DE SINCRONIZACIÓN
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS sync_log (
-    id              TEXT    PRIMARY KEY,
-    provider_id     TEXT    NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
-    started_at      INTEGER NOT NULL,
-    finished_at     INTEGER,
-    channels_found  INTEGER DEFAULT 0,
-    streams_checked INTEGER DEFAULT 0,
-    streams_alive   INTEGER DEFAULT 0,
-    error_message   TEXT,
-    status          TEXT    NOT NULL CHECK (status IN ('running','success','partial','failed'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_sync_log_provider ON sync_log(provider_id, started_at DESC);
-
--- ─────────────────────────────────────────
--- POOL DE USER-AGENTS ROTATIVOS
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS user_agents (
-    id          TEXT    PRIMARY KEY,
-    ua_string   TEXT    NOT NULL UNIQUE,
-    ua_type     TEXT    NOT NULL CHECK (ua_type IN ('browser','media_player','bot')),
-    is_active   INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
-    last_used   INTEGER,
-    use_count   INTEGER NOT NULL DEFAULT 0
-);
+-- Nota: sync_log y user_agents existieron en esquemas anteriores y pueden
+-- seguir presentes en DBs antiguas. No se usan (nunca se escribieron ni se
+-- leyeron); no se borran para no tocar datos existentes sin necesidad.

@@ -56,3 +56,28 @@ func TestOpenAplicaPragmasEnTodasLasConexiones(t *testing.T) {
 		}
 	}
 }
+
+// migrate() trocea schema.sql por ";". Un ";" dentro de un comentario partía la
+// sentencia y dejaba un fragmento de prosa que SQLite intentaba ejecutar; pasó
+// de verdad al documentar unas tablas obsoletas.
+func TestMigrateToleraPuntoYComaEnComentarios(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	sqlDB, err := db.Open(path)
+	if err != nil {
+		t.Fatalf("db.Open con comentarios en el esquema: %v", err)
+	}
+	defer sqlDB.Close()
+
+	// Si el troceo hubiera fallado, faltarían tablas.
+	for _, tabla := range []string{"channels", "streams", "epg_entries", "providers", "categories"} {
+		var n int
+		if err := sqlDB.QueryRow(
+			"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", tabla,
+		).Scan(&n); err != nil {
+			t.Fatalf("consultando sqlite_master: %v", err)
+		}
+		if n != 1 {
+			t.Errorf("falta la tabla %q tras migrar", tabla)
+		}
+	}
+}

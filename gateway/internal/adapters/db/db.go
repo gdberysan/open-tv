@@ -60,7 +60,7 @@ func migrate(db *sql.DB) error {
 	if err := alterMigrations(db); err != nil {
 		return err
 	}
-	for _, stmt := range strings.Split(string(schema), ";") {
+	for _, stmt := range strings.Split(stripSQLComments(string(schema)), ";") {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
 			continue
@@ -74,6 +74,26 @@ func migrate(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// stripSQLComments quita los comentarios de línea antes de trocear el esquema
+// por ";". Sin esto, un ";" dentro de un comentario —p.ej. "(nunca se
+// escribieron ni se leyeron); ..."— parte la sentencia por la mitad y deja un
+// fragmento de prosa que SQLite intenta ejecutar. Pasó de verdad.
+//
+// Limitación conocida: no distingue un "--" dentro de un literal de cadena.
+// El esquema no tiene ninguno; si algún día lo tiene, hará falta un troceador
+// de sentencias en condiciones.
+func stripSQLComments(s string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		if i := strings.Index(line, "--"); i >= 0 {
+			line = line[:i]
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // alterMigrations añade columnas a tablas de DBs creadas con un esquema
