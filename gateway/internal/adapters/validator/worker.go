@@ -80,22 +80,27 @@ func (w *Worker) checkOnce(ctx context.Context) {
 	}()
 
 	var alive, dead int
+	resultados := make([]ports.StreamHealth, 0, len(streams))
 	for res := range w.validator.Start(ctx, urls) {
 		for _, id := range byURL[res.URL] {
+			resultados = append(resultados, ports.StreamHealth{
+				StreamID:  id,
+				IsAlive:   res.IsAlive,
+				LatencyMs: res.LatencyMs,
+			})
 			if res.IsAlive {
-				if err := w.repo.MarkAlive(ctx, id, res.LatencyMs); err != nil {
-					w.logger.Error("MarkAlive falló", slog.String("stream", id), slog.Any("error", err))
-					continue
-				}
 				alive++
 			} else {
-				if err := w.repo.MarkDead(ctx, id); err != nil {
-					w.logger.Error("MarkDead falló", slog.String("stream", id), slog.Any("error", err))
-					continue
-				}
 				dead++
 			}
 		}
+	}
+
+	// Una transacción para toda la pasada en vez de ~12k UPDATEs sueltos: con
+	// MaxOpenConns(1), cada escritura suelta es tiempo en el que la API no lee.
+	if err := w.repo.MarkBatch(ctx, resultados); err != nil {
+		w.logger.Error("Health-check: fallo persistiendo resultados", slog.Any("error", err))
+		return
 	}
 
 	w.logger.Info("Health-check completado",

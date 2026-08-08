@@ -82,6 +82,7 @@ func (m *mockStreamRepo) FindBestByChannelID(ctx context.Context, id domain.Chan
 }
 func (m *mockStreamRepo) MarkAlive(ctx context.Context, id string, latencyMs int64) error { return nil }
 func (m *mockStreamRepo) MarkDead(ctx context.Context, id string) error                   { return nil }
+func (m *mockStreamRepo) MarkBatch(context.Context, []ports.StreamHealth) error           { return nil }
 
 func setupRouter() http.Handler {
 	return setupRouterWith(&mockProvider{}, &mockStreamRepo{})

@@ -426,3 +426,53 @@ func TestFindFilteredAliveOnlyRespetaLaHisteresis(t *testing.T) {
 		t.Errorf("tras %d fallos consecutivos el canal debe ocultarse", db.DeadFailThreshold)
 	}
 }
+
+// MarkBatch debe aplicar todos los resultados en una transacción y respetar la
+// misma histéresis que MarkDead.
+func TestMarkBatchAplicaVivosYMuertosConHisteresis(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+	seedChannel(t, chRepo, "ch-1")
+
+	for _, id := range []string{"st-vivo", "st-muerto"} {
+		if err := stRepo.Save(ctx, makeStream(id, "ch-1", "http://a/"+id+".m3u8")); err != nil {
+			t.Fatalf("Save(%s): %v", id, err)
+		}
+	}
+
+	for i := int64(0); i < db.DeadFailThreshold; i++ {
+		err := stRepo.MarkBatch(ctx, []ports.StreamHealth{
+			{StreamID: "st-vivo", IsAlive: true, LatencyMs: 42},
+			{StreamID: "st-muerto", IsAlive: false},
+		})
+		if err != nil {
+			t.Fatalf("MarkBatch #%d: %v", i, err)
+		}
+	}
+
+	streams, err := stRepo.FindByChannelID(ctx, "ch-1")
+	if err != nil {
+		t.Fatalf("FindByChannelID: %v", err)
+	}
+	porID := map[string]domain.Stream{}
+	for _, s := range streams {
+		porID[s.ID] = s
+	}
+
+	if !porID["st-vivo"].IsAlive {
+		t.Error("st-vivo debe seguir vivo")
+	}
+	if porID["st-vivo"].LatencyMs != 42 {
+		t.Errorf("latencia = %d, quiero 42", porID["st-vivo"].LatencyMs)
+	}
+	if porID["st-muerto"].IsAlive {
+		t.Errorf("st-muerto debe estar muerto tras %d fallos", db.DeadFailThreshold)
+	}
+}
+
+func TestMarkBatchVacioNoFalla(t *testing.T) {
+	_, stRepo := openStreamTestRepos(t)
+	if err := stRepo.MarkBatch(context.Background(), nil); err != nil {
+		t.Errorf("MarkBatch(nil) = %v, quiero nil", err)
+	}
+}

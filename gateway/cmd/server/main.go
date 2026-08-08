@@ -56,12 +56,27 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("abriendo la base de datos: %w", err)
 	}
 	defer sqlDB.Close()
+
+	// Pool aparte de solo lectura para los handlers. El de escritura está
+	// limitado a una conexión (evita SQLITE_BUSY), así que compartirlo haría
+	// que cada request se encolara detrás del sync o del health-check en curso.
+	lecturaDB, err := db.OpenReadOnly(dbPath)
+	if err != nil {
+		return fmt.Errorf("abriendo el pool de lectura: %w", err)
+	}
+	defer lecturaDB.Close()
 	logger.Info("SQLite abierta", slog.String("path", dbPath))
 
-	// 2. Repositorios y proveedor IPTV-org
+	// 2. Repositorios y proveedor IPTV-org.
+	// Escritura: los usan el syncer y el health-worker.
 	channelRepo := db.NewChannelRepository(sqlDB)
 	streamRepo := db.NewStreamRepository(sqlDB)
 	epgRepo := db.NewEPGRepository(sqlDB)
+
+	// Lectura: los usan los handlers HTTP.
+	channelRepoRO := db.NewChannelRepository(lecturaDB)
+	streamRepoRO := db.NewStreamRepository(lecturaDB)
+	epgRepoRO := db.NewEPGRepository(lecturaDB)
 
 	iptvOrgURL := os.Getenv("IPTV_ORG_URL")
 	if iptvOrgURL == "" {
@@ -136,7 +151,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	srv := &http.Server{
 		Addr:              listenAddr,
-		Handler:           api.NewRouter(logger, channelRepo, provider, streamRepo, epgRepo, sqlDB, syncer),
+		Handler:           api.NewRouter(logger, channelRepoRO, provider, streamRepoRO, epgRepoRO, lecturaDB, syncer),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,

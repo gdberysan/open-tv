@@ -135,3 +135,31 @@ func seedProviders(db *sql.DB) error {
 	}
 	return nil
 }
+
+// OpenReadOnly abre un pool de SOLO LECTURA sobre la misma DB. En WAL los
+// lectores no bloquean al escritor ni viceversa, pero el pool de escritura está
+// limitado a una conexión para evitar SQLITE_BUSY; si los handlers compartieran
+// ese pool, cada lectura se encolaría detrás de la escritura en curso —medido:
+// 760ms de espera tras una transacción de 800ms, y un SaveBatch de 13.8k
+// canales ocupa la conexión 167ms.
+//
+// Asume que Open ya creó y migró la DB.
+func OpenReadOnly(path string) (*sql.DB, error) {
+	dsn := "file:" + path + "?mode=ro" +
+		"&_pragma=busy_timeout(5000)" +
+		"&_pragma=foreign_keys(1)" +
+		"&_pragma=cache_size(-32000)"
+
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("db.OpenReadOnly: %w", err)
+	}
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("db.OpenReadOnly (Ping): %w", err)
+	}
+	return db, nil
+}

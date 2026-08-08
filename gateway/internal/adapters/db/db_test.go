@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/db"
 )
@@ -79,5 +80,73 @@ func TestMigrateToleraPuntoYComaEnComentarios(t *testing.T) {
 		if n != 1 {
 			t.Errorf("falta la tabla %q tras migrar", tabla)
 		}
+	}
+}
+
+// WAL existe para que los lectores no esperen al escritor. Con un único pool de
+// una conexión, cualquier lectura se encola detrás de la escritura en curso:
+// medido, 760ms de espera tras una transacción de 800ms.
+func TestLecturaNoSeBloqueaDetrasDeUnaEscritura(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+
+	escritura, err := db.Open(path)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer escritura.Close()
+
+	lectura, err := db.OpenReadOnly(path)
+	if err != nil {
+		t.Fatalf("db.OpenReadOnly: %v", err)
+	}
+	defer lectura.Close()
+
+	ctx := context.Background()
+	tx, err := escritura.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO channels (id, name, provider_id, provider_type, is_adult, created_at, updated_at, last_seen_at)
+		 VALUES ('x', 'X', 'opensource', 'opensource', 0, 0, 0, 0)`); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+
+	inicio := time.Now()
+	var n int
+	if err := lectura.QueryRowContext(ctx, "SELECT COUNT(*) FROM channels").Scan(&n); err != nil {
+		t.Fatalf("lectura concurrente: %v", err)
+	}
+	transcurrido := time.Since(inicio)
+
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	if transcurrido > 200*time.Millisecond {
+		t.Errorf("la lectura tardó %v con una escritura abierta; WAL debería permitirla sin esperar", transcurrido)
+	}
+}
+
+// El pool de lectura no debe poder escribir: si un handler intentase un UPDATE
+// por error, mejor que falle en desarrollo que corromper el orden de escrituras.
+func TestOpenReadOnlyRechazaEscrituras(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	escritura, err := db.Open(path)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer escritura.Close()
+
+	lectura, err := db.OpenReadOnly(path)
+	if err != nil {
+		t.Fatalf("db.OpenReadOnly: %v", err)
+	}
+	defer lectura.Close()
+
+	_, err = lectura.Exec(`INSERT INTO providers (id, type, base_url, priority, is_active, created_at, updated_at)
+	                       VALUES ('x','opensource','http://x',1,1,0,0)`)
+	if err == nil {
+		t.Error("el pool de solo lectura no debería aceptar escrituras")
 	}
 }

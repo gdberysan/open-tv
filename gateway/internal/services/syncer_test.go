@@ -128,6 +128,9 @@ func (f *fakeStreamRepo) FindBestByChannelID(context.Context, domain.ChannelID) 
 }
 func (f *fakeStreamRepo) MarkAlive(context.Context, string, int64) error { return nil }
 func (f *fakeStreamRepo) MarkDead(context.Context, string) error         { return nil }
+func (f *fakeStreamRepo) MarkBatch(context.Context, []ports.StreamHealth) error {
+	return nil
+}
 
 func (f *fakeStreamRepo) lastBatch() []domain.Stream {
 	f.mu.Lock()
