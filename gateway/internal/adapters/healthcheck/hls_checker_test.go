@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -76,10 +77,12 @@ func TestHLSChecker_CheckOne_DeadStream(t *testing.T) {
 }
 
 func TestHLSChecker_CheckBatch_ConcurrentAndBounded(t *testing.T) {
-	callCount := 0
+	// Atómico: el handler corre en una goroutine por conexión, así que un int
+	// pelado es una carrera que -race detecta.
+	var callCount atomic.Int64
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
+		callCount.Add(1)
 		time.Sleep(20 * time.Millisecond) // Simular latencia real
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(mockPlaylist))
@@ -100,6 +103,11 @@ func TestHLSChecker_CheckBatch_ConcurrentAndBounded(t *testing.T) {
 
 	if len(results) != len(urls) {
 		t.Errorf("Expected %d results, got %d", len(urls), len(results))
+	}
+	// El checker pide la playlist y además el primer segmento, así que cada URL
+	// genera más de una petición: el mínimo es una por URL.
+	if got := callCount.Load(); got < int64(len(urls)) {
+		t.Errorf("Expected at least %d requests to the origin, got %d", len(urls), got)
 	}
 }
 

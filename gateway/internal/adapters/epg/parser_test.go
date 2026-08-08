@@ -53,7 +53,7 @@ func TestParser_ParseStream(t *testing.T) {
 	if e1.Title != "Noticias" {
 		t.Errorf("e1 Title = %s, want Noticias", e1.Title)
 	}
-	
+
 	// La fecha fue parseada usando el layout de Go
 	// 20240520140000 +0200 -> 2024-05-20 14:00:00 +0200
 	if e1.StartAt.Year() != 2024 || e1.StartAt.Month() != time.May || e1.StartAt.Hour() != 14 {

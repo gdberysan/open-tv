@@ -32,7 +32,7 @@ type SportEvent struct {
 	Status      EventStatus
 	StartsAt    time.Time
 	EndsAt      time.Time
-	ChannelName string        // Canal que transmite (ej: "ESPN HD")
+	ChannelName string // Canal que transmite (ej: "ESPN HD")
 	Mirrors     []LiveStreamMirror
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
