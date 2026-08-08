@@ -23,10 +23,13 @@ func NewChannelRepository(db *sql.DB) *SQLiteChannelRepository {
 const channelColumns = ` id, tvg_id, name, logo_url, category_id, language_code, country_code,
 	provider_id, provider_type, is_adult, created_at, updated_at `
 
+// last_seen_at se sella con el mismo `now` que updated_at en cada upsert. Es lo
+// que permite a DeleteStale distinguir lo que apareció en el último sync de lo
+// que el proveedor dejó de listar.
 const upsertSQL = `
 	INSERT INTO channels (id, tvg_id, name, logo_url, category_id, language_code, country_code,
-	                      provider_id, provider_type, is_adult, created_at, updated_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	                      provider_id, provider_type, is_adult, created_at, updated_at, last_seen_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		tvg_id        = excluded.tvg_id,
 		name          = excluded.name,
@@ -34,7 +37,8 @@ const upsertSQL = `
 		category_id   = excluded.category_id,
 		language_code = excluded.language_code,
 		country_code  = excluded.country_code,
-		updated_at    = excluded.updated_at`
+		updated_at    = excluded.updated_at,
+		last_seen_at  = excluded.last_seen_at`
 
 // nullStr convierte un string vacío a NULL de SQL. Crítico para FKs opcionales
 // como category_id: SQLite permite NULL en una FK nullable, pero no string vacío.
@@ -60,11 +64,30 @@ func (r *SQLiteChannelRepository) Save(ctx context.Context, ch domain.Channel) e
 		string(ch.ID), nullStr(ch.TvgID), ch.Name, nullStr(ch.LogoURL), nullStr(ch.CategoryID),
 		nullStr(ch.LanguageCode), nullStr(ch.CountryCode),
 		ch.ProviderID, string(ch.ProviderType),
-		boolToInt(ch.IsAdult), now, now,
+		boolToInt(ch.IsAdult), now, now, now,
 	); err != nil {
 		return fmt.Errorf("db.Save (id=%s): %w", ch.ID, err)
 	}
 	return nil
+}
+
+// DeleteStale borra los canales del proveedor que no aparecieron en el último
+// sync exitoso. El ID se deriva del nombre, así que un renombrado aguas arriba
+// deja una fila huérfana que nunca se podría reproducir: el proveedor ya no la
+// conoce y /channels/stream devuelve 404. Los streams caen por ON DELETE
+// CASCADE.
+func (r *SQLiteChannelRepository) DeleteStale(ctx context.Context, providerID string, before time.Time) (int64, error) {
+	res, err := r.db.ExecContext(ctx,
+		"DELETE FROM channels WHERE provider_id = ? AND last_seen_at < ?",
+		providerID, before.Unix())
+	if err != nil {
+		return 0, fmt.Errorf("db.DeleteStale (provider=%s): %w", providerID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("db.DeleteStale (RowsAffected): %w", err)
+	}
+	return n, nil
 }
 
 // SaveBatch hace upsert de canales en una sola transacción con statement preparado.
@@ -100,7 +123,7 @@ func (r *SQLiteChannelRepository) SaveBatch(ctx context.Context, channels []doma
 			string(ch.ID), nullStr(ch.TvgID), ch.Name, nullStr(ch.LogoURL), nullStr(ch.CategoryID),
 			nullStr(ch.LanguageCode), nullStr(ch.CountryCode),
 			ch.ProviderID, string(ch.ProviderType),
-			boolToInt(ch.IsAdult), now, now,
+			boolToInt(ch.IsAdult), now, now, now,
 		); err != nil {
 			return fmt.Errorf("db.SaveBatch (Exec id=%s): %w", ch.ID, err)
 		}

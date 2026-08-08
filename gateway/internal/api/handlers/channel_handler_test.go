@@ -36,6 +36,9 @@ func (m *mockRepo) Search(ctx context.Context, query string, limit int) ([]domai
 	}, nil
 }
 func (m *mockRepo) Delete(ctx context.Context, id domain.ChannelID) error { return nil }
+func (m *mockRepo) DeleteStale(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
 
 type mockProvider struct{}
 

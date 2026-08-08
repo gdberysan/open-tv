@@ -265,3 +265,47 @@ func TestFindFilteredAliveOnlyMuestraStreamsSinChequear(t *testing.T) {
 		t.Errorf("un canal con streams sin chequear debe seguir visible; tengo %d", len(got))
 	}
 }
+
+// El ID de canal se deriva del nombre, así que un renombrado aguas arriba deja
+// huérfana la fila anterior. DeleteStale la barre tras un sync exitoso.
+func TestDeleteStaleBorraCanalesNoVistosEnElUltimoSync(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	seedChannel(t, chRepo, "viejo")
+	if err := stRepo.Save(ctx, makeStream("st-viejo", "viejo", "http://a/v.m3u8")); err != nil {
+		t.Fatalf("Save stream: %v", err)
+	}
+
+	// Frontera del sync: last_seen_at tiene resolución de segundos, así que hay
+	// que cruzar un segundo entero para que el corte distinga las dos tandas.
+	time.Sleep(1100 * time.Millisecond)
+	corte := time.Now()
+
+	seedChannel(t, chRepo, "nuevo")
+
+	n, err := chRepo.DeleteStale(ctx, "opensource", corte)
+	if err != nil {
+		t.Fatalf("DeleteStale: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("quiero 1 canal borrado, tengo %d", n)
+	}
+
+	got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{Limit: 100})
+	if err != nil {
+		t.Fatalf("FindFiltered: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "nuevo" {
+		t.Errorf("quiero solo [nuevo], tengo %d canales", len(got))
+	}
+
+	// El stream del canal borrado se va por ON DELETE CASCADE.
+	streams, err := stRepo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll: %v", err)
+	}
+	if len(streams) != 0 {
+		t.Errorf("los streams del canal borrado deben caer por cascada; quedan %d", len(streams))
+	}
+}

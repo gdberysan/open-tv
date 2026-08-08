@@ -47,9 +47,13 @@ CREATE TABLE IF NOT EXISTS channels (
     provider_type TEXT    NOT NULL CHECK (provider_type IN ('opensource')),
     is_adult      INTEGER NOT NULL DEFAULT 0 CHECK (is_adult IN (0,1)),
     created_at    INTEGER NOT NULL,
-    updated_at    INTEGER NOT NULL
+    updated_at    INTEGER NOT NULL,
+    -- Sellado en cada upsert del sync. Lo que quede por debajo del corte de un
+    -- sync exitoso es que el proveedor ya no lo lista: se poda.
+    last_seen_at  INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE INDEX IF NOT EXISTS idx_channels_last_seen ON channels(provider_id, last_seen_at);
 CREATE INDEX IF NOT EXISTS idx_channels_category ON channels(category_id);
 CREATE INDEX IF NOT EXISTS idx_channels_country  ON channels(country_code);
 CREATE INDEX IF NOT EXISTS idx_channels_provider ON channels(provider_id);

@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
 )
@@ -41,4 +42,8 @@ type ChannelRepository interface {
 	FindFiltered(ctx context.Context, f ChannelFilter) ([]domain.Channel, error)
 	Search(ctx context.Context, query string, limit int) ([]domain.Channel, error)
 	Delete(ctx context.Context, id domain.ChannelID) error
+	// DeleteStale borra los canales del proveedor cuyo last_seen_at sea anterior
+	// a before. Devuelve cuántos borró. Lo llama el Syncer tras un sync exitoso
+	// para barrer lo que el proveedor dejó de listar.
+	DeleteStale(ctx context.Context, providerID string, before time.Time) (int64, error)
 }

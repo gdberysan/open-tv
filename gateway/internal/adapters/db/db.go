@@ -83,6 +83,7 @@ func alterMigrations(db *sql.DB) error {
 	alters := []string{
 		"ALTER TABLE channels ADD COLUMN tvg_id TEXT",
 		"ALTER TABLE streams ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE channels ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0",
 	}
 	for _, stmt := range alters {
 		if _, err := db.Exec(stmt); err != nil {

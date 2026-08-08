@@ -51,9 +51,16 @@ func (f *fakeProvider) callCount() int {
 	return f.calls
 }
 
+func (f *fakeProvider) setChannels(chs []domain.Channel) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.channels = chs
+}
+
 type fakeChannelRepo struct {
-	mu      sync.Mutex
-	batches [][]domain.Channel
+	mu           sync.Mutex
+	batches      [][]domain.Channel
+	deleteStales []deleteStaleCall
 }
 
 func (f *fakeChannelRepo) Save(context.Context, domain.Channel) error { return nil }
@@ -73,6 +80,24 @@ func (f *fakeChannelRepo) Search(context.Context, string, int) ([]domain.Channel
 	return nil, nil
 }
 func (f *fakeChannelRepo) Delete(context.Context, domain.ChannelID) error { return nil }
+
+type deleteStaleCall struct {
+	providerID string
+	before     time.Time
+}
+
+func (f *fakeChannelRepo) DeleteStale(_ context.Context, providerID string, before time.Time) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleteStales = append(f.deleteStales, deleteStaleCall{providerID, before})
+	return 0, nil
+}
+
+func (f *fakeChannelRepo) staleCalls() []deleteStaleCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]deleteStaleCall(nil), f.deleteStales...)
+}
 
 func (f *fakeChannelRepo) batchCount() int {
 	f.mu.Lock()
@@ -309,5 +334,109 @@ func TestSyncer_Run_TerminaAlCancelarContexto(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run no terminó tras cancelar el contexto")
+	}
+}
+
+// ── poda y suelo de cordura ──────────────────────────────────────────────────
+
+// El ID de canal se deriva del nombre: un renombrado aguas arriba deja una fila
+// huérfana que ya no se puede reproducir. Cada sync exitoso la barre.
+func TestSyncOncePodaCanalesObsoletos(t *testing.T) {
+	prov := &fakeProvider{
+		channels: []domain.Channel{makeSyncChannel("a"), makeSyncChannel("b")},
+		urls:     map[domain.ChannelID]string{"a": "http://a/1.m3u8", "b": "http://b/1.m3u8"},
+	}
+	chRepo := &fakeChannelRepo{}
+	s := NewSyncer(nil, prov, chRepo, &fakeStreamRepo{}, Config{})
+
+	antes := time.Now()
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+
+	llamadas := chRepo.staleCalls()
+	if len(llamadas) != 1 {
+		t.Fatalf("quiero 1 llamada a DeleteStale, tengo %d", len(llamadas))
+	}
+	if llamadas[0].providerID != prov.ID() {
+		t.Errorf("providerID = %q, quiero %q", llamadas[0].providerID, prov.ID())
+	}
+	if llamadas[0].before.Before(antes) {
+		t.Errorf("el corte de poda (%v) debe ser posterior al arranque del sync (%v)",
+			llamadas[0].before, antes)
+	}
+}
+
+// Si el proveedor falla no hay catálogo con el que comparar: podar borraría
+// canales buenos por un fallo de red.
+func TestSyncOnceNoPodaSiElProveedorFalla(t *testing.T) {
+	prov := &fakeProvider{failFirst: 1}
+	chRepo := &fakeChannelRepo{}
+	s := NewSyncer(nil, prov, chRepo, &fakeStreamRepo{}, Config{})
+
+	if err := s.SyncOnce(context.Background()); err == nil {
+		t.Fatal("SyncOnce debería fallar si el proveedor falla")
+	}
+	if n := len(chRepo.staleCalls()); n != 0 {
+		t.Errorf("no se debe podar tras un sync fallido; hubo %d llamadas", n)
+	}
+}
+
+// Un 200 con una página HTML de error, un portal cautivo o un cuerpo truncado
+// produce cero canales. Sin suelo de cordura eso cuenta como sync exitoso y,
+// con la poda activa, borraría el catálogo entero.
+func TestSyncOnceRechazaUnCatalogoAnomalamentePequeno(t *testing.T) {
+	prov := &fakeProvider{
+		channels: []domain.Channel{
+			makeSyncChannel("a"), makeSyncChannel("b"), makeSyncChannel("c"), makeSyncChannel("d"),
+		},
+		urls: map[domain.ChannelID]string{
+			"a": "http://a/1.m3u8", "b": "http://b/1.m3u8",
+			"c": "http://c/1.m3u8", "d": "http://d/1.m3u8",
+		},
+	}
+	chRepo := &fakeChannelRepo{}
+	s := NewSyncer(nil, prov, chRepo, &fakeStreamRepo{}, Config{})
+
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("primer SyncOnce: %v", err)
+	}
+	llamadasTrasPrimero := len(chRepo.staleCalls())
+	lotesTrasPrimero := chRepo.batchCount()
+
+	// El proveedor ahora solo devuelve uno de los cuatro.
+	prov.setChannels([]domain.Channel{makeSyncChannel("a")})
+
+	err := s.SyncOnce(context.Background())
+	if !errors.Is(err, ErrCatalogoSospechoso) {
+		t.Fatalf("SyncOnce = %v, quiero ErrCatalogoSospechoso", err)
+	}
+	if n := len(chRepo.staleCalls()); n != llamadasTrasPrimero {
+		t.Errorf("un catálogo sospechoso no debe podar nada; llamadas nuevas: %d", n-llamadasTrasPrimero)
+	}
+	if n := chRepo.batchCount(); n != lotesTrasPrimero {
+		t.Errorf("un catálogo sospechoso no debe escribir nada; lotes nuevos: %d", n-lotesTrasPrimero)
+	}
+}
+
+// El primer sync de la vida del proceso no tiene con qué comparar.
+func TestSyncOncePrimerSyncSiempreSeAcepta(t *testing.T) {
+	prov := &fakeProvider{
+		channels: []domain.Channel{makeSyncChannel("uno")},
+		urls:     map[domain.ChannelID]string{"uno": "http://a/1.m3u8"},
+	}
+	s := NewSyncer(nil, prov, &fakeChannelRepo{}, &fakeStreamRepo{}, Config{})
+
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Errorf("el primer sync no tiene referencia previa; debe aceptarse: %v", err)
+	}
+}
+
+func makeSyncChannel(id string) domain.Channel {
+	return domain.Channel{
+		ID:           domain.ChannelID(id),
+		Name:         "Canal " + id,
+		ProviderID:   "fake",
+		ProviderType: domain.ProviderOpenSource,
 	}
 }

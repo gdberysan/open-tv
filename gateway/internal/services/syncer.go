@@ -3,6 +3,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -13,6 +14,18 @@ import (
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
 )
+
+// ErrCatalogoSospechoso se devuelve cuando el proveedor entrega muchos menos
+// canales que en el último sync aceptado. Un 200 con una página de error, un
+// portal cautivo o un cuerpo truncado produce un M3U válido pero casi vacío;
+// sin este suelo eso contaría como éxito, resetearía el backoff a la cadencia
+// normal y —con la poda activa— borraría el catálogo entero.
+var ErrCatalogoSospechoso = errors.New("catálogo anómalamente pequeño")
+
+// minRatioCatalogo es la fracción del catálogo anterior por debajo de la cual
+// un sync se rechaza. Los catálogos FTA fluctúan algo entre syncs; perder más
+// de la mitad de golpe es un fallo de la fuente, no una actualización.
+const minRatioCatalogo = 0.5
 
 // Config parametriza la cadencia del sync. Los ceros toman los defaults.
 type Config struct {
@@ -54,6 +67,11 @@ type Syncer struct {
 
 	firstDone chan struct{}
 	firstOnce sync.Once
+
+	// ultimoConteo es el número de canales del último sync aceptado. Cero
+	// significa que aún no hay referencia con la que comparar. Solo lo toca
+	// SyncOnce, que corre en serie dentro del bucle de Run.
+	ultimoConteo int
 }
 
 func NewSyncer(logger *slog.Logger, provider ports.ProviderPort, channels ports.ChannelRepository, streams ports.StreamRepository, cfg Config) *Syncer {
@@ -116,9 +134,21 @@ func (s *Syncer) syncWithTimeout(ctx context.Context) error {
 
 // SyncOnce descarga los canales del proveedor y persiste canales y streams.
 func (s *Syncer) SyncOnce(ctx context.Context) error {
+	// Frontera de la poda: todo canal cuyo last_seen_at quede por debajo de
+	// este instante es que no apareció en este sync.
+	inicio := time.Now()
+
 	channels, err := s.provider.GetLiveChannels(ctx)
 	if err != nil {
 		return fmt.Errorf("services.SyncOnce (GetLiveChannels): %w", err)
+	}
+
+	// Rechazar ANTES de escribir nada: si el catálogo es sospechoso no se hace
+	// upsert ni poda, y el backoff lo trata como el fallo que es.
+	if s.ultimoConteo > 0 &&
+		float64(len(channels)) < float64(s.ultimoConteo)*minRatioCatalogo {
+		return fmt.Errorf("services.SyncOnce: %w (recibidos %d, anterior %d)",
+			ErrCatalogoSospechoso, len(channels), s.ultimoConteo)
 	}
 
 	if err := s.channels.SaveBatch(ctx, channels); err != nil {
@@ -145,8 +175,17 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 		return fmt.Errorf("services.SyncOnce (streams): %w", err)
 	}
 
+	podados, err := s.channels.DeleteStale(ctx, s.provider.ID(), inicio)
+	if err != nil {
+		return fmt.Errorf("services.SyncOnce (poda): %w", err)
+	}
+
+	s.ultimoConteo = len(channels)
+
 	s.logger.Info("Sync completado",
-		slog.Int("canales", len(channels)), slog.Int("streams", len(streams)))
+		slog.Int("canales", len(channels)),
+		slog.Int("streams", len(streams)),
+		slog.Int64("podados", podados))
 	return nil
 }
 
