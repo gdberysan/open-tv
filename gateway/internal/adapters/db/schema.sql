@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS streams (
     protocol     TEXT    NOT NULL CHECK (protocol IN ('HLS','DASH','RTMP')),
     latency_ms   INTEGER,
     is_alive     INTEGER NOT NULL DEFAULT 0 CHECK (is_alive IN (0,1)),
+    -- Fallos consecutivos del health-check. Solo al llegar a DeadFailThreshold
+    -- se apaga is_alive: un blip de red no puede ocultar el canal una hora.
+    fail_count   INTEGER NOT NULL DEFAULT 0,
     last_checked INTEGER,
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL

@@ -299,3 +299,78 @@ func TestStreamRepository_FindBestByChannelID_SinVivos(t *testing.T) {
 		t.Error("se esperaba error cuando no hay streams vivos")
 	}
 }
+
+// Un fallo aislado (blip de red, 503 momentáneo) no debe ocultar un canal
+// durante una hora entera. Solo N fallos consecutivos lo dan por muerto.
+func TestMarkDeadRequiereFallosConsecutivos(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+	seedChannel(t, chRepo, "ch-1")
+
+	if err := stRepo.Save(ctx, makeStream("st-1", "ch-1", "http://a/1.m3u8")); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := stRepo.MarkAlive(ctx, "st-1", 120); err != nil {
+		t.Fatalf("MarkAlive: %v", err)
+	}
+
+	isAlive := func() bool {
+		t.Helper()
+		streams, err := stRepo.FindByChannelID(ctx, "ch-1")
+		if err != nil {
+			t.Fatalf("FindByChannelID: %v", err)
+		}
+		if len(streams) != 1 {
+			t.Fatalf("quiero 1 stream, tengo %d", len(streams))
+		}
+		return streams[0].IsAlive
+	}
+
+	for i := int64(1); i < db.DeadFailThreshold; i++ {
+		if err := stRepo.MarkDead(ctx, "st-1"); err != nil {
+			t.Fatalf("MarkDead #%d: %v", i, err)
+		}
+		if !isAlive() {
+			t.Fatalf("tras %d fallo(s) el stream ya está muerto; el umbral es %d", i, db.DeadFailThreshold)
+		}
+	}
+
+	if err := stRepo.MarkDead(ctx, "st-1"); err != nil {
+		t.Fatalf("MarkDead final: %v", err)
+	}
+	if isAlive() {
+		t.Errorf("tras %d fallos consecutivos el stream debería estar muerto", db.DeadFailThreshold)
+	}
+}
+
+// Un chequeo exitoso borra el historial de fallos: dos fallos hoy y uno
+// mañana no deben sumar tres.
+func TestMarkAliveReseteaElContadorDeFallos(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+	seedChannel(t, chRepo, "ch-1")
+
+	if err := stRepo.Save(ctx, makeStream("st-1", "ch-1", "http://a/1.m3u8")); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	for i := int64(1); i < db.DeadFailThreshold; i++ {
+		if err := stRepo.MarkDead(ctx, "st-1"); err != nil {
+			t.Fatalf("MarkDead #%d: %v", i, err)
+		}
+	}
+	if err := stRepo.MarkAlive(ctx, "st-1", 90); err != nil {
+		t.Fatalf("MarkAlive: %v", err)
+	}
+	if err := stRepo.MarkDead(ctx, "st-1"); err != nil {
+		t.Fatalf("MarkDead tras reset: %v", err)
+	}
+
+	streams, err := stRepo.FindByChannelID(ctx, "ch-1")
+	if err != nil {
+		t.Fatalf("FindByChannelID: %v", err)
+	}
+	if !streams[0].IsAlive {
+		t.Errorf("MarkAlive debe resetear el contador; un solo fallo posterior no puede matarlo")
+	}
+}
