@@ -63,11 +63,11 @@ iptv-ecosystem/
 │   ├── internal/
 │   │   ├── domain/                     # Entidades puras — ZERO imports externos
 │   │   ├── ports/                      # Interfaces (entrada y salida)
+│   │   ├── services/                   # Casos de uso (Syncer)
 │   │   ├── adapters/
-│   │   │   ├── db/                     # SQLite repositories
-│   │   │   ├── cache/                  # In-memory cache adapter
-│   │   │   ├── epg/                    # XMLTV streaming parser
-│   │   │   ├── failover/               # Failover entre streams del mismo canal
+│   │   │   ├── db/                     # SQLite repositories + schema.sql
+│   │   │   ├── epg/                    # XMLTV streaming parser + worker
+│   │   │   ├── validator/              # Health-check de streams (pool HEAD→GET)
 │   │   │   └── providers/
 │   │   │       └── opensource/         # IPTV-org y fuentes públicas M3U
 │   │   └── api/
@@ -76,15 +76,21 @@ iptv-ecosystem/
 │   ├── go.mod
 │   └── go.sum
 │
-├── mobile/                             # Flutter app
-│   └── lib/
-│       ├── domain/models/
-│       ├── data/repositories/
-│       └── presentation/
-│           ├── providers/
-│           └── screens/
+├── mobile/                             # Flutter app (solo target macOS activo)
+│   ├── lib/
+│   │   ├── domain/models/
+│   │   ├── data/repositories/
+│   │   └── presentation/
+│   │       ├── player/                 # PlaybackGuard
+│   │       ├── providers/
+│   │       ├── screens/
+│   │       └── widgets/
+│   └── test/
 │
+├── .github/workflows/ci.yml            # Gate: build, vet, gofmt, test, analyze
 ├── docs/adr/                           # Architecture Decision Records
+├── docs/superpowers/plans/             # Planes de implementación
+├── README.md                           # Arranque del stack y variables de entorno
 └── PROMPT_MAESTRO.md
 ```
 
@@ -193,28 +199,46 @@ type ProviderPort interface {
 
 ---
 
-## 8. ESTADO ACTUAL DEL PROYECTO (junio 2026)
+## 8. ESTADO ACTUAL DEL PROYECTO (agosto 2026)
 
 ### Completado ✓
 
 | Componente | Estado | Notas |
 |---|---|---|
 | Go gateway — Clean Architecture | ✓ | chi v5, modernc/sqlite, WAL mode |
-| IPTV-org provider (~12 000 canales FTA) | ✓ | Sync al arranque, upsert bulk |
+| IPTV-org provider (~13 500 canales FTA) | ✓ | Sync periódico con backoff, upsert bulk |
 | `FindFiltered` con calidad dinámica | ✓ | Patterns `(1080p)`, `(4K)` entre paréntesis — sin falsos positivos |
 | Flutter macOS — media_kit + libmpv | ✓ | HLS nativo |
-| Player timeout 15 s | ✓ | `stream.playing` + `stream.error` + `Timer` |
+| Player timeout 15 s + `PlaybackGuard` | ✓ | Los errores transitorios de mpv ya no matan el vídeo |
 | Filter bar (calidad + país + categoría) | ✓ | `channelFilterProvider`, `FilterChip`, picker dialog |
-| `/health` endpoint | ✓ | `{"status":"ok"}` |
+| **EPG Worker wired en `main.go`** | ✓ | Fase 6.1 (`4fbb821`). Capa de persistencia completa, no las "10 líneas" previstas |
+| **`StreamRepository` SQLite** | ✓ | Fase 7.1 (`1ec19f0`) |
+| **Stream health validator + worker** | ✓ | Fase 7.1. Pool HEAD→GET, `HEALTH_INTERVAL` default 60m |
+| **Guía EPG en Flutter** | ✓ | Fase 6.2 (`0ba8467`). Parrilla canales × slots de 30 min |
+| **Indicador de señal + toggle offline** | ✓ | Fase 7.2 (`cf98db2`) |
+| CI (GitHub Actions) | ✓ | build, vet, gofmt, test `-race`, analyze |
+| `README.md` | ✓ | Arranque del stack y tabla de variables de entorno |
+
+> ⚠️ **La Fase 6 está completa pero apagada por defecto.** `EPG_URL` es opt-in
+> y no tiene default: sin configurarla, el worker de EPG no arranca y la guía
+> sale vacía. No existe una URL XMLTV pública canónica para el catálogo de
+> IPTV-org. Ver `README.md`.
 
 ### Pendiente prioritario
 
 | Componente | Estado |
 |---|---|
-| EPG Worker wired en `main.go` | ✗ Parser existe, no conectado |
-| `StreamRepository` SQLite | ✗ Interfaz definida, sin implementación |
-| Stream health validator | ✗ Lógica existe, sin worker |
-| iOS / Android targets | ✗ Solo macOS activo |
+| iOS / Android targets | ✗ Solo macOS activo (`mobile/` no tiene `ios/` ni `android/`) |
+| Empaquetado del gateway | ✗ Se arranca a mano; sin launchd, Docker ni supervisor |
+| `/metrics` y `/health` enriquecido | ✗ Fase 10 |
+| Favoritos e historial | ✗ Fase 8; `sqflite` no está en `pubspec.yaml` |
+
+### Plan de fiabilidad en curso
+
+`docs/superpowers/plans/2026-08-08-fiabilidad-iptv.md` — 19 tareas derivadas de
+la auditoría del 2026-08-08, ordenadas por riesgo eliminado. Cubre correctitud
+del catálogo (histéresis de salud, poda de canales fantasma), robustez de la
+app (timeouts, watchdog), observabilidad y limpieza de código muerto.
 
 ---
 
@@ -304,9 +328,8 @@ type ProviderPort interface {
 
 ### Quick wins disponibles HOY (sin nueva fase)
 
-1. **Wire EPG Worker en `main.go`**: 10 líneas; el parser y tipos ya existen completos
-2. **`GET /channels/categories`**: listar categorías únicas para mejorar el picker de categorías en Flutter
-3. **`GET /channels/countries`**: listar países disponibles para reemplazar la lista hardcodeada en Flutter
+1. **`GET /channels/categories`**: listar categorías únicas para mejorar el picker de categorías en Flutter
+2. **`GET /channels/countries`**: listar países disponibles para reemplazar la lista hardcodeada en Flutter
 
 ---
 

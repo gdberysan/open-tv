@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +20,7 @@ import (
 // Mocks rápidos para los tests unitarios
 type mockRepo struct {
 	lastFilter ports.ChannelFilter
+	err        error
 }
 
 func (m *mockRepo) Save(ctx context.Context, ch domain.Channel) error              { return nil }
@@ -26,6 +30,9 @@ func (m *mockRepo) FindByID(ctx context.Context, id domain.ChannelID) (domain.Ch
 }
 func (m *mockRepo) FindFiltered(ctx context.Context, f ports.ChannelFilter) ([]domain.Channel, error) {
 	m.lastFilter = f
+	if m.err != nil {
+		return nil, m.err
+	}
 	return []domain.Channel{
 		{ID: "1", Name: "MockChannel"},
 	}, nil
@@ -36,6 +43,9 @@ func (m *mockRepo) Search(ctx context.Context, query string, limit int) ([]domai
 	}, nil
 }
 func (m *mockRepo) Delete(ctx context.Context, id domain.ChannelID) error { return nil }
+func (m *mockRepo) DeleteStale(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
 
 type mockProvider struct{}
 
@@ -72,6 +82,7 @@ func (m *mockStreamRepo) FindBestByChannelID(ctx context.Context, id domain.Chan
 }
 func (m *mockStreamRepo) MarkAlive(ctx context.Context, id string, latencyMs int64) error { return nil }
 func (m *mockStreamRepo) MarkDead(ctx context.Context, id string) error                   { return nil }
+func (m *mockStreamRepo) MarkBatch(context.Context, []ports.StreamHealth) error           { return nil }
 
 func setupRouter() http.Handler {
 	return setupRouterWith(&mockProvider{}, &mockStreamRepo{})
@@ -83,7 +94,7 @@ func setupRouterWith(provider ports.ProviderPort, streams ports.StreamRepository
 
 func setupRouterFull(repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository) http.Handler {
 	r := chi.NewRouter()
-	h := NewChannelHandler(repo, provider, streams)
+	h := NewChannelHandler(slog.New(slog.DiscardHandler), repo, provider, streams)
 	r.Get("/channels", h.GetChannels)
 	r.Get("/channels/stream", h.GetStreamURL)
 	r.Get("/channels/{id}/health", h.GetHealth)
@@ -224,5 +235,26 @@ func TestChannelHandler_GetStreamURL_SinCacheNiDB(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("status = %v, want %v", rr.Code, http.StatusNotFound)
+	}
+}
+
+// Un 500 sin rastro en los logs hace indistinguible un fallo de DB de un
+// deadline o de un WAL corrupto: el operador ve el mismo cuerpo opaco y nada
+// en la salida estructurada.
+func TestGetChannelsLogueaLaCausaDelError(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+
+	h := NewChannelHandler(logger, &mockRepo{err: errors.New("disco en llamas")},
+		&mockProvider{}, &mockStreamRepo{})
+
+	rec := httptest.NewRecorder()
+	h.GetChannels(rec, httptest.NewRequest(http.MethodGet, "/channels", nil))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, quiero 500", rec.Code)
+	}
+	if !strings.Contains(buf.String(), "disco en llamas") {
+		t.Errorf("la causa del 500 debe aparecer en los logs; log:\n%s", buf.String())
 	}
 }

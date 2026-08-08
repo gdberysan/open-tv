@@ -63,6 +63,15 @@ class ChannelListState {
 class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
   static const pageSize = 500;
 
+  /// Generación del filtro vigente. build() la incrementa; una continuación de
+  /// loadMore que vuelva de su await con una generación vieja se descarta en
+  /// vez de sobrescribir la lista del filtro nuevo. Riverpod no recrea el
+  /// notifier al re-ejecutar build(), así que el campo sobrevive al cambio —
+  /// que es justo lo que hacía posible la carrera: buscar mientras se scrollea
+  /// mostraba los canales del filtro anterior mezclados con una página del
+  /// nuevo.
+  int _generacion = 0;
+
   /// Filtro efectivo: el transitorio (búsqueda, país…) + la preferencia
   /// persistida de mostrar canales offline.
   ChannelFilter _effectiveFilter() => ref
@@ -77,8 +86,14 @@ class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
     ref.watch(showOfflineProvider);
     final repo = ref.watch(channelRepositoryProvider);
 
+    final generacion = ++_generacion;
     final page =
         await repo.getChannels(filter: _effectiveFilter(), limit: pageSize);
+    if (generacion != _generacion) {
+      // Otro build arrancó mientras este esperaba: manda el suyo.
+      return state.valueOrNull ??
+          const ChannelListState(channels: [], hasMore: false);
+    }
     return ChannelListState(
       channels: page,
       hasMore: page.length == pageSize,
@@ -91,6 +106,7 @@ class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
     final current = state.valueOrNull;
     if (current == null || !current.hasMore || current.isLoadingMore) return;
 
+    final generacion = _generacion;
     state = AsyncData(current.copyWith(isLoadingMore: true));
     try {
       final repo = ref.read(channelRepositoryProvider);
@@ -99,11 +115,13 @@ class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
         limit: pageSize,
         offset: current.channels.length,
       );
+      if (generacion != _generacion) return;
       state = AsyncData(ChannelListState(
         channels: [...current.channels, ...page],
         hasMore: page.length == pageSize,
       ));
     } catch (_) {
+      if (generacion != _generacion) return;
       // Conservar lo ya cargado; el usuario puede reintentar con más scroll
       state = AsyncData(current.copyWith(isLoadingMore: false));
     }

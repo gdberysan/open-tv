@@ -23,10 +23,13 @@ func NewChannelRepository(db *sql.DB) *SQLiteChannelRepository {
 const channelColumns = ` id, tvg_id, name, logo_url, category_id, language_code, country_code,
 	provider_id, provider_type, is_adult, created_at, updated_at `
 
+// last_seen_at se sella con el mismo `now` que updated_at en cada upsert. Es lo
+// que permite a DeleteStale distinguir lo que apareció en el último sync de lo
+// que el proveedor dejó de listar.
 const upsertSQL = `
 	INSERT INTO channels (id, tvg_id, name, logo_url, category_id, language_code, country_code,
-	                      provider_id, provider_type, is_adult, created_at, updated_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	                      provider_id, provider_type, is_adult, created_at, updated_at, last_seen_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		tvg_id        = excluded.tvg_id,
 		name          = excluded.name,
@@ -34,7 +37,8 @@ const upsertSQL = `
 		category_id   = excluded.category_id,
 		language_code = excluded.language_code,
 		country_code  = excluded.country_code,
-		updated_at    = excluded.updated_at`
+		updated_at    = excluded.updated_at,
+		last_seen_at  = excluded.last_seen_at`
 
 // nullStr convierte un string vacío a NULL de SQL. Crítico para FKs opcionales
 // como category_id: SQLite permite NULL en una FK nullable, pero no string vacío.
@@ -60,11 +64,30 @@ func (r *SQLiteChannelRepository) Save(ctx context.Context, ch domain.Channel) e
 		string(ch.ID), nullStr(ch.TvgID), ch.Name, nullStr(ch.LogoURL), nullStr(ch.CategoryID),
 		nullStr(ch.LanguageCode), nullStr(ch.CountryCode),
 		ch.ProviderID, string(ch.ProviderType),
-		boolToInt(ch.IsAdult), now, now,
+		boolToInt(ch.IsAdult), now, now, now,
 	); err != nil {
 		return fmt.Errorf("db.Save (id=%s): %w", ch.ID, err)
 	}
 	return nil
+}
+
+// DeleteStale borra los canales del proveedor que no aparecieron en el último
+// sync exitoso. El ID se deriva del nombre, así que un renombrado aguas arriba
+// deja una fila huérfana que nunca se podría reproducir: el proveedor ya no la
+// conoce y /channels/stream devuelve 404. Los streams caen por ON DELETE
+// CASCADE.
+func (r *SQLiteChannelRepository) DeleteStale(ctx context.Context, providerID string, before time.Time) (int64, error) {
+	res, err := r.db.ExecContext(ctx,
+		"DELETE FROM channels WHERE provider_id = ? AND last_seen_at < ?",
+		providerID, before.Unix())
+	if err != nil {
+		return 0, fmt.Errorf("db.DeleteStale (provider=%s): %w", providerID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("db.DeleteStale (RowsAffected): %w", err)
+	}
+	return n, nil
 }
 
 // SaveBatch hace upsert de canales en una sola transacción con statement preparado.
@@ -100,7 +123,7 @@ func (r *SQLiteChannelRepository) SaveBatch(ctx context.Context, channels []doma
 			string(ch.ID), nullStr(ch.TvgID), ch.Name, nullStr(ch.LogoURL), nullStr(ch.CategoryID),
 			nullStr(ch.LanguageCode), nullStr(ch.CountryCode),
 			ch.ProviderID, string(ch.ProviderType),
-			boolToInt(ch.IsAdult), now, now,
+			boolToInt(ch.IsAdult), now, now, now,
 		); err != nil {
 			return fmt.Errorf("db.SaveBatch (Exec id=%s): %w", ch.ID, err)
 		}
@@ -176,14 +199,21 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 		args = append(args, qargs...)
 	}
 	if f.AliveOnly {
-		// Ocultar solo canales con TODOS sus streams chequeados y muertos.
-		// Sin streams o sin chequear (last_checked NULL) siguen visibles:
-		// antes de la primera pasada del health-worker nada está "vivo".
-		where = append(where, `(
-			NOT EXISTS (SELECT 1 FROM streams s WHERE s.channel_id = channels.id)
-			OR EXISTS (SELECT 1 FROM streams s WHERE s.channel_id = channels.id
-			           AND (s.is_alive = 1 OR s.last_checked IS NULL))
-		)`)
+		// Visible mientras el canal no esté PROBADO muerto: basta con un stream
+		// vivo, o uno que aún no haya agotado DeadFailThreshold fallos
+		// consecutivos (lo que incluye los que nunca se han chequeado, con
+		// fail_count 0). Mirar solo is_alive dejaría la histéresis en nada: un
+		// stream que nunca llegó a estar vivo arranca en is_alive=0, así que su
+		// primer fallo transitorio ya lo ocultaría.
+		//
+		// Los canales SIN NINGÚN stream quedan fuera: son injugables
+		// —/channels/stream devuelve 404— y aparecen cuando el proveedor
+		// renombra un canal y deja huérfana la fila anterior.
+		where = append(where, fmt.Sprintf(`EXISTS (
+			SELECT 1 FROM streams s
+			WHERE s.channel_id = channels.id
+			  AND (s.is_alive = 1 OR s.fail_count < %d)
+		)`, DeadFailThreshold))
 	}
 
 	whereSQL := "1=1"
@@ -198,7 +228,10 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS any_alive,
 		(SELECT MIN(s.latency_ms) FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS best_latency
 		FROM channels WHERE ` + whereSQL +
-		" ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?"
+		// Desempate por id: sin él, SQLite no garantiza un orden estable entre
+		// nombres iguales, y sobre 12k canales con nombres repetidos una fila
+		// puede repetirse entre páginas u omitirse.
+		" ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?"
 	args = append(args, f.Limit, f.Offset)
 
 	rows, err := r.db.QueryContext(ctx, q, args...)

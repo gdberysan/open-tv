@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
+	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
 )
 
 type fakeStreamRepo struct {
@@ -48,6 +49,24 @@ func (f *fakeStreamRepo) MarkAlive(_ context.Context, id string, latencyMs int64
 	f.alive[id] = latencyMs
 	return nil
 }
+
+// MarkBatch delega en MarkAlive/MarkDead para que las aserciones existentes
+// sobre los mapas alive/dead sigan valiendo.
+func (f *fakeStreamRepo) MarkBatch(ctx context.Context, resultados []ports.StreamHealth) error {
+	for _, r := range resultados {
+		var err error
+		if r.IsAlive {
+			err = f.MarkAlive(ctx, r.StreamID, r.LatencyMs)
+		} else {
+			err = f.MarkDead(ctx, r.StreamID)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (f *fakeStreamRepo) MarkDead(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../data/api_error.dart';
 import '../../domain/models/channel.dart';
 import '../../domain/models/epg_entry.dart';
 import '../providers/channel_provider.dart';
@@ -85,7 +87,7 @@ class _GuideScreenState extends ConsumerState<GuideScreen> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) => Center(child: Text(ApiError.desde(e).mensaje)),
       ),
     );
   }
@@ -165,6 +167,24 @@ class _ChannelRow extends ConsumerWidget {
               ],
             AsyncData(value: final entries) => [
                 for (final e in entries) _programmeBlock(context, e),
+              ],
+            // Sin esta rama, un AsyncError caía en el `_` y se pintaba como un
+            // spinner: un fallo era indistinguible de una carga, para siempre.
+            AsyncError(:final error) => [
+                Positioned(
+                  left: _labelWidth + 8,
+                  top: 0,
+                  bottom: 0,
+                  right: 8,
+                  child: Center(
+                    child: Text(
+                      ApiError.desde(error).mensaje,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.grey, fontSize: 11),
+                    ),
+                  ),
+                ),
               ],
             _ => [
                 const Positioned(

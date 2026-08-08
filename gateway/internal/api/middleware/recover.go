@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-// Recover es un middleware que captura panics y devuelve un error 500 JSON, 
+// Recover es un middleware que captura panics y devuelve un error 500 JSON,
 // evitando que el servidor se caiga.
 func Recover(logger *slog.Logger) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

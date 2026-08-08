@@ -12,25 +12,30 @@ const (
 	ProviderOpenSource ProviderType = "opensource"
 )
 
+// Channel es además el contrato de wire con la app Flutter: los tags JSON
+// reproducen los nombres de campo de Go que la app ya lee (json['ID'],
+// json['LogoURL']…). Son explícitos a propósito — sin ellos, renombrar un
+// campo compila limpio y rompe la app en silencio.
+// Ver internal/domain/channel_test.go.
 type Channel struct {
-	ID ChannelID
+	ID ChannelID `json:"ID"`
 	// TvgID es el identificador XMLTV (tvg-id del M3U); une el canal con su EPG.
-	TvgID        string
-	Name         string
-	LogoURL      string
-	CategoryID   string
-	LanguageCode string // ISO 639-1
-	CountryCode  string // ISO 3166-1 alpha-2
-	ProviderID   string
+	TvgID        string `json:"TvgID"`
+	Name         string `json:"Name"`
+	LogoURL      string `json:"LogoURL"`
+	CategoryID   string `json:"CategoryID"`
+	LanguageCode string `json:"LanguageCode"` // ISO 639-1
+	CountryCode  string `json:"CountryCode"`  // ISO 3166-1 alpha-2
+	ProviderID   string `json:"ProviderID"`
 	// Salud agregada de los streams del canal, rellenada por FindFiltered
 	// para que la lista pinte el indicador sin N+1 a /channels/{id}/health.
 	// Alive nil = ningún stream chequeado aún.
-	Alive        *bool
-	LatencyMs    int64 // mejor latencia entre streams vivos; 0 si no aplica
-	ProviderType ProviderType
-	IsAdult      bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	Alive        *bool        `json:"Alive"`
+	LatencyMs    int64        `json:"LatencyMs"` // mejor latencia entre streams vivos; 0 si no aplica
+	ProviderType ProviderType `json:"ProviderType"`
+	IsAdult      bool         `json:"IsAdult"`
+	CreatedAt    time.Time    `json:"CreatedAt"`
+	UpdatedAt    time.Time    `json:"UpdatedAt"`
 }
 
 func (c Channel) Validate() error {

@@ -12,11 +12,15 @@ import (
 
 // EPGHandler sirve la guía de programación desde la DB local.
 type EPGHandler struct {
-	repo ports.EPGRepository
+	logger *slog.Logger
+	repo   ports.EPGRepository
 }
 
-func NewEPGHandler(repo ports.EPGRepository) *EPGHandler {
-	return &EPGHandler{repo: repo}
+func NewEPGHandler(logger *slog.Logger, repo ports.EPGRepository) *EPGHandler {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	return &EPGHandler{logger: logger, repo: repo}
 }
 
 const (
@@ -65,6 +69,7 @@ func (h *EPGHandler) GetWindow(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := h.repo.FindByChannelAndWindow(r.Context(), domain.ChannelID(channel), from, to)
 	if err != nil {
+		h.logger.Error("EPG: fallo consultando la guía", slog.Any("error", err))
 		h.writeError(w, http.StatusInternalServerError, "Error obteniendo EPG")
 		return
 	}
@@ -83,6 +88,7 @@ func (h *EPGHandler) GetByChannel(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	entries, err := h.repo.FindByChannelAndWindow(r.Context(), domain.ChannelID(id), now, now.Add(defaultEPGWindow))
 	if err != nil {
+		h.logger.Error("EPG: fallo consultando la guía", slog.Any("error", err))
 		h.writeError(w, http.StatusInternalServerError, "Error obteniendo EPG")
 		return
 	}
@@ -94,6 +100,7 @@ func (h *EPGHandler) GetByChannel(w http.ResponseWriter, r *http.Request) {
 func (h *EPGHandler) GetNow(w http.ResponseWriter, r *http.Request) {
 	entries, err := h.repo.FindCurrentlyAiring(r.Context(), time.Now())
 	if err != nil {
+		h.logger.Error("EPG: fallo consultando la guía", slog.Any("error", err))
 		h.writeError(w, http.StatusInternalServerError, "Error obteniendo EPG")
 		return
 	}

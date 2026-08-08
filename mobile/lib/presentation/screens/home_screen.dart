@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../data/api_error.dart';
 import '../../domain/models/channel.dart';
 import '../../domain/models/channel_filter.dart';
 import '../providers/channel_provider.dart';
@@ -143,7 +145,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               },
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => _EmptyState(
-                message: e.toString(),
+                message: ApiError.desde(e).mensaje,
                 icon: Icons.error_outline,
                 onRetry: () => ref.invalidate(channelListProvider),
               ),

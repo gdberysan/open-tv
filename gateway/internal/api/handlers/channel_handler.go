@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,13 +13,17 @@ import (
 )
 
 type ChannelHandler struct {
+	logger   *slog.Logger
 	repo     ports.ChannelRepository
 	provider ports.ProviderPort
 	streams  ports.StreamRepository
 }
 
-func NewChannelHandler(repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository) *ChannelHandler {
-	return &ChannelHandler{repo: repo, provider: provider, streams: streams}
+func NewChannelHandler(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository) *ChannelHandler {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	return &ChannelHandler{logger: logger, repo: repo, provider: provider, streams: streams}
 }
 
 // GetChannels aplica filtros combinados y devuelve canales paginados.
@@ -52,6 +57,7 @@ func (h *ChannelHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
 		Offset:     queryInt(r, "offset", 0, -1),
 	})
 	if err != nil {
+		h.logger.Error("GetChannels: fallo consultando el catálogo", slog.Any("error", err))
 		h.writeError(w, http.StatusInternalServerError, "Error obteniendo canales")
 		return
 	}
@@ -92,6 +98,8 @@ func (h *ChannelHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 
 	streams, err := h.streams.FindByChannelID(r.Context(), domain.ChannelID(id))
 	if err != nil {
+		h.logger.Error("GetHealth: fallo consultando streams",
+			slog.String("channel", id), slog.Any("error", err))
 		h.writeError(w, http.StatusInternalServerError, "Error obteniendo salud del canal")
 		return
 	}

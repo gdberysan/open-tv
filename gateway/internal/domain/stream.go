@@ -10,12 +10,15 @@ const (
 	ProtocolRTMP Protocol = "RTMP"
 )
 
+// Tags JSON explícitos por el mismo motivo que en Channel: congelan los
+// nombres que verían los clientes en vez de dejarlos atados al nombre del
+// campo de Go.
 type Stream struct {
-	ID          string
-	ChannelID   ChannelID
-	URL         string
-	Protocol    Protocol
-	LatencyMs   int64
-	IsAlive     bool
-	LastChecked time.Time
+	ID          string    `json:"ID"`
+	ChannelID   ChannelID `json:"ChannelID"`
+	URL         string    `json:"URL"`
+	Protocol    Protocol  `json:"Protocol"`
+	LatencyMs   int64     `json:"LatencyMs"`
+	IsAlive     bool      `json:"IsAlive"`
+	LastChecked time.Time `json:"LastChecked"`
 }

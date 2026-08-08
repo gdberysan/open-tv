@@ -217,3 +217,136 @@ func itoa(n int) string {
 	}
 	return string(buf)
 }
+
+// Un canal sin ninguna fila en streams es injugable: /channels/stream
+// devuelve 404 al pulsarlo. No debe listarse cuando AliveOnly está activo.
+func TestFindFilteredAliveOnlyOcultaCanalesSinStreams(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	seedChannel(t, chRepo, "con-stream")
+	seedChannel(t, chRepo, "sin-stream")
+
+	if err := stRepo.Save(ctx, makeStream("st-1", "con-stream", "http://a/1.m3u8")); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{AliveOnly: true, Limit: 100})
+	if err != nil {
+		t.Fatalf("FindFiltered: %v", err)
+	}
+
+	for _, ch := range got {
+		if ch.ID == "sin-stream" {
+			t.Errorf("el canal sin streams no debería listarse con AliveOnly")
+		}
+	}
+	if len(got) != 1 || got[0].ID != "con-stream" {
+		t.Errorf("quiero solo [con-stream], tengo %d canales", len(got))
+	}
+}
+
+// Antes de la primera pasada del health-worker nada está "vivo". Un canal con
+// streams sin chequear debe seguir visible para no vaciar la app al arrancar.
+func TestFindFilteredAliveOnlyMuestraStreamsSinChequear(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	seedChannel(t, chRepo, "sin-chequear")
+	if err := stRepo.Save(ctx, makeStream("st-1", "sin-chequear", "http://a/1.m3u8")); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{AliveOnly: true, Limit: 100})
+	if err != nil {
+		t.Fatalf("FindFiltered: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("un canal con streams sin chequear debe seguir visible; tengo %d", len(got))
+	}
+}
+
+// El ID de canal se deriva del nombre, así que un renombrado aguas arriba deja
+// huérfana la fila anterior. DeleteStale la barre tras un sync exitoso.
+func TestDeleteStaleBorraCanalesNoVistosEnElUltimoSync(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	seedChannel(t, chRepo, "viejo")
+	if err := stRepo.Save(ctx, makeStream("st-viejo", "viejo", "http://a/v.m3u8")); err != nil {
+		t.Fatalf("Save stream: %v", err)
+	}
+
+	// Frontera del sync: last_seen_at tiene resolución de segundos, así que hay
+	// que cruzar un segundo entero para que el corte distinga las dos tandas.
+	time.Sleep(1100 * time.Millisecond)
+	corte := time.Now()
+
+	seedChannel(t, chRepo, "nuevo")
+
+	n, err := chRepo.DeleteStale(ctx, "opensource", corte)
+	if err != nil {
+		t.Fatalf("DeleteStale: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("quiero 1 canal borrado, tengo %d", n)
+	}
+
+	got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{Limit: 100})
+	if err != nil {
+		t.Fatalf("FindFiltered: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "nuevo" {
+		t.Errorf("quiero solo [nuevo], tengo %d canales", len(got))
+	}
+
+	// El stream del canal borrado se va por ON DELETE CASCADE.
+	streams, err := stRepo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll: %v", err)
+	}
+	if len(streams) != 0 {
+		t.Errorf("los streams del canal borrado deben caer por cascada; quedan %d", len(streams))
+	}
+}
+
+// Sin desempate, dos canales con el mismo nombre pueden salir en distinto
+// orden entre dos queries independientes: una fila se repite en una página y
+// desaparece de la otra.
+func TestFindFilteredPaginacionEstableConNombresRepetidos(t *testing.T) {
+	ctx := context.Background()
+	repo := openTestDB(t)
+
+	// 6 canales, todos con el mismo nombre: solo el ID los distingue.
+	for _, id := range []string{"f", "e", "d", "c", "b", "a"} {
+		ch := makeChannel(id, "Canal Duplicado", "ES", "news")
+		if err := repo.Save(ctx, ch); err != nil {
+			t.Fatalf("Save(%s): %v", id, err)
+		}
+	}
+
+	var vistos []string
+	for offset := 0; offset < 6; offset += 2 {
+		page, err := repo.FindFiltered(ctx, ports.ChannelFilter{Limit: 2, Offset: offset})
+		if err != nil {
+			t.Fatalf("FindFiltered(offset=%d): %v", offset, err)
+		}
+		for _, ch := range page {
+			vistos = append(vistos, string(ch.ID))
+		}
+	}
+
+	if len(vistos) != 6 {
+		t.Fatalf("quiero 6 filas paginadas, tengo %d", len(vistos))
+	}
+	unicos := map[string]bool{}
+	for _, id := range vistos {
+		if unicos[id] {
+			t.Errorf("el canal %q apareció en dos páginas distintas", id)
+		}
+		unicos[id] = true
+	}
+	if len(unicos) != 6 {
+		t.Errorf("la paginación omitió canales: %d únicos de 6", len(unicos))
+	}
+}

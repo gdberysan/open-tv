@@ -13,10 +13,21 @@ import (
 //go:embed schema.sql
 var schemaFS embed.FS
 
-// Open abre o crea la base de datos SQLite, aplica PRAGMAs, migra el esquema
-// y siembra los providers por defecto. Listo para usar tras retornar.
+// pragmaDSN son los PRAGMAs que toda conexión debe tener. Van en el DSN, no en
+// un Exec posterior: son estado POR CONEXIÓN y el driver los reaplica en cada
+// conexión que abre el pool. Con db.Exec solo se configuraría la conexión que
+// el pool entregue en ese momento, y cualquier conexión nueva arrancaría con
+// foreign_keys en su default (OFF), perdiendo las cascadas en silencio.
+const pragmaDSN = "_pragma=journal_mode(WAL)" +
+	"&_pragma=synchronous(NORMAL)" +
+	"&_pragma=cache_size(-32000)" +
+	"&_pragma=foreign_keys(1)" +
+	"&_pragma=busy_timeout(5000)"
+
+// Open abre o crea la base de datos SQLite, migra el esquema y siembra los
+// providers por defecto. Listo para usar tras retornar.
 func Open(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", "file:"+path+"?"+pragmaDSN)
 	if err != nil {
 		return nil, fmt.Errorf("db.Open: %w", err)
 	}
@@ -25,10 +36,6 @@ func Open(path string) (*sql.DB, error) {
 	// internamente. Una sola conexión abierta evita errores SQLITE_BUSY en MVP.
 	db.SetMaxOpenConns(1)
 
-	if err := applyPragmas(db); err != nil {
-		db.Close()
-		return nil, err
-	}
 	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, err
@@ -37,25 +44,7 @@ func Open(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := seedUserAgents(db); err != nil {
-		db.Close()
-		return nil, err
-	}
 	return db, nil
-}
-
-func applyPragmas(db *sql.DB) error {
-	for _, p := range []string{
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA synchronous   = NORMAL",
-		"PRAGMA cache_size    = -32000",
-		"PRAGMA foreign_keys  = ON",
-	} {
-		if _, err := db.Exec(p); err != nil {
-			return fmt.Errorf("db.applyPragmas (%s): %w", p, err)
-		}
-	}
-	return nil
 }
 
 // migrate ejecuta el esquema sentencia por sentencia.
@@ -71,7 +60,7 @@ func migrate(db *sql.DB) error {
 	if err := alterMigrations(db); err != nil {
 		return err
 	}
-	for _, stmt := range strings.Split(string(schema), ";") {
+	for _, stmt := range strings.Split(stripSQLComments(string(schema)), ";") {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
 			continue
@@ -87,12 +76,34 @@ func migrate(db *sql.DB) error {
 	return nil
 }
 
+// stripSQLComments quita los comentarios de línea antes de trocear el esquema
+// por ";". Sin esto, un ";" dentro de un comentario —p.ej. "(nunca se
+// escribieron ni se leyeron); ..."— parte la sentencia por la mitad y deja un
+// fragmento de prosa que SQLite intenta ejecutar. Pasó de verdad.
+//
+// Limitación conocida: no distingue un "--" dentro de un literal de cadena.
+// El esquema no tiene ninguno; si algún día lo tiene, hará falta un troceador
+// de sentencias en condiciones.
+func stripSQLComments(s string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		if i := strings.Index(line, "--"); i >= 0 {
+			line = line[:i]
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
 // alterMigrations añade columnas a tablas de DBs creadas con un esquema
 // anterior. Idempotente: tolera columna duplicada (ya migrada) y tabla
 // inexistente (DB nueva; el CREATE TABLE posterior ya incluye la columna).
 func alterMigrations(db *sql.DB) error {
 	alters := []string{
 		"ALTER TABLE channels ADD COLUMN tvg_id TEXT",
+		"ALTER TABLE streams ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE channels ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0",
 	}
 	for _, stmt := range alters {
 		if _, err := db.Exec(stmt); err != nil {
@@ -102,27 +113,6 @@ func alterMigrations(db *sql.DB) error {
 				continue
 			}
 			return fmt.Errorf("db.alterMigrations (%s): %w", stmt, err)
-		}
-	}
-	return nil
-}
-
-// seedUserAgents inserta el pool inicial de User-Agents para el health-checker.
-// Se mantiene en Go (no en schema.sql) para evitar conflictos con ";" dentro de strings.
-func seedUserAgents(db *sql.DB) error {
-	agents := []struct{ id, ua, typ string }{
-		{"ua-1", "VLC/3.0.20 LibVLC/3.0.20", "media_player"},
-		{"ua-2", "ExoPlayer/2.18.0 (Linux; Android 13)", "media_player"},
-		{"ua-3", "Lavf/58.76.100", "media_player"},
-		{"ua-4", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", "browser"},
-		{"ua-5", "HLS.js/1.4.0 (env: production)", "media_player"},
-	}
-	for _, a := range agents {
-		if _, err := db.Exec(
-			`INSERT OR IGNORE INTO user_agents (id, ua_string, ua_type) VALUES (?, ?, ?)`,
-			a.id, a.ua, a.typ,
-		); err != nil {
-			return fmt.Errorf("db.seedUserAgents (%s): %w", a.id, err)
 		}
 	}
 	return nil
@@ -144,4 +134,32 @@ func seedProviders(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// OpenReadOnly abre un pool de SOLO LECTURA sobre la misma DB. En WAL los
+// lectores no bloquean al escritor ni viceversa, pero el pool de escritura está
+// limitado a una conexión para evitar SQLITE_BUSY; si los handlers compartieran
+// ese pool, cada lectura se encolaría detrás de la escritura en curso —medido:
+// 760ms de espera tras una transacción de 800ms, y un SaveBatch de 13.8k
+// canales ocupa la conexión 167ms.
+//
+// Asume que Open ya creó y migró la DB.
+func OpenReadOnly(path string) (*sql.DB, error) {
+	dsn := "file:" + path + "?mode=ro" +
+		"&_pragma=busy_timeout(5000)" +
+		"&_pragma=foreign_keys(1)" +
+		"&_pragma=cache_size(-32000)"
+
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("db.OpenReadOnly: %w", err)
+	}
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("db.OpenReadOnly (Ping): %w", err)
+	}
+	return db, nil
 }
