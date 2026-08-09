@@ -20,13 +20,19 @@ class ApiError implements Exception {
     if (error is TimeoutException) {
       return const ApiError('El gateway tardó demasiado en responder.');
     }
-    if (error is SocketException) {
-      return const ApiError('Sin conexión de red.');
-    }
+    // ClientException va ANTES que SocketException y el orden no es cosmético:
+    // package:http envuelve los fallos de socket en una _ClientSocketException
+    // que extiende ClientException e implementa SocketException a la vez. Con
+    // el orden inverso, el gateway caído —el fallo más común con diferencia,
+    // porque no se arranca solo— se anunciaba como "Sin conexión de red." y
+    // mandaba a mirar el router en vez del puerto 8080.
     if (error is http.ClientException) {
       return const ApiError(
         'No se pudo contactar con el gateway. ¿Está arrancado en el puerto 8080?',
       );
+    }
+    if (error is SocketException) {
+      return const ApiError('Sin conexión de red.');
     }
     return const ApiError('Ha ocurrido un error inesperado.');
   }
