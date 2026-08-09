@@ -776,6 +776,8 @@ casa). Commit.
 
 # FASE 6 — Verificación end-to-end
 
+### Task 11: Comprobar contra datos reales y fusionar
+
 - [ ] **Step 1: Datos del gateway**
 
 ```bash
