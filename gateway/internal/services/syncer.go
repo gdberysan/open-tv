@@ -92,8 +92,8 @@ func NewSyncer(logger *slog.Logger, provider ports.ProviderPort, channels ports.
 }
 
 // FirstSyncDone se cierra tras el primer sync exitoso. Permite a trabajos
-// dependientes (p.ej. el worker EPG, que necesita tvg_id en DB) esperar a
-// que exista el catálogo de canales antes de arrancar.
+// dependientes (hoy el health-worker, que necesita el catálogo de streams)
+// esperar a que exista el catálogo antes de arrancar.
 func (s *Syncer) FirstSyncDone() <-chan struct{} {
 	return s.firstDone
 }

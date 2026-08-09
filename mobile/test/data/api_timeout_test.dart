@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 
 import 'package:iptv_ecosystem/data/api_error.dart';
 import 'package:iptv_ecosystem/data/repositories/channel_repository.dart';
-import 'package:iptv_ecosystem/data/repositories/epg_repository.dart';
 
 /// Cliente que acepta la petición y no responde jamás: reproduce un gateway
 /// que acepta el TCP y se queda colgado, que es el caso que la app no cubría.
@@ -39,18 +38,5 @@ void main() {
       timeout: const Duration(milliseconds: 50),
     );
     expect(() => repo.getStreamUrl('ch-1'), throwsA(tardo));
-  });
-
-  test('el EPG aborta si el gateway no responde', () {
-    final repo = EPGRepository(
-      baseUrl: 'http://127.0.0.1:9',
-      client: ClienteQueNuncaResponde(),
-      timeout: const Duration(milliseconds: 50),
-    );
-    expect(
-      () => repo.getForChannel('ch-1',
-          from: DateTime(2026), to: DateTime(2026, 1, 2)),
-      throwsA(tardo),
-    );
   });
 }

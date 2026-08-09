@@ -40,7 +40,7 @@ func makeStream(id, channelID, url string) domain.Stream {
 	}
 }
 
-// El tvg_id une canales con su EPG XMLTV: debe sobrevivir el roundtrip a DB.
+// De tvg_id se deriva el país del canal, así que debe sobrevivir el roundtrip.
 func TestChannelRepository_PersisteTvgID(t *testing.T) {
 	chRepo, _ := openStreamTestRepos(t)
 	ctx := context.Background()

@@ -1,6 +1,6 @@
 /// Configuración de acceso al gateway, compartida por todos los repositorios.
 ///
-/// Vivía duplicada en channel_repository.dart y epg_repository.dart.
+/// Vivía duplicada en cada repositorio antes de centralizarla aquí.
 class ApiConfig {
   const ApiConfig._();
 
