@@ -1,5 +1,5 @@
-name: iptv_ecosystem
-description: "Ecosistema IPTV Cliente Mobile"
+name: korven_open_tv
+description: "Korven Open TV — televisión abierta, del núcleo a la obra."
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -24,3 +24,18 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Fuentes de marca empaquetadas, no vía google_fonts: ese paquete descarga en
+  # el primer arranque, lo que en una app de escritorio es una dependencia de
+  # red innecesaria y un parpadeo tipográfico. Son fuentes variables, así que un
+  # fichero por familia cubre todos los pesos del sistema.
+  fonts:
+    - family: SpaceGrotesk
+      fonts:
+        - asset: assets/fonts/SpaceGrotesk.ttf
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter.ttf
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono.ttf

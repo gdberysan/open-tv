@@ -4,9 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:iptv_ecosystem/data/repositories/channel_repository.dart';
-import 'package:iptv_ecosystem/domain/models/channel.dart';
-import 'package:iptv_ecosystem/domain/models/channel_filter.dart';
+import 'package:korven_open_tv/data/repositories/channel_repository.dart';
+import 'package:korven_open_tv/domain/models/channel.dart';
+import 'package:korven_open_tv/domain/models/channel_filter.dart';
 
 void main() {
   // Captura la request y responde con el body dado.
@@ -126,10 +126,10 @@ void main() {
 
       final channels = await repo.getChannels();
 
-      expect(channels, hasLength(1));
-      expect(channels.first.id, 'opensource-BBC One');
-      expect(channels.first.name, 'BBC One');
-      expect(channels.first.countryCode, 'GB');
+      expect(channels.channels, hasLength(1));
+      expect(channels.channels.first.id, 'opensource-BBC One');
+      expect(channels.channels.first.name, 'BBC One');
+      expect(channels.channels.first.countryCode, 'GB');
     });
 
     test('el gateway puede devolver null (sin resultados)', () async {
@@ -139,9 +139,9 @@ void main() {
         client: clientRespondiendo('null'),
       );
 
-      final channels = await repo.getChannels();
+      final page = await repo.getChannels();
 
-      expect(channels, isEmpty);
+      expect(page.channels, isEmpty);
     });
 
     test('lanza en respuesta no-200', () async {
@@ -161,5 +161,33 @@ void main() {
       expect(ch.name, 'Unknown');
       expect(ch.logoUrl, '');
     });
+  });
+
+  test('lee el total de la cabecera X-Total-Count', () async {
+    final repo = ChannelRepository(
+      baseUrl: 'http://x',
+      client: MockClient((req) async => http.Response(
+            '[]',
+            200,
+            headers: {'x-total-count': '1284'},
+          )),
+    );
+
+    final page = await repo.getChannels();
+    expect(page.total, 1284);
+  });
+
+  test('sin la cabecera, el total cae al número de canales recibidos', () async {
+    final repo = ChannelRepository(
+      baseUrl: 'http://x',
+      client: MockClient((req) async => http.Response(
+            '[{"ID":"a","Name":"A"}]',
+            200,
+          )),
+    );
+
+    // Degradación honesta: mejor un total bajo que un crash o un cero falso.
+    final page = await repo.getChannels();
+    expect(page.total, 1);
   });
 }

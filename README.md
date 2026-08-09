@@ -1,7 +1,9 @@
-# Ecosistema IPTV
+# Korven Open TV
 
 Agregador y reproductor de televisión abierta (FTA) desde fuentes públicas
 tipo IPTV-org. Gateway en Go + app Flutter para macOS.
+
+Una obra de [Korven](https://korven.dev) — *del núcleo a la obra*.
 
 Sin canales premium, sin VPN, sin geo-bypass, sin credenciales de terceros.
 

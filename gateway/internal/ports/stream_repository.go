@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
+	"github.com/gdberysan/open-tv/gateway/internal/domain"
 )
 
 // StreamHealth es el resultado de un chequeo de salud listo para persistir.

@@ -13,11 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/db"
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/providers/opensource"
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/validator"
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/api"
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/services"
+	"github.com/gdberysan/open-tv/gateway/internal/adapters/db"
+	"github.com/gdberysan/open-tv/gateway/internal/adapters/providers/opensource"
+	"github.com/gdberysan/open-tv/gateway/internal/adapters/validator"
+	"github.com/gdberysan/open-tv/gateway/internal/api"
+	"github.com/gdberysan/open-tv/gateway/internal/services"
 )
 
 func main() {

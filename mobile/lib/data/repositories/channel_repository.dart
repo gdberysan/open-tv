@@ -5,8 +5,17 @@ import '../api_error.dart';
 import '../../domain/models/channel.dart';
 import '../../domain/models/channel_filter.dart';
 
+/// Una página de canales más el total de coincidencias del filtro. El total lo
+/// da el gateway en X-Total-Count; sin él, la app solo sabría cuántos lleva
+/// cargados y el contador de la barra de filtros mentiría.
+class ChannelPage {
+  const ChannelPage({required this.channels, required this.total});
+  final List<Channel> channels;
+  final int total;
+}
+
 abstract class IChannelRepository {
-  Future<List<Channel>> getChannels({
+  Future<ChannelPage> getChannels({
     ChannelFilter filter = const ChannelFilter(),
     int limit,
     int offset,
@@ -52,7 +61,7 @@ class ChannelRepository implements IChannelRepository {
   }
 
   @override
-  Future<List<Channel>> getChannels({
+  Future<ChannelPage> getChannels({
     ChannelFilter filter = const ChannelFilter(),
     int limit = 500,
     int offset = 0,
@@ -72,9 +81,13 @@ class ChannelRepository implements IChannelRepository {
     if (response.statusCode == 200) {
       // El gateway (Go) serializa un slice nil como `null`, no como `[]`
       final data = json.decode(response.body) as List<dynamic>? ?? const [];
-      return data
-          .map((j) => Channel.fromJson(j as Map<String, dynamic>))
-          .toList();
+      final canales =
+          data.map((j) => Channel.fromJson(j as Map<String, dynamic>)).toList();
+      // Sin la cabecera caemos a lo recibido: mejor un total bajo que un cero
+      // falso o un crash si el gateway es de una versión anterior.
+      final total = int.tryParse(response.headers['x-total-count'] ?? '') ??
+          canales.length;
+      return ChannelPage(channels: canales, total: total);
     }
     throw ApiError.deRespuesta(response.statusCode, _detalleDeError(response));
   }

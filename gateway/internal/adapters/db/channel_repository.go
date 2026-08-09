@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
+	"github.com/gdberysan/open-tv/gateway/internal/domain"
+	"github.com/gdberysan/open-tv/gateway/internal/ports"
 )
 
 // SQLiteChannelRepository implementa ports.ChannelRepository sobre SQLite.
@@ -174,11 +174,11 @@ func (r *SQLiteChannelRepository) FindByID(ctx context.Context, id domain.Channe
 	return ch, nil
 }
 
-// FindFiltered aplica filtros combinados (país, categoría, calidad, texto) en una
-// sola query dinámica. Es el método principal que usa el handler /channels.
-func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.ChannelFilter) ([]domain.Channel, error) {
-	f = f.Normalize()
-
+// buildChannelWhere arma la cláusula WHERE compartida por FindFiltered y
+// CountFiltered. Vive en un solo sitio a propósito: si los dos construyeran el
+// filtro por su cuenta, el contador acabaría discrepando de la lista y la app
+// mostraría un número que no corresponde a lo que enseña.
+func buildChannelWhere(f ports.ChannelFilter) (string, []any) {
 	var where []string
 	var args []any
 
@@ -191,7 +191,10 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 		args = append(args, f.Country)
 	}
 	if f.Category != "" {
-		where = append(where, "category_id = ?")
+		// NOCASE: las categorías de IPTV-org vienen capitalizadas ("News"), y un
+		// filtro sensible a mayúsculas devolvía cero ante lo que cualquiera
+		// teclearía en minúsculas.
+		where = append(where, "category_id = ? COLLATE NOCASE")
 		args = append(args, f.Category)
 	}
 	if clause, qargs := qualityWhereClause(f.MinQuality); clause != "" {
@@ -202,9 +205,7 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 		// Visible mientras el canal no esté PROBADO muerto: basta con un stream
 		// vivo, o uno que aún no haya agotado DeadFailThreshold fallos
 		// consecutivos (lo que incluye los que nunca se han chequeado, con
-		// fail_count 0). Mirar solo is_alive dejaría la histéresis en nada: un
-		// stream que nunca llegó a estar vivo arranca en is_alive=0, así que su
-		// primer fallo transitorio ya lo ocultaría.
+		// fail_count 0). Mirar solo is_alive dejaría la histéresis en nada.
 		//
 		// Los canales SIN NINGÚN stream quedan fuera: son injugables
 		// —/channels/stream devuelve 404— y aparecen cuando el proveedor
@@ -216,10 +217,32 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 		)`, DeadFailThreshold))
 	}
 
-	whereSQL := "1=1"
-	if len(where) > 0 {
-		whereSQL = strings.Join(where, " AND ")
+	if len(where) == 0 {
+		return "1=1", args
 	}
+	return strings.Join(where, " AND "), args
+}
+
+// CountFiltered devuelve cuántos canales casan con el filtro, ignorando
+// paginación. Lo consume la barra de filtros de la app: sin esto solo sabría
+// cuántos canales lleva cargados, y el contador diría "500" con 12000 detrás.
+func (r *SQLiteChannelRepository) CountFiltered(ctx context.Context, f ports.ChannelFilter) (int, error) {
+	f = f.Normalize()
+	whereSQL, args := buildChannelWhere(f)
+
+	var n int
+	if err := r.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM channels WHERE "+whereSQL, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("db.CountFiltered: %w", err)
+	}
+	return n, nil
+}
+
+// FindFiltered aplica filtros combinados (país, categoría, calidad, texto) en una
+// sola query dinámica. Es el método principal que usa el handler /channels.
+func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.ChannelFilter) ([]domain.Channel, error) {
+	f = f.Normalize()
+	whereSQL, args := buildChannelWhere(f)
 
 	// Salud agregada incrustada: la lista pinta el indicador de señal sin
 	// N+1 requests a /channels/{id}/health.

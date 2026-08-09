@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
+	"github.com/gdberysan/open-tv/gateway/internal/domain"
 )
 
 // La app Flutter lee estas claves literalmente (mobile/lib/domain/models/

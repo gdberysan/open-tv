@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
+	"github.com/gdberysan/open-tv/gateway/internal/ports"
 )
 
 // Worker ejecuta el health-check periódico de streams: valida cada URL con

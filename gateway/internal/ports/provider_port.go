@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
+	"github.com/gdberysan/open-tv/gateway/internal/domain"
 )
 
 // ProviderPort es el contrato que toda fuente de datos debe cumplir.

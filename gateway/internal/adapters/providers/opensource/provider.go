@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
+	"github.com/gdberysan/open-tv/gateway/internal/domain"
 )
 
 // Provider implementa ports.ProviderPort para listas M3U públicas (IPTV-org).

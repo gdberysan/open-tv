@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/db"
+	"github.com/gdberysan/open-tv/gateway/internal/adapters/db"
 )
 
 type fakeSyncStatus struct{ last time.Time }

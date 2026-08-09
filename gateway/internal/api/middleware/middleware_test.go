@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/api/middleware"
+	"github.com/gdberysan/open-tv/gateway/internal/api/middleware"
 )
 
 // El limitador es un semáforo global: al llenarse debe responder 429 en vez de

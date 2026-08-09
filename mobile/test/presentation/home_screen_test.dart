@@ -3,9 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:iptv_ecosystem/presentation/providers/channel_provider.dart';
-import 'package:iptv_ecosystem/presentation/screens/home_screen.dart';
-import 'package:iptv_ecosystem/presentation/widgets/signal_bars.dart';
+import 'package:korven_open_tv/domain/models/channel_filter.dart';
+import 'package:korven_open_tv/presentation/providers/channel_provider.dart';
+import 'package:korven_open_tv/presentation/screens/home_screen.dart';
+import 'package:korven_open_tv/presentation/widgets/signal_bars.dart';
 
 import 'channel_list_notifier_test.dart' show FakeRepo;
 
@@ -108,10 +109,14 @@ void main() {
         reason: 'el notifier debe haber registrado el error');
 
     // Bajar hasta el final, donde vive la fila de error.
+    // Paso grande y margen de iteraciones: la fila de error vive al final de
+    // 500 filas, y depender de la altura exacta de cada una hace el test
+    // frágil ante cualquier cambio de diseño.
     await tester.dragUntilVisible(
       find.text('Reintentar'),
       find.byType(ListView),
-      const Offset(0, -600),
+      const Offset(0, -3000),
+      maxIteration: 200,
     );
     await tester.pumpAndSettle();
 
@@ -124,5 +129,60 @@ void main() {
     expect(container.read(channelListProvider).requireValue.loadMoreError,
         isNull,
         reason: 'reintentar con éxito debe limpiar el error');
+  });
+
+  testWidgets('la barra muestra el lockup de marca', (tester) async {
+    await pumpHome(tester, FakeRepo(total: 4));
+
+    expect(find.text('RVEN'), findsOneWidget);
+    expect(find.text('open tv'), findsOneWidget);
+    // El título de plantilla ya no está.
+    expect(find.text('IPTV'), findsNothing);
+  });
+
+  testWidgets('el toggle de offline se pinta ámbar solo cuando está activo',
+      (tester) async {
+    await pumpHome(tester, FakeRepo(total: 4));
+
+    Color colorDelIcono(String tooltip) {
+      final icon = tester.widget<Icon>(
+        find.descendant(
+            of: find.byTooltip(tooltip), matching: find.byType(Icon)),
+      );
+      return icon.color!;
+    }
+
+    final apagado = colorDelIcono('Mostrar canales offline');
+    await tester.tap(find.byTooltip('Mostrar canales offline'));
+    await tester.pumpAndSettle();
+    final encendido = colorDelIcono('Ocultar canales offline');
+
+    expect(apagado, isNot(encendido),
+        reason: 'el estado activo tiene que distinguirse, y en ámbar');
+  });
+
+  testWidgets('con filtros activos y cero resultados culpa a los filtros, no al sync',
+      (tester) async {
+    await pumpHome(tester, FakeRepo(total: 0));
+
+    final container =
+        ProviderScope.containerOf(tester.element(find.byType(HomeScreen)));
+    container.read(channelFilterProvider.notifier).state =
+        const ChannelFilter(country: 'ZZ');
+    await tester.pumpAndSettle();
+
+    expect(find.text('// sin resultados'), findsOneWidget);
+    expect(find.textContaining('filtros'), findsWidgets);
+    // El mensaje viejo culpaba siempre al sync, incluso cuando el problema era
+    // que los filtros no casaban.
+    expect(find.textContaining('sincronizado'), findsNothing);
+  });
+
+  testWidgets('sin filtros y cero resultados sí culpa al catálogo',
+      (tester) async {
+    await pumpHome(tester, FakeRepo(total: 0));
+
+    expect(find.text('// catálogo vacío'), findsOneWidget);
+    expect(find.textContaining('sincronizado'), findsOneWidget);
   });
 }

@@ -1,4 +1,4 @@
-# PROMPT MAESTRO — Ecosistema IPTV Open-Source
+# PROMPT MAESTRO — Korven Open TV
 > **Versión:** 3.0 | **Herramienta objetivo:** Claude Code CLI | **Modo:** Iterativo por fases
 
 ---

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/db"
+	"github.com/gdberysan/open-tv/gateway/internal/adapters/db"
 )
 
 // Los PRAGMAs son por conexión. Si se aplican con db.Exec sobre el pool solo

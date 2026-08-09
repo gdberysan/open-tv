@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:iptv_ecosystem/presentation/widgets/signal_bars.dart';
+import 'package:korven_open_tv/presentation/widgets/signal_bars.dart';
 
 void main() {
   Future<void> pump(WidgetTester tester, bool? alive, int latencyMs) {

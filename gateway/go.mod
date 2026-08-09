@@ -1,4 +1,4 @@
-module github.com/tu-org/iptv-ecosystem/gateway
+module github.com/gdberysan/open-tv/gateway
 
 go 1.25.0
 

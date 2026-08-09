@@ -1,7 +1,7 @@
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:iptv_ecosystem/presentation/player/playback_guard.dart';
+import 'package:korven_open_tv/presentation/player/playback_guard.dart';
 
 void main() {
   PlaybackGuard guard({required List<String> fatals}) => PlaybackGuard(

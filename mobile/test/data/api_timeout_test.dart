@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
-import 'package:iptv_ecosystem/data/api_error.dart';
-import 'package:iptv_ecosystem/data/repositories/channel_repository.dart';
+import 'package:korven_open_tv/data/api_error.dart';
+import 'package:korven_open_tv/data/repositories/channel_repository.dart';
 
 /// Cliente que acepta la petición y no responde jamás: reproduce un gateway
 /// que acepta el TCP y se queda colgado, que es el caso que la app no cubría.
