@@ -51,9 +51,24 @@ final class AirPlaySession: NSObject {
     NSLog("[airplay] %@", msg)
   }
 
+  /// URL cargada ahora mismo, para no reiniciar lo que ya está sonando.
+  private var urlActual: String?
+
   func start(url: String, title: String) {
+    // Volver a pedir el canal que ya se está reproduciendo lo mataba: start
+    // empieza por limpiar el item, así que tres toques seguidos en la misma
+    // fila descargaban el vídeo justo después de que quedara listo. Se veía en
+    // el log como readyToPlay → play() seguido de timeControl=0.
+    // Un reintento tras un fallo sí debe pasar: por eso se exige que esté
+    // reproduciéndose de verdad, no solo cargada.
+    if url == urlActual, player.currentItem != nil, player.timeControlStatus == .playing {
+      log("start ignorado: \(url) ya se está reproduciendo")
+      return
+    }
+
     log("start url=\(url)")
     limpiarItem()
+    urlActual = url
 
     guard let u = URL(string: url) else {
       emitir(["type": "status", "state": "failed",
@@ -113,6 +128,7 @@ final class AirPlaySession: NSObject {
     player.replaceCurrentItem(with: nil)
     observacionesItem.forEach { $0.invalidate() }
     observacionesItem.removeAll()
+    urlActual = nil
   }
 
   /// Distingue "este stream no lo puedo decodificar" de "no llegué al servidor".
