@@ -36,6 +36,7 @@ final class AirPlayPlugin: NSObject, FlutterStreamHandler {
         result(FlutterError(code: "args", message: "url requerida", details: nil))
         return
       }
+      NSLog("[airplay] Dart pidió start")
       sesionViva().start(url: url, title: args["title"] as? String ?? "")
       result(nil)
     case "stop":
@@ -69,6 +70,8 @@ final class AirPlayPlugin: NSObject, FlutterStreamHandler {
     // reproductor daba una dependencia circular en la que la sesión no salía
     // nunca de idle. Ver RouteName.
     RouteName.observar { [weak self] esAirPlay, nombre in
+      NSLog("[airplay] ruta cambia: airplay=%@ nombre=%@",
+            String(esAirPlay), nombre ?? "nil")
       var evento: [String: Any] = ["type": "route", "active": esAirPlay]
       if let nombre = nombre { evento["name"] = nombre }
       self?.sink?(evento)

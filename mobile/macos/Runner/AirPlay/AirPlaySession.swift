@@ -13,7 +13,14 @@ final class AirPlaySession: NSObject {
     self.emitir = emitir
   }
 
+  /// Diagnóstico de la emisión. Se deja encendido a propósito mientras la capa
+  /// nativa no tenga cobertura de CI: es la única ventana que hay sobre ella.
+  private func log(_ msg: String) {
+    NSLog("[airplay] %@", msg)
+  }
+
   func start(url: String, title: String) {
+    log("start url=\(url)")
     stop()
 
     guard let u = URL(string: url) else {
@@ -37,9 +44,17 @@ final class AirPlaySession: NSObject {
       guard let self = self else { return }
       switch it.status {
       case .readyToPlay:
+        self.log("item readyToPlay → play(); allowsExternalPlayback=\(p.allowsExternalPlayback) externalPlaybackActive=\(p.isExternalPlaybackActive)")
         p.play()
+        // El desvío al receptor no es inmediato. Esta comprobación diferida es
+        // la que dice si macOS llegó a descargar el vídeo en el televisor o si
+        // se quedó reproduciendo en local con el audio enrutado.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+          self?.log("a los 3s: externalPlaybackActive=\(p.isExternalPlaybackActive) timeControlStatus=\(p.timeControlStatus.rawValue)")
+        }
       case .failed:
         let err = it.error
+        self.log("item FAILED: \(err?.localizedDescription ?? "sin descripción")")
         self.emitir([
           "type": "status", "state": "failed",
           "error": err?.localizedDescription ?? "Fallo de reproducción",
