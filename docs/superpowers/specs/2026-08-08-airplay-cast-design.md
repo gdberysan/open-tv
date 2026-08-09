@@ -126,7 +126,7 @@ E/S.
 
 | Fichero | Responsabilidad |
 |---|---|
-| `internal/adapters/validator/codecs.go` | Clasificador puro de manifiestos. Sin E/S. |
+| `internal/domain/airplay.go` | Clasificador puro de manifiestos. Sin E/S. Vive en `domain`, no en `validator`, porque lo consumen tanto el validador (adaptador) como el handler (api): dejarlo en un adaptador obligaría a `api` a importar `adapters`, una dependencia lateral que rompe el primer pilar del proyecto. |
 | `internal/adapters/validator/checker.go` | Aprovecha el GET de fallback para clasificar gratis. |
 | `internal/adapters/db/` | Columna `airplay_ok`, migración, lectura y escritura del veredicto. |
 | `internal/api/handlers/channel_handler.go` | Expone el veredicto. |
