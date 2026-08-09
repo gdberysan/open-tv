@@ -11,10 +11,6 @@ final class AirPlayPlugin: NSObject, FlutterStreamHandler {
   private static var instancia: AirPlayPlugin?
 
   static func register(with registrar: FlutterPluginRegistrar) {
-    registrar.register(
-      RoutePickerFactory(),
-      withId: "dev.korven.opentv/route-picker")
-
     let plugin = AirPlayPlugin()
     instancia = plugin
 
@@ -45,6 +41,13 @@ final class AirPlayPlugin: NSObject, FlutterStreamHandler {
     case "stop":
       session?.stop()
       result(nil)
+    case "showRoutePicker":
+      let args = call.arguments as? [String: Any]
+      let abierto = RoutePicker.mostrar(
+        x: args?["x"] as? Double ?? 0,
+        y: args?["y"] as? Double ?? 0,
+        lado: args?["lado"] as? Double ?? 28)
+      result(abierto)
     default:
       result(FlutterMethodNotImplemented)
     }

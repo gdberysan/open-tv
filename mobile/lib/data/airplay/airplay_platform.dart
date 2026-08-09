@@ -37,6 +37,19 @@ abstract interface class AirplayPlatform {
   Stream<AirplayEvent> get events;
   Future<void> start({required String url, required String title});
   Future<void> stop();
+
+  /// Abre el selector de rutas del sistema, anclado a (x, y) en píxeles
+  /// lógicos. Devuelve false si no se pudo abrir.
+  ///
+  /// El botón lo dibuja Flutter y el popover lo abre la capa nativa porque
+  /// AppKitView no sirve: Flutter no implementa el reenvío de gestos a vistas
+  /// de plataforma en macOS (flutter/flutter#128519), así que un
+  /// AVRoutePickerView incrustado se dibuja pero nunca recibe un clic.
+  Future<bool> showRoutePicker({
+    required double x,
+    required double y,
+    required double lado,
+  });
 }
 
 class MethodChannelAirplay implements AirplayPlatform {
@@ -56,6 +69,18 @@ class MethodChannelAirplay implements AirplayPlatform {
 
   @override
   Future<void> stop() => _metodos.invokeMethod<void>('stop');
+
+  @override
+  Future<bool> showRoutePicker({
+    required double x,
+    required double y,
+    required double lado,
+  }) async =>
+      await _metodos.invokeMethod<bool>(
+        'showRoutePicker',
+        {'x': x, 'y': y, 'lado': lado},
+      ) ??
+      false;
 
   static AirplayEvent? _traducir(dynamic raw) {
     if (raw is! Map) return null;

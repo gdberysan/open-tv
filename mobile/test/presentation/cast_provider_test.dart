@@ -30,6 +30,18 @@ class FakeAirplayPlatform implements AirplayPlatform {
     paradas++;
   }
 
+  int selectoresAbiertos = 0;
+
+  @override
+  Future<bool> showRoutePicker({
+    required double x,
+    required double y,
+    required double lado,
+  }) async {
+    selectoresAbiertos++;
+    return true;
+  }
+
   void emitir(AirplayEvent e) => _ctrl.add(e);
   void cerrar() => _ctrl.close();
 }

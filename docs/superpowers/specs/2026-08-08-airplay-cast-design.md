@@ -279,10 +279,46 @@ terminada», no «desconectado», o se leerá como un fallo.
 
 ### 6.1 `AirplayButton`
 
-`AppKitView` envolviendo el `AVRoutePickerView` real, encajado en 28×28 dentro de
-`actions` del `AppBar` de `HomeScreen` y de `PlayerScreen`, teñido con
-`setRoutePickerButtonColor(_:for:)` en el acento Korven. En targets que no son
-macOS colapsa a `SizedBox.shrink()`, de modo que la Fase 9 compila sin tocarlo.
+> **Corregido el 2026-08-09, tras verlo fallar en la app.** Este apartado decía
+> incrustar el `AVRoutePickerView` con `AppKitView` y afirmaba que
+> «hitTestBehavior.opaque, que es el valor por defecto, ya deja que los clics
+> lleguen al NSView». **Es falso, y se afirmó sin comprobarlo.** Flutter no
+> implementa el reenvío de gestos a vistas de plataforma en macOS:
+> `RenderAppKitView.updateGestureRecognizers`, en
+> `rendering/platform_view.dart:489`, tiene el cuerpo vacío y un TODO que apunta
+> a flutter/flutter#128519. La vista de Apple se dibujaba correctamente y no
+> recibía un solo clic. `AppKitView` sirve para mostrar un `NSView`, no para
+> hacerlo interactivo.
+
+Un `IconButton` normal de Flutter, de 40×40 con icono de 18, en `actions` del
+`AppBar` de `PlayerScreen` y en `leadingActions` de la `ConsoleBar`. Mudo por
+defecto y ámbar solo con sesión activa, según la regla del sistema de diseño —
+lo que de paso lo alinea con el resto de acciones de la barra, cosa que el
+glifo con estilo propio de Apple no hacía.
+
+Al pulsarlo llama a `showRoutePicker(x, y, lado)` con sus coordenadas globales.
+La capa nativa mantiene un `AVRoutePickerView` real en la jerarquía, colocado
+**debajo** de la vista de Flutter —tapado, pero dispuesto, que es lo que el
+popover necesita para anclarse— y pulsa por código su `AVRoutePickerButton`
+interno, que es un `NSButton`, con `performClick(nil)`.
+
+`performClick` es API pública de AppKit. Lo único inferido es que dentro del
+`AVRoutePickerView` hay un `NSButton`, comprobado ejecutando un binario de
+sondeo contra AVKit:
+
+```
+AVRoutePickerView
+  AVRoutePickerButton   <-- NSButton
+    _NSCoreHostingView<AppKitButton>
+```
+
+Se busca por tipo y recursivamente, no por índice: la jerarquía es de Apple y
+puede cambiar. Si algún día no aparece, `showRoutePicker` devuelve `false` y la
+app lo dice con un aviso, en vez de dejar un botón que parece roto — que es
+exactamente el síntoma que destapó todo esto.
+
+En targets que no son macOS colapsa a `SizedBox.shrink()`, de modo que la Fase 9
+compila sin tocarlo y CI, que corre en Linux, nunca llama al canal.
 
 ### 6.2 `CastBar`
 
@@ -402,6 +438,7 @@ Ningún test toca un `MethodChannel` real, así que CI sigue verde en Ubuntu
 | 4 | Permiso de red local en macOS 15+ | Media | AVFoundation enruta vía demonio del sistema, así que probablemente no haya diálogo. **Verificar en el punto 1 de §8.3 antes de dar por buena la fase.** |
 | 5 | El sondeo bajo demanda añade latencia al primer casteo de cada canal | Baja | Presupuesto de ~1 s; si expira, devuelve `null` y la URL sale igual. Nunca bloquea la emisión. |
 | 6 | La ruta del sistema sigue activa tras ⏹ | Baja | Es comportamiento de Apple, no un bug. Se nombra en la UI (§5). |
+| 7 | La jerarquía interna de `AVRoutePickerView` cambia y desaparece el `NSButton` (§6.1) | Baja | Búsqueda recursiva por tipo, no por índice. Si no aparece, `showRoutePicker` devuelve `false` y la app avisa en vez de fingir. |
 
 ---
 
