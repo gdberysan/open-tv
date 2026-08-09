@@ -29,7 +29,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'IPTV Ecosystem',
+      title: 'Korven Open TV',
       theme: korvenTheme(),
       home: const HomeScreen(),
     );
