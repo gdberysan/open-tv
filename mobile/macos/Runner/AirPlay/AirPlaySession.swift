@@ -57,14 +57,11 @@ final class AirPlaySession: NSObject {
       self.emitir(["type": "status", "state": "playing", "formatError": false])
     })
 
-    observaciones.append(p.observe(\.isExternalPlaybackActive, options: [.new]) { [weak self] pl, _ in
-      guard let self = self else { return }
-      var evento: [String: Any] = ["type": "route", "active": pl.isExternalPlaybackActive]
-      if let nombre = RouteName.salidaPorDefecto() {
-        evento["name"] = nombre
-      }
-      self.emitir(evento)
-    })
+    // Aquí NO se observa isExternalPlaybackActive. El estado de la ruta lo
+    // publica RouteName vía CoreAudio, y tener dos fuentes que pueden
+    // contradecirse es peor que tener una: este observador emite `active:
+    // false` en el hueco entre crear el AVPlayer y que la reproducción se
+    // desvíe al receptor, lo que tumbaría la sesión a idle justo al empezar.
   }
 
   func stop() {
