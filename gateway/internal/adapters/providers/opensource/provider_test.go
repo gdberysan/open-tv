@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
+	"github.com/gdberysan/open-tv/gateway/internal/domain"
 )
 
 const mockM3U = `#EXTM3U

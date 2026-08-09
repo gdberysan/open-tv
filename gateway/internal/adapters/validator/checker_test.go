@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/validator"
+	"github.com/gdberysan/open-tv/gateway/internal/adapters/validator"
 )
 
 // Los orígenes IPTV rotos responden a un HEAD escribiendo cuerpo igualmente.

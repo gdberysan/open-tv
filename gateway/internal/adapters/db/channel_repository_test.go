@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/db"
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/domain"
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
+	"github.com/gdberysan/open-tv/gateway/internal/adapters/db"
+	"github.com/gdberysan/open-tv/gateway/internal/domain"
+	"github.com/gdberysan/open-tv/gateway/internal/ports"
 )
 
 func openTestDB(t *testing.T) *db.SQLiteChannelRepository {

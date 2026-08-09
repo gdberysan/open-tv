@@ -8,9 +8,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/api/handlers"
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/api/middleware"
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/ports"
+	"github.com/gdberysan/open-tv/gateway/internal/api/handlers"
+	"github.com/gdberysan/open-tv/gateway/internal/api/middleware"
+	"github.com/gdberysan/open-tv/gateway/internal/ports"
 )
 
 func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer handlers.SyncStatus) http.Handler {
