@@ -52,12 +52,24 @@ class FilterBar extends ConsumerWidget {
                 const TextSpan(text: 'filtros', style: KorvenType.monoLabel),
               ])),
               const SizedBox(width: KorvenSpacing.s4),
+              // Los favoritos son un filtro más, así que van con los filtros y
+              // no en una pantalla aparte.
+              KorvenChip(
+                key: const Key('chip-favoritos'),
+                label: '★ favoritos',
+                active: filtro.onlyFavorites,
+                onTap: () =>
+                    aplicar(filtro.copyWith(onlyFavorites: !filtro.onlyFavorites)),
+              ),
+              const SizedBox(width: KorvenSpacing.s3),
               if (filtro.query.isNotEmpty)
-                KorvenChip(
-                  label: 'busca: ${filtro.query}',
-                  active: true,
-                  removeTooltip: 'Quitar la búsqueda',
-                  onRemove: () => aplicar(filtro.copyWith(query: '')),
+                Flexible(
+                  child: KorvenChip(
+                    label: 'busca: ${filtro.query}',
+                    active: true,
+                    removeTooltip: 'Quitar la búsqueda',
+                    onRemove: () => aplicar(filtro.copyWith(query: '')),
+                  ),
                 ),
               const Spacer(),
               if (filtro.hasActiveFilters)

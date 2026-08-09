@@ -19,8 +19,13 @@ abstract class IChannelRepository {
     ChannelFilter filter = const ChannelFilter(),
     int limit,
     int offset,
+    List<String>? ids,
   });
   Future<String> getStreamUrl(String channelId);
+
+  /// Un canal al azar que case con el filtro. Lo resuelve el gateway: sortear
+  /// entre las páginas cargadas sesgaría hacia el principio del catálogo.
+  Future<Channel> getRandomChannel(ChannelFilter filter);
 }
 
 class ChannelRepository implements IChannelRepository {
@@ -65,6 +70,7 @@ class ChannelRepository implements IChannelRepository {
     ChannelFilter filter = const ChannelFilter(),
     int limit = 500,
     int offset = 0,
+    List<String>? ids,
   }) async {
     final params = <String, String>{
       'limit': '$limit',
@@ -75,6 +81,7 @@ class ChannelRepository implements IChannelRepository {
     if (filter.category.isNotEmpty) params['category'] = filter.category;
     if (filter.query.isNotEmpty) params['q'] = filter.query;
     if (filter.showOffline) params['alive'] = 'all';
+    if (ids != null && ids.isNotEmpty) params['ids'] = ids.join(',');
 
     final response = await _get(_endpoint('/channels', params));
 
@@ -104,4 +111,21 @@ class ChannelRepository implements IChannelRepository {
     }
     throw ApiError.deRespuesta(response.statusCode, _detalleDeError(response));
   }
+
+  @override
+  Future<Channel> getRandomChannel(ChannelFilter filter) async {
+    final params = <String, String>{};
+    if (filter.quality.isNotEmpty) params['quality'] = filter.quality;
+    if (filter.country.isNotEmpty) params['country'] = filter.country;
+    if (filter.category.isNotEmpty) params['category'] = filter.category;
+    if (filter.query.isNotEmpty) params['q'] = filter.query;
+
+    final response = await _get(_endpoint('/channels/random', params));
+    if (response.statusCode == 200) {
+      return Channel.fromJson(
+          json.decode(response.body) as Map<String, dynamic>);
+    }
+    throw ApiError.deRespuesta(response.statusCode, _detalleDeError(response));
+  }
 }
+

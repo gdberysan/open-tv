@@ -7,6 +7,8 @@ import '../../data/api_error.dart';
 import '../../domain/models/channel.dart';
 import '../../domain/models/channel_filter.dart';
 import '../providers/channel_provider.dart';
+import '../providers/view_mode_provider.dart';
+import '../widgets/channel_grid.dart';
 import '../widgets/channel_row.dart';
 import '../widgets/console_bar.dart';
 import '../widgets/filter_bar.dart';
@@ -74,10 +76,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  void _abrirCanal(BuildContext context, Channel ch) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          channelId: ch.id,
+          channelName: ch.name,
+          countryCode: ch.countryCode,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _canalAleatorio() async {
+    try {
+      final ch = await ref.read(randomChannelProvider)();
+      if (!mounted) return;
+      _abrirCanal(context, ch);
+    } catch (e) {
+      if (!mounted) return;
+      // Con filtros imposibles el gateway responde 404; decirlo es mejor que
+      // no hacer nada al pulsar.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiError.desde(e).mensaje)),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final listAsync = ref.watch(channelListProvider);
     final filter = ref.watch(channelFilterProvider);
+    final modo = ref.watch(viewModeProvider);
 
     return Scaffold(
       appBar: ConsoleBar(
@@ -89,6 +119,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         showOffline: ref.watch(showOfflineProvider),
         onToggleOffline: () => ref.read(showOfflineProvider.notifier).toggle(),
         onReload: () => ref.invalidate(channelListProvider),
+        gridMode: modo == ViewMode.grid,
+        onToggleView: () => ref.read(viewModeProvider.notifier).toggle(),
+        onRandom: _canalAleatorio,
       ),
       body: Column(
         children: [
@@ -122,15 +155,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
                         );
                 }
+                // isLoadingMore, no hasMore: el spinner giraba siempre que
+                // hubiera más páginas, cargando o no.
+                if (modo == ViewMode.grid) {
+                  return ChannelGrid(
+                    channels: state.channels,
+                    showTailLoader: state.isLoadingMore,
+                    loadMoreError: state.loadMoreError,
+                    onRetry: () =>
+                        ref.read(channelListProvider.notifier).loadMore(),
+                    controller: _scrollCtrl,
+                    onSelect: (ch) => _abrirCanal(context, ch),
+                  );
+                }
                 return _ChannelList(
                   channels: state.channels,
-                  // isLoadingMore, no hasMore: el spinner giraba siempre que
-                  // hubiera más páginas, cargando o no.
                   showTailLoader: state.isLoadingMore,
                   loadMoreError: state.loadMoreError,
                   onRetry: () =>
                       ref.read(channelListProvider.notifier).loadMore(),
                   controller: _scrollCtrl,
+                  onSelect: (ch) => _abrirCanal(context, ch),
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -158,6 +203,7 @@ class _ChannelList extends StatelessWidget {
   final String? loadMoreError;
   final VoidCallback? onRetry;
   final ScrollController controller;
+  final void Function(Channel) onSelect;
 
   const _ChannelList({
     required this.channels,
@@ -165,6 +211,7 @@ class _ChannelList extends StatelessWidget {
     this.loadMoreError,
     this.onRetry,
     required this.controller,
+    required this.onSelect,
   });
 
   @override
@@ -206,18 +253,7 @@ class _ChannelList extends StatelessWidget {
           );
         }
         final ch = channels[i];
-        return ChannelRow(
-          channel: ch,
-          onTap: () => Navigator.of(ctx).push(
-            MaterialPageRoute(
-              builder: (_) => PlayerScreen(
-                channelId: ch.id,
-                channelName: ch.name,
-                countryCode: ch.countryCode,
-              ),
-            ),
-          ),
-        );
+        return ChannelRow(channel: ch, onTap: () => onSelect(ch));
       },
     );
   }

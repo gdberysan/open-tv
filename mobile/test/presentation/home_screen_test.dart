@@ -6,13 +6,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:korven_open_tv/domain/models/channel_filter.dart';
 import 'package:korven_open_tv/presentation/providers/channel_provider.dart';
 import 'package:korven_open_tv/presentation/screens/home_screen.dart';
+import 'package:korven_open_tv/presentation/widgets/channel_card.dart';
+import 'package:korven_open_tv/presentation/widgets/channel_row.dart';
 import 'package:korven_open_tv/presentation/widgets/signal_bars.dart';
 
 import 'channel_list_notifier_test.dart' show FakeRepo;
 
 void main() {
-  Future<void> pumpHome(WidgetTester tester, FakeRepo repo) async {
-    SharedPreferences.setMockInitialValues({});
+  // La rejilla es la vista por defecto; los tests que van sobre la lista la
+  // piden explícitamente por la preferencia persistida.
+  Future<void> pumpHome(WidgetTester tester, FakeRepo repo,
+      {String vista = 'grid'}) async {
+    SharedPreferences.setMockInitialValues({'view_mode': vista});
     final prefs = await SharedPreferences.getInstance();
     await tester.pumpWidget(
       ProviderScope(
@@ -94,7 +99,7 @@ void main() {
   testWidgets('una página fallida muestra fila de error y deja reintentar',
       (tester) async {
     final repo = FakeRepo(total: 1200);
-    await pumpHome(tester, repo);
+    await pumpHome(tester, repo, vista: 'list');
 
     final container =
         ProviderScope.containerOf(tester.element(find.byType(HomeScreen)));
@@ -184,5 +189,33 @@ void main() {
 
     expect(find.text('// catálogo vacío'), findsOneWidget);
     expect(find.textContaining('sincronizado'), findsOneWidget);
+  });
+
+  testWidgets('el toggle de vista alterna entre rejilla y lista',
+      (tester) async {
+    await pumpHome(tester, FakeRepo(total: 8));
+    expect(find.byType(ChannelCard), findsWidgets);
+    expect(find.byType(ChannelRow), findsNothing);
+
+    await tester.tap(find.byKey(const Key('accion-vista')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ChannelRow), findsWidgets);
+    expect(find.byType(ChannelCard), findsNothing);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('view_mode'), 'list');
+  });
+
+  testWidgets('si el aleatorio falla lo dice en vez de no hacer nada',
+      (tester) async {
+    final repo = FakeRepo(total: 20)..failRandom = true;
+    await pumpHome(tester, repo);
+
+    await tester.tap(find.byKey(const Key('accion-aleatorio')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(SnackBar), findsOneWidget);
   });
 }

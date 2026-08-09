@@ -18,6 +18,9 @@ class ConsoleBar extends StatelessWidget implements PreferredSizeWidget {
     required this.showOffline,
     required this.onToggleOffline,
     required this.onReload,
+    required this.gridMode,
+    required this.onToggleView,
+    required this.onRandom,
   });
 
   final bool searching;
@@ -28,6 +31,9 @@ class ConsoleBar extends StatelessWidget implements PreferredSizeWidget {
   final bool showOffline;
   final VoidCallback onToggleOffline;
   final VoidCallback onReload;
+  final bool gridMode;
+  final VoidCallback onToggleView;
+  final VoidCallback onRandom;
 
   @override
   Size get preferredSize => const Size.fromHeight(60);
@@ -76,6 +82,21 @@ class ConsoleBar extends StatelessWidget implements PreferredSizeWidget {
               onPressed: onOpenSearch,
             ),
             _AccionBarra(
+              key: const Key('accion-aleatorio'),
+              icon: Icons.shuffle,
+              tooltip: 'Canal aleatorio',
+              onPressed: onRandom,
+            ),
+            _AccionBarra(
+              key: const Key('accion-vista'),
+              // El icono anuncia el destino, no el estado actual: en rejilla
+              // ofrece la lista. Por eso no lleva ámbar — no hay nada activo
+              // que señalar, es un modo con dos caras iguales.
+              icon: gridMode ? Icons.view_list : Icons.grid_view,
+              tooltip: gridMode ? 'Ver como lista' : 'Ver como rejilla',
+              onPressed: onToggleView,
+            ),
+            _AccionBarra(
               icon: showOffline ? Icons.visibility : Icons.visibility_off,
               tooltip: showOffline
                   ? 'Ocultar canales offline'
@@ -98,6 +119,7 @@ class ConsoleBar extends StatelessWidget implements PreferredSizeWidget {
 
 class _AccionBarra extends StatelessWidget {
   const _AccionBarra({
+    super.key,
     required this.icon,
     required this.tooltip,
     required this.onPressed,

@@ -137,4 +137,43 @@ void main() {
     await _pump(tester, FakeRepo(total: 1200));
     expect(find.textContaining('1200'), findsOneWidget);
   });
+
+  testWidgets('el chip de favoritos activa y desactiva el filtro',
+      (tester) async {
+    final container = await _pump(tester, FakeRepo(total: 20));
+    expect(container.read(channelFilterProvider).onlyFavorites, isFalse);
+
+    await tester.tap(find.byKey(const Key('chip-favoritos')));
+    await tester.pumpAndSettle();
+    expect(container.read(channelFilterProvider).onlyFavorites, isTrue);
+
+    await tester.tap(find.byKey(const Key('chip-favoritos')));
+    await tester.pumpAndSettle();
+    expect(container.read(channelFilterProvider).onlyFavorites, isFalse);
+  });
+
+  testWidgets('los favoritos cuentan como filtro activo', (tester) async {
+    // Si no contaran, "limpiar" no aparecería y el usuario se quedaría
+    // encerrado en sus favoritos sin salida evidente.
+    final container = await _pump(tester, FakeRepo(total: 20));
+    expect(find.text('limpiar'), findsNothing);
+
+    container.read(channelFilterProvider.notifier).state =
+        const ChannelFilter(onlyFavorites: true);
+    await tester.pumpAndSettle();
+
+    expect(find.text('limpiar'), findsOneWidget);
+  });
+
+  testWidgets('una búsqueda larga no desborda la barra', (tester) async {
+    final container = await _pump(tester, FakeRepo(total: 20));
+
+    container.read(channelFilterProvider.notifier).state = const ChannelFilter(
+        query: 'un nombre de canal absurdamente largo que nadie escribiría '
+            'pero que la barra tiene que aguantar sin romperse');
+    await tester.pumpAndSettle();
+
+    // Un desbordamiento de RenderFlex se reporta como excepción del framework.
+    expect(tester.takeException(), isNull);
+  });
 }

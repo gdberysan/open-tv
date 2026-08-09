@@ -58,9 +58,15 @@ class _KorvenChipState extends State<KorvenChip> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(widget.label,
-                  style:
-                      KorvenType.mono.copyWith(fontSize: 13, color: texto)),
+              // Flexible + ellipsis: la etiqueta de búsqueda lleva dentro lo que
+              // haya escrito el usuario y sin esto desborda la barra.
+              Flexible(
+                child: Text(widget.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        KorvenType.mono.copyWith(fontSize: 13, color: texto)),
+              ),
               if (widget.onRemove != null) ...[
                 const SizedBox(width: KorvenSpacing.s2),
                 Tooltip(
