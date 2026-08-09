@@ -24,8 +24,11 @@ final class AirPlaySession: NSObject {
 
     let item = AVPlayerItem(url: u)
     let p = AVPlayer(playerItem: item)
+    // allowsExternalPlayback es toda la API en macOS. El acompañante
+    // usesExternalPlaybackWhileExternalScreenIsActive existe solo en iOS: allí
+    // distingue emitir de espejar una pantalla conectada, distinción que macOS
+    // no tiene.
     p.allowsExternalPlayback = true
-    p.usesExternalPlaybackWhileExternalScreenIsActive = true
     player = p
 
     emitir(["type": "status", "state": "loading", "formatError": false])
