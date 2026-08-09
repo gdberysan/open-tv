@@ -89,4 +89,40 @@ void main() {
 
     expect(find.text('Canal Par 0'), findsOneWidget);
   });
+
+  testWidgets('una página fallida muestra fila de error y deja reintentar',
+      (tester) async {
+    final repo = FakeRepo(total: 1200);
+    await pumpHome(tester, repo);
+
+    final container =
+        ProviderScope.containerOf(tester.element(find.byType(HomeScreen)));
+
+    // Provocar el fallo de la siguiente página.
+    repo.failNext = true;
+    await container.read(channelListProvider.notifier).loadMore();
+    await tester.pumpAndSettle();
+
+    expect(container.read(channelListProvider).requireValue.loadMoreError,
+        isNotNull,
+        reason: 'el notifier debe haber registrado el error');
+
+    // Bajar hasta el final, donde vive la fila de error.
+    await tester.dragUntilVisible(
+      find.text('Reintentar'),
+      find.byType(ListView),
+      const Offset(0, -600),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reintentar'), findsOneWidget,
+        reason: 'el fallo de página debe ser visible, no un spinner eterno');
+
+    await tester.tap(find.text('Reintentar'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(channelListProvider).requireValue.loadMoreError,
+        isNull,
+        reason: 'reintentar con éxito debe limpiar el error');
+  });
 }

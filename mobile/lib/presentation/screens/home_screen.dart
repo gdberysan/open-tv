@@ -38,8 +38,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   void _onScroll() {
-    // Cargar la siguiente página cuando queda poco por debajo del viewport
+    // Cargar la siguiente página cuando queda poco por debajo del viewport.
+    // Con un error pendiente no se reintenta solo: el scroll dispara este
+    // callback en cada frame y machacaría el gateway. El reintento es
+    // explícito, con el botón de la fila de error.
     if (_scrollCtrl.position.extentAfter < 600) {
+      final estado = ref.read(channelListProvider).valueOrNull;
+      if (estado?.loadMoreError != null) return;
       ref.read(channelListProvider.notifier).loadMore();
     }
   }
@@ -131,7 +136,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 }
                 return _ChannelList(
                   channels: state.channels,
-                  showTailLoader: state.hasMore,
+                  // isLoadingMore, no hasMore: el spinner giraba siempre que
+                  // hubiera más páginas, cargando o no.
+                  showTailLoader: state.isLoadingMore,
+                  loadMoreError: state.loadMoreError,
+                  onRetry: () =>
+                      ref.read(channelListProvider.notifier).loadMore(),
                   controller: _scrollCtrl,
                 );
               },
@@ -154,11 +164,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 class _ChannelList extends StatelessWidget {
   final List<Channel> channels;
   final bool showTailLoader;
+  final String? loadMoreError;
+  final VoidCallback? onRetry;
   final ScrollController controller;
 
   const _ChannelList({
     required this.channels,
     required this.showTailLoader,
+    this.loadMoreError,
+    this.onRetry,
     required this.controller,
   });
 
@@ -166,9 +180,29 @@ class _ChannelList extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView.builder(
       controller: controller,
-      itemCount: channels.length + (showTailLoader ? 1 : 0),
+      itemCount: channels.length + (showTailLoader || loadMoreError != null ? 1 : 0),
       itemBuilder: (ctx, i) {
         if (i >= channels.length) {
+          if (loadMoreError != null) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+              child: Column(
+                children: [
+                  Text(
+                    loadMoreError!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('Reintentar'),
+                  ),
+                ],
+              ),
+            );
+          }
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 16),
             child: Center(

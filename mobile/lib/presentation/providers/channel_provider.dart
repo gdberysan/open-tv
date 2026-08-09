@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/models/channel.dart';
 import '../../domain/models/channel_filter.dart';
+import '../../data/api_error.dart';
 import '../../data/repositories/channel_repository.dart';
 
 final channelRepositoryProvider = Provider<IChannelRepository>((ref) {
@@ -42,21 +43,33 @@ class ChannelListState {
   final bool hasMore;
   final bool isLoadingMore;
 
+  /// Mensaje legible del último fallo al cargar página, o null si no lo hubo.
+  /// Antes el error se descartaba con un `catch (_)`, así que la lista se
+  /// quedaba con un spinner girando sin que nadie supiera que había fallado.
+  final String? loadMoreError;
+
   const ChannelListState({
     required this.channels,
     required this.hasMore,
     this.isLoadingMore = false,
+    this.loadMoreError,
   });
 
+  /// [clearError] hace falta porque `null` en un parámetro opcional significa
+  /// "no cambiar", así que sin él no habría forma de limpiar loadMoreError.
   ChannelListState copyWith({
     List<Channel>? channels,
     bool? hasMore,
     bool? isLoadingMore,
+    String? loadMoreError,
+    bool clearError = false,
   }) =>
       ChannelListState(
         channels: channels ?? this.channels,
         hasMore: hasMore ?? this.hasMore,
         isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+        loadMoreError:
+            clearError ? null : (loadMoreError ?? this.loadMoreError),
       );
 }
 
@@ -107,7 +120,8 @@ class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
     if (current == null || !current.hasMore || current.isLoadingMore) return;
 
     final generacion = _generacion;
-    state = AsyncData(current.copyWith(isLoadingMore: true));
+    state = AsyncData(
+        current.copyWith(isLoadingMore: true, clearError: true));
     try {
       final repo = ref.read(channelRepositoryProvider);
       final page = await repo.getChannels(
@@ -120,10 +134,14 @@ class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
         channels: [...current.channels, ...page],
         hasMore: page.length == pageSize,
       ));
-    } catch (_) {
+    } catch (e) {
       if (generacion != _generacion) return;
-      // Conservar lo ya cargado; el usuario puede reintentar con más scroll
-      state = AsyncData(current.copyWith(isLoadingMore: false));
+      // Conservar lo ya cargado y exponer el motivo: la lista mostrará una fila
+      // de error con botón de reintentar en vez de un spinner eterno.
+      state = AsyncData(current.copyWith(
+        isLoadingMore: false,
+        loadMoreError: ApiError.desde(e).mensaje,
+      ));
     }
   }
 }
