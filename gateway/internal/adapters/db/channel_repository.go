@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -191,11 +192,14 @@ func buildChannelWhere(f ports.ChannelFilter) (string, []any) {
 		args = append(args, f.Country)
 	}
 	if f.Category != "" {
-		// NOCASE: las categorías de IPTV-org vienen capitalizadas ("News"), y un
-		// filtro sensible a mayúsculas devolvía cero ante lo que cualquiera
-		// teclearía en minúsculas.
-		where = append(where, "category_id = ? COLLATE NOCASE")
-		args = append(args, f.Category)
+		// Los category_id son compuestos ("Animation;Kids"), así que hay que
+		// preguntar por pertenencia y no por igualdad: con "=" filtrar por Kids
+		// devolvía 253 canales en vez de 337. Los ';' de guarda evitan que
+		// "Kid" case con "Kids". Medido: 7ms de escaneo sobre 12k filas, no
+		// compensa índice. LIKE ya es insensible a mayúsculas para ASCII, lo
+		// que además resuelve news/News.
+		where = append(where, "';' || category_id || ';' LIKE ?")
+		args = append(args, "%;"+f.Category+";%")
 	}
 	if clause, qargs := qualityWhereClause(f.MinQuality); clause != "" {
 		where = append(where, clause)
@@ -215,6 +219,14 @@ func buildChannelWhere(f ports.ChannelFilter) (string, []any) {
 			WHERE s.channel_id = channels.id
 			  AND (s.is_alive = 1 OR s.fail_count < %d)
 		)`, DeadFailThreshold))
+	}
+
+	if len(f.IDs) > 0 {
+		marcas := strings.Repeat("?,", len(f.IDs)-1) + "?"
+		where = append(where, "id IN ("+marcas+")")
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
 	}
 
 	if len(where) == 0 {
@@ -434,4 +446,103 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// Countries devuelve los países con canales y su recuento, ordenados por
+// volumen. Lo consume el selector de país de la app.
+func (r *SQLiteChannelRepository) Countries(ctx context.Context) ([]ports.Faceta, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT country_code, COUNT(*) FROM channels
+		WHERE country_code IS NOT NULL AND country_code != ''
+		GROUP BY country_code ORDER BY COUNT(*) DESC, country_code`)
+	if err != nil {
+		return nil, fmt.Errorf("db.Countries: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ports.Faceta
+	for rows.Next() {
+		var f ports.Faceta
+		if err := rows.Scan(&f.Valor, &f.Count); err != nil {
+			return nil, fmt.Errorf("db.Countries (scan): %w", err)
+		}
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("db.Countries (rows.Err): %w", err)
+	}
+	return out, nil
+}
+
+// Categories descompone los category_id compuestos ("Animation;Kids") en sus
+// categorías atómicas y las cuenta por separado: la taxonomía real son unas 30,
+// no los 181 strings compuestos que hay en la columna. SQLite no tiene split,
+// así que el troceo va en Go; son 12k filas agrupadas, es despreciable.
+func (r *SQLiteChannelRepository) Categories(ctx context.Context) ([]ports.Faceta, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT category_id, COUNT(*) FROM channels
+		WHERE category_id IS NOT NULL AND category_id != ''
+		GROUP BY category_id`)
+	if err != nil {
+		return nil, fmt.Errorf("db.Categories: %w", err)
+	}
+	defer rows.Close()
+
+	acum := map[string]int{}
+	for rows.Next() {
+		var compuesta string
+		var n int
+		if err := rows.Scan(&compuesta, &n); err != nil {
+			return nil, fmt.Errorf("db.Categories (scan): %w", err)
+		}
+		for _, atomica := range strings.Split(compuesta, ";") {
+			if atomica = strings.TrimSpace(atomica); atomica != "" {
+				acum[atomica] += n
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("db.Categories (rows.Err): %w", err)
+	}
+
+	out := make([]ports.Faceta, 0, len(acum))
+	for v, n := range acum {
+		out = append(out, ports.Faceta{Valor: v, Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Valor < out[j].Valor
+	})
+	return out, nil
+}
+
+// Random devuelve un canal al azar que case con el filtro. El sorteo va en SQL
+// y no en el cliente: elegir entre las páginas ya cargadas sesgaría el
+// resultado hacia el principio del catálogo.
+func (r *SQLiteChannelRepository) Random(ctx context.Context, f ports.ChannelFilter) (domain.Channel, error) {
+	f = f.Normalize()
+	whereSQL, args := buildChannelWhere(f)
+
+	q := "SELECT" + channelColumns + `,
+		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.last_checked IS NOT NULL) AS any_checked,
+		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS any_alive,
+		(SELECT MIN(s.latency_ms) FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS best_latency
+		FROM channels WHERE ` + whereSQL + " ORDER BY RANDOM() LIMIT 1"
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return domain.Channel{}, fmt.Errorf("db.Random: %w", err)
+	}
+	defer rows.Close()
+
+	canales, err := scanChannelsWithHealth(rows)
+	if err != nil {
+		return domain.Channel{}, fmt.Errorf("db.Random (scan): %w", err)
+	}
+	if len(canales) == 0 {
+		return domain.Channel{}, fmt.Errorf("db.Random: ningún canal casa con el filtro")
+	}
+	return canales[0], nil
 }

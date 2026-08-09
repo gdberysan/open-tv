@@ -46,6 +46,20 @@ func (m *mockRepo) Delete(ctx context.Context, id domain.ChannelID) error { retu
 
 // Devuelve el número de canales que FindFiltered entregaría, para que el test
 // del contador compruebe algo real.
+func (m *mockRepo) Random(context.Context, ports.ChannelFilter) (domain.Channel, error) {
+	if m.err != nil {
+		return domain.Channel{}, m.err
+	}
+	return domain.Channel{ID: "1", Name: "MockChannel"}, nil
+}
+
+func (m *mockRepo) Countries(context.Context) ([]ports.Faceta, error) {
+	return []ports.Faceta{{Valor: "ES", Count: 3}}, nil
+}
+func (m *mockRepo) Categories(context.Context) ([]ports.Faceta, error) {
+	return []ports.Faceta{{Valor: "News", Count: 2}}, nil
+}
+
 func (m *mockRepo) CountFiltered(context.Context, ports.ChannelFilter) (int, error) {
 	if m.err != nil {
 		return 0, m.err

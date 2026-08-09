@@ -10,12 +10,17 @@ class ChannelFilter {
   /// El gateway los oculta por defecto (Fase 7).
   final bool showOffline;
 
+  /// Acota a los canales marcados como favoritos. Se resuelve pidiendo sus ids
+  /// al gateway, no paginando: un favorito puede estar en la página 20.
+  final bool onlyFavorites;
+
   const ChannelFilter({
     this.query = '',
     this.country = '',
     this.category = '',
     this.quality = 'fhd',
     this.showOffline = false,
+    this.onlyFavorites = false,
   });
 
   ChannelFilter copyWith({
@@ -24,6 +29,7 @@ class ChannelFilter {
     String? category,
     String? quality,
     bool? showOffline,
+    bool? onlyFavorites,
   }) =>
       ChannelFilter(
         query: query ?? this.query,
@@ -31,13 +37,15 @@ class ChannelFilter {
         category: category ?? this.category,
         quality: quality ?? this.quality,
         showOffline: showOffline ?? this.showOffline,
+        onlyFavorites: onlyFavorites ?? this.onlyFavorites,
       );
 
   bool get hasActiveFilters =>
       query.isNotEmpty ||
       country.isNotEmpty ||
       category.isNotEmpty ||
-      quality != 'fhd';
+      quality != 'fhd' ||
+      onlyFavorites;
 
   // Igualdad por valor: StateProvider compara con == para decidir si notifica,
   // y copyWith siempre construye un objeto nuevo. Sin esto, volver a tocar el
@@ -51,8 +59,10 @@ class ChannelFilter {
           other.country == country &&
           other.category == category &&
           other.quality == quality &&
-          other.showOffline == showOffline;
+          other.showOffline == showOffline &&
+          other.onlyFavorites == onlyFavorites;
 
   @override
-  int get hashCode => Object.hash(query, country, category, quality, showOffline);
+  int get hashCode =>
+      Object.hash(query, country, category, quality, showOffline, onlyFavorites);
 }

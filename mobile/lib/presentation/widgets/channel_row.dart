@@ -4,6 +4,8 @@ import '../../theme/korven_colors.dart';
 import '../../theme/korven_motion.dart';
 import '../../theme/korven_spacing.dart';
 import '../../theme/korven_typography.dart';
+import 'channel_logo.dart';
+import 'favorite_star.dart';
 import 'signal_bars.dart';
 
 const _logoLado = 40.0;
@@ -50,7 +52,21 @@ class _ChannelRowState extends State<ChannelRow> {
           ),
           child: Row(
             children: [
-              _Logo(url: widget.channel.logoUrl),
+              Container(
+                width: _logoLado,
+                height: _logoLado,
+                decoration: BoxDecoration(
+                  color: KorvenColors.surfaceInset,
+                  border: Border.all(color: KorvenColors.borderSubtle),
+                  borderRadius: BorderRadius.circular(KorvenRadius.sm),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: ChannelLogo(
+                  url: widget.channel.logoUrl,
+                  name: widget.channel.name,
+                  size: _logoLado,
+                ),
+              ),
               const SizedBox(width: KorvenSpacing.s4),
               Expanded(
                 child: Column(
@@ -75,49 +91,11 @@ class _ChannelRowState extends State<ChannelRow> {
               SignalBars(
                   alive: widget.channel.alive,
                   latencyMs: widget.channel.latencyMs),
+              const SizedBox(width: KorvenSpacing.s2),
+              FavoriteStar(channelId: widget.channel.id),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _Logo extends StatelessWidget {
-  const _Logo({required this.url});
-  final String url;
-
-  @override
-  Widget build(BuildContext context) {
-    final marco = BoxDecoration(
-      color: KorvenColors.surfaceInset,
-      border: Border.all(color: KorvenColors.borderSubtle),
-      borderRadius: BorderRadius.circular(KorvenRadius.sm),
-    );
-
-    if (url.isEmpty) {
-      return Container(
-        width: _logoLado,
-        height: _logoLado,
-        decoration: marco,
-        child: const Icon(Icons.tv, size: 18, color: KorvenColors.textFaint),
-      );
-    }
-
-    return Container(
-      width: _logoLado,
-      height: _logoLado,
-      decoration: marco,
-      clipBehavior: Clip.antiAlias,
-      child: Image.network(
-        url,
-        fit: BoxFit.contain,
-        // Sin cacheWidth cada logo se decodifica a resolución completa para un
-        // hueco de 40px; con 12k canales eso es memoria tirada. 2× por densidad.
-        cacheWidth: (_logoLado * 2).round(),
-        cacheHeight: (_logoLado * 2).round(),
-        errorBuilder: (_, __, ___) =>
-            const Icon(Icons.tv, size: 18, color: KorvenColors.textFaint),
       ),
     );
   }

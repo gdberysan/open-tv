@@ -47,15 +47,11 @@ func (h *ChannelHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
 	aliveOnly := !strings.EqualFold(alive, "all") &&
 		!strings.EqualFold(alive, "false") && alive != "0"
 
-	filtro := ports.ChannelFilter{
-		Query:      r.URL.Query().Get("q"),
-		Country:    r.URL.Query().Get("country"),
-		Category:   r.URL.Query().Get("category"),
-		MinQuality: quality,
-		AliveOnly:  aliveOnly,
-		Limit:      queryInt(r, "limit", 500, 1000),
-		Offset:     queryInt(r, "offset", 0, -1),
-	}
+	filtro := filtroDesdeQuery(r)
+	filtro.MinQuality = quality
+	filtro.AliveOnly = aliveOnly
+	filtro.Limit = queryInt(r, "limit", 500, 1000)
+	filtro.Offset = queryInt(r, "offset", 0, -1)
 
 	channels, err := h.repo.FindFiltered(r.Context(), filtro)
 	if err != nil {
@@ -165,6 +161,68 @@ func (h *ChannelHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		res["checked_at"] = lastChecked.Format(time.RFC3339)
 	}
 	h.writeJSON(w, http.StatusOK, res)
+}
+
+// GetCountries y GetCategories alimentan los selectores de filtro de la app:
+// cada valor con su recuento real, para que el usuario vea cuánto hay detrás de
+// cada opción antes de elegirla.
+func (h *ChannelHandler) GetCountries(w http.ResponseWriter, r *http.Request) {
+	facetas, err := h.repo.Countries(r.Context())
+	if err != nil {
+		h.logger.Error("GetCountries: fallo consultando países", slog.Any("error", err))
+		h.writeError(w, http.StatusInternalServerError, "Error obteniendo países")
+		return
+	}
+	h.writeJSON(w, http.StatusOK, facetas)
+}
+
+func (h *ChannelHandler) GetCategories(w http.ResponseWriter, r *http.Request) {
+	facetas, err := h.repo.Categories(r.Context())
+	if err != nil {
+		h.logger.Error("GetCategories: fallo consultando categorías", slog.Any("error", err))
+		h.writeError(w, http.StatusInternalServerError, "Error obteniendo categorías")
+		return
+	}
+	h.writeJSON(w, http.StatusOK, facetas)
+}
+
+// GetRandom devuelve un canal al azar entre los que casan con el filtro. Se
+// fuerza AliveOnly: un aleatorio muerto arruina la función.
+// Ruta: GET /channels/random?country=&category=&quality=
+func (h *ChannelHandler) GetRandom(w http.ResponseWriter, r *http.Request) {
+	filtro := filtroDesdeQuery(r)
+	quality := r.URL.Query().Get("quality")
+	if !strings.EqualFold(quality, "all") {
+		filtro.MinQuality = strings.ToLower(quality)
+	}
+	filtro.AliveOnly = true
+
+	canal, err := h.repo.Random(r.Context(), filtro)
+	if err != nil {
+		// Sin coincidencias no es un fallo del servidor: el usuario ha filtrado
+		// hasta dejar el conjunto vacío.
+		h.writeError(w, http.StatusNotFound, "Ningún canal casa con el filtro")
+		return
+	}
+	h.writeJSON(w, http.StatusOK, canal)
+}
+
+// filtroDesdeQuery lee los parámetros comunes a /channels y /channels/random,
+// en un solo sitio para que los dos no puedan divergir.
+func filtroDesdeQuery(r *http.Request) ports.ChannelFilter {
+	f := ports.ChannelFilter{
+		Query:    r.URL.Query().Get("q"),
+		Country:  r.URL.Query().Get("country"),
+		Category: r.URL.Query().Get("category"),
+	}
+	if ids := r.URL.Query().Get("ids"); ids != "" {
+		for _, id := range strings.Split(ids, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				f.IDs = append(f.IDs, id)
+			}
+		}
+	}
+	return f
 }
 
 func queryInt(r *http.Request, key string, def, max int) int {

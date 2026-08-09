@@ -4,6 +4,7 @@ import '../../domain/models/channel.dart';
 import '../../domain/models/channel_filter.dart';
 import '../../data/api_error.dart';
 import '../../data/repositories/channel_repository.dart';
+import 'favorites_provider.dart';
 
 final channelRepositoryProvider = Provider<IChannelRepository>((ref) {
   return ChannelRepository();
@@ -92,6 +93,16 @@ class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
   /// nuevo.
   int _generacion = 0;
 
+  /// Los favoritos son un concepto del cliente, así que con ese filtro activo
+  /// se piden sus ids en vez de paginar el catálogo: uno puede estar en la
+  /// página 20. Con el conjunto vacío se manda un centinela para que el gateway
+  /// no devuelva el catálogo entero.
+  List<String>? _idsDeFavoritos(ChannelFilter f) {
+    if (!f.onlyFavorites) return null;
+    final favs = ref.read(favoritesProvider);
+    return favs.isEmpty ? const ['__ninguno__'] : favs.toList();
+  }
+
   /// Filtro efectivo: el transitorio (búsqueda, país…) + la preferencia
   /// persistida de mostrar canales offline.
   ChannelFilter _effectiveFilter() => ref
@@ -104,11 +115,16 @@ class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
     // build() y por tanto resetea la lista a la primera página.
     ref.watch(channelFilterProvider);
     ref.watch(showOfflineProvider);
+    ref.watch(favoritesProvider);
     final repo = ref.watch(channelRepositoryProvider);
 
     final generacion = ++_generacion;
-    final page =
-        await repo.getChannels(filter: _effectiveFilter(), limit: pageSize);
+    final filtro = _effectiveFilter();
+    final page = await repo.getChannels(
+      filter: filtro,
+      limit: pageSize,
+      ids: _idsDeFavoritos(filtro),
+    );
     if (generacion != _generacion) {
       // Otro build arrancó mientras este esperaba: manda el suyo.
       return state.valueOrNull ??
@@ -132,10 +148,12 @@ class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
         current.copyWith(isLoadingMore: true, clearError: true));
     try {
       final repo = ref.read(channelRepositoryProvider);
+      final filtro = _effectiveFilter();
       final page = await repo.getChannels(
-        filter: _effectiveFilter(),
+        filter: filtro,
         limit: pageSize,
         offset: current.channels.length,
+        ids: _idsDeFavoritos(filtro),
       );
       if (generacion != _generacion) return;
       state = AsyncData(ChannelListState(
@@ -159,6 +177,21 @@ final channelListProvider =
     AsyncNotifierProvider<ChannelListNotifier, ChannelListState>(
   ChannelListNotifier.new,
 );
+
+/// Sortea un canal vivo respetando los filtros activos, la preferencia de
+/// offline incluida. El sorteo lo hace el gateway: entre las páginas ya
+/// cargadas sesgaría el resultado hacia el principio del catálogo.
+///
+/// Vive aquí y no en la pantalla para separar la decisión —qué filtro se
+/// manda— de la presentación —navegar o avisar del fallo.
+final randomChannelProvider = Provider<Future<Channel> Function()>((ref) {
+  return () {
+    final filtro = ref
+        .read(channelFilterProvider)
+        .copyWith(showOffline: ref.read(showOfflineProvider));
+    return ref.read(channelRepositoryProvider).getRandomChannel(filtro);
+  };
+});
 
 final streamUrlProvider =
     FutureProvider.family<String, String>((ref, channelId) async {

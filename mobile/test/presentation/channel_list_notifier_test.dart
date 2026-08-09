@@ -7,6 +7,7 @@ import 'package:korven_open_tv/data/repositories/channel_repository.dart';
 import 'package:korven_open_tv/domain/models/channel.dart';
 import 'package:korven_open_tv/domain/models/channel_filter.dart';
 import 'package:korven_open_tv/presentation/providers/channel_provider.dart';
+import 'package:korven_open_tv/presentation/providers/favorites_provider.dart';
 
 /// Repo fake con [total] canales; aplica q/limit/offset como el gateway.
 class FakeRepo implements IChannelRepository {
@@ -48,12 +49,25 @@ class FakeRepo implements IChannelRepository {
     ),
   );
 
+  List<String>? lastIds;
+  ChannelFilter? lastRandomFilter;
+  bool failRandom = false;
+
+  @override
+  Future<Channel> getRandomChannel(ChannelFilter filter) async {
+    lastRandomFilter = filter;
+    if (failRandom) throw Exception('sin canales que casen');
+    return _all.first;
+  }
+
   @override
   Future<ChannelPage> getChannels({
     ChannelFilter filter = const ChannelFilter(),
     int limit = 500,
     int offset = 0,
+    List<String>? ids,
   }) async {
+    lastIds = ids;
     getChannelsCalls++;
     lastFilter = filter;
     if (retenerSiguiente) {
@@ -66,6 +80,11 @@ class FakeRepo implements IChannelRepository {
       throw Exception('gateway caído');
     }
     var hits = _all;
+    // El gateway resuelve `ids` como pertenencia, sin paginar el catálogo.
+    if (ids != null) {
+      final set = ids.toSet();
+      hits = hits.where((c) => set.contains(c.id)).toList();
+    }
     if (filter.query.isNotEmpty) {
       hits = hits
           .where((c) =>
@@ -217,5 +236,48 @@ void main() {
         const ChannelFilter(query: 'a').hashCode);
     expect(const ChannelFilter(query: 'a'),
         isNot(const ChannelFilter(query: 'b')));
+  });
+
+  test('sin el filtro de favoritos no se manda el parámetro ids', () async {
+    final repo = FakeRepo(total: 20);
+    final container = await containerCon(repo);
+    await container.read(channelListProvider.future);
+
+    expect(repo.lastIds, isNull,
+        reason: 'mandar ids sin motivo acotaría el catálogo entero');
+  });
+
+  test('el filtro de favoritos pide exactamente los ids marcados', () async {
+    // Un favorito puede estar en la página 20, así que no vale con filtrar lo
+    // ya cargado: hay que pedirle esos ids al gateway.
+    final repo = FakeRepo(total: 1200);
+    final container = await containerCon(repo);
+    await container.read(channelListProvider.future);
+
+    container.read(favoritesProvider.notifier).toggle('ch-3');
+    container.read(favoritesProvider.notifier).toggle('ch-900');
+    container.read(channelFilterProvider.notifier).state =
+        const ChannelFilter(onlyFavorites: true);
+
+    final estado = await container.read(channelListProvider.future);
+
+    expect(repo.lastIds, unorderedEquals(['ch-3', 'ch-900']));
+    expect(estado.channels.map((c) => c.id), unorderedEquals(['ch-3', 'ch-900']),
+        reason: 'ch-900 está más allá de la primera página de 500');
+  });
+
+  test('favoritos vacíos devuelven cero canales, no el catálogo', () async {
+    // Sin centinela, unos ids vacíos serían "sin filtro" y el gateway
+    // devolvería los 1200 canales justo cuando el usuario pide sus favoritos.
+    final repo = FakeRepo(total: 1200);
+    final container = await containerCon(repo);
+    await container.read(channelListProvider.future);
+
+    container.read(channelFilterProvider.notifier).state =
+        const ChannelFilter(onlyFavorites: true);
+    final estado = await container.read(channelListProvider.future);
+
+    expect(repo.lastIds, isNotEmpty);
+    expect(estado.channels, isEmpty);
   });
 }

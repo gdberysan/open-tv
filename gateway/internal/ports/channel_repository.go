@@ -8,11 +8,17 @@ import (
 	"github.com/gdberysan/open-tv/gateway/internal/domain"
 )
 
+// Faceta es un valor de filtro con su número de canales, para los selectores.
+type Faceta struct {
+	Valor string
+	Count int
+}
+
 // ChannelFilter agrupa los parámetros de filtrado para FindFiltered.
 type ChannelFilter struct {
 	Query      string // búsqueda por nombre (LIKE)
 	Country    string // ISO 3166-1 alpha-2
-	Category   string // ID exacto de categoría
+	Category   string // categoría atómica; casa con las compuestas ("Animation;Kids")
 	MinQuality string // "4k" | "fhd" (1080p+) | "hd" (720p+) | "" (todos)
 	// AliveOnly oculta canales cuyos streams fueron TODOS chequeados y están
 	// TODOS muertos. Canales sin chequear (o sin streams) siguen visibles:
@@ -20,6 +26,10 @@ type ChannelFilter struct {
 	AliveOnly bool
 	Limit     int
 	Offset    int
+	// IDs acota a un conjunto concreto de canales. Lo usa el filtro de
+	// favoritos: son un concepto del cliente, así que el gateway no puede
+	// resolverlos paginando el catálogo.
+	IDs []string
 }
 
 // Normalize estandariza los campos del filtro antes de usarlo.
@@ -49,4 +59,10 @@ type ChannelRepository interface {
 	// CountFiltered cuenta los canales que casan con el filtro, sin paginar.
 	// Lo consume la barra de filtros para mostrar un total veraz.
 	CountFiltered(ctx context.Context, f ChannelFilter) (int, error)
+	// Countries y Categories alimentan los selectores de la app: cada valor con
+	// su número de canales, ordenados por volumen.
+	Countries(ctx context.Context) ([]Faceta, error)
+	Categories(ctx context.Context) ([]Faceta, error)
+	// Random devuelve un canal al azar que case con el filtro.
+	Random(ctx context.Context, f ChannelFilter) (domain.Channel, error)
 }
