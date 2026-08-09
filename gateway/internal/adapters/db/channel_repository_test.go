@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -348,5 +349,90 @@ func TestFindFilteredPaginacionEstableConNombresRepetidos(t *testing.T) {
 	}
 	if len(unicos) != 6 {
 		t.Errorf("la paginación omitió canales: %d únicos de 6", len(unicos))
+	}
+}
+
+// CountFiltered tiene que aplicar exactamente los mismos filtros que
+// FindFiltered, o el contador de la app mentiría.
+func TestCountFilteredCoincideConFindFiltered(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	for i, pais := range []string{"ES", "ES", "MX", "GB"} {
+		id := "ch-" + strconv.Itoa(i)
+		ch := makeChannel(id, "Canal "+id+" (1080p)", pais, "news")
+		if err := chRepo.Save(ctx, ch); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		if err := stRepo.Save(ctx, makeStream("st-"+id, id, "http://a/"+id+".m3u8")); err != nil {
+			t.Fatalf("Save stream: %v", err)
+		}
+	}
+
+	casos := []ports.ChannelFilter{
+		{},
+		{Country: "ES"},
+		{Country: "ES", MinQuality: "fhd"},
+		{Query: "Canal", AliveOnly: true},
+		{Country: "NO-EXISTE"},
+	}
+	for _, f := range casos {
+		conLimite := f
+		conLimite.Limit = 1000
+		encontrados, err := chRepo.FindFiltered(ctx, conLimite)
+		if err != nil {
+			t.Fatalf("FindFiltered(%+v): %v", f, err)
+		}
+		total, err := chRepo.CountFiltered(ctx, f)
+		if err != nil {
+			t.Fatalf("CountFiltered(%+v): %v", f, err)
+		}
+		if total != len(encontrados) {
+			t.Errorf("filtro %+v: count = %d, FindFiltered devolvió %d", f, total, len(encontrados))
+		}
+	}
+}
+
+// El contador ignora paginación: es el total que casa, no la página.
+func TestCountFilteredIgnoraLimitYOffset(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+	for i := 0; i < 5; i++ {
+		id := "ch-" + strconv.Itoa(i)
+		if err := chRepo.Save(ctx, makeChannel(id, "Canal "+id, "ES", "news")); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		if err := stRepo.Save(ctx, makeStream("st-"+id, id, "http://a/"+id+".m3u8")); err != nil {
+			t.Fatalf("Save stream: %v", err)
+		}
+	}
+
+	total, err := chRepo.CountFiltered(ctx, ports.ChannelFilter{Limit: 2, Offset: 3})
+	if err != nil {
+		t.Fatalf("CountFiltered: %v", err)
+	}
+	if total != 5 {
+		t.Errorf("total = %d, quiero 5 (limit y offset no deben afectar)", total)
+	}
+}
+
+// Las categorías de IPTV-org vienen capitalizadas ("News", "Sports"), así que
+// un filtro sensible a mayúsculas devolvía cero ante lo que cualquiera teclearía.
+func TestFindFilteredCategoriaIgnoraMayusculas(t *testing.T) {
+	ctx := context.Background()
+	repo := openTestDB(t)
+
+	if err := repo.Save(ctx, makeChannel("ch-1", "Canal Uno", "ES", "News")); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	for _, consulta := range []string{"News", "news", "NEWS"} {
+		got, err := repo.FindFiltered(ctx, ports.ChannelFilter{Category: consulta, Limit: 10})
+		if err != nil {
+			t.Fatalf("FindFiltered(%q): %v", consulta, err)
+		}
+		if len(got) != 1 {
+			t.Errorf("categoría %q: %d canales, quiero 1", consulta, len(got))
+		}
 	}
 }

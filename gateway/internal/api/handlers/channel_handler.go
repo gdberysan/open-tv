@@ -47,7 +47,7 @@ func (h *ChannelHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
 	aliveOnly := !strings.EqualFold(alive, "all") &&
 		!strings.EqualFold(alive, "false") && alive != "0"
 
-	channels, err := h.repo.FindFiltered(r.Context(), ports.ChannelFilter{
+	filtro := ports.ChannelFilter{
 		Query:      r.URL.Query().Get("q"),
 		Country:    r.URL.Query().Get("country"),
 		Category:   r.URL.Query().Get("category"),
@@ -55,12 +55,23 @@ func (h *ChannelHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
 		AliveOnly:  aliveOnly,
 		Limit:      queryInt(r, "limit", 500, 1000),
 		Offset:     queryInt(r, "offset", 0, -1),
-	})
+	}
+
+	channels, err := h.repo.FindFiltered(r.Context(), filtro)
 	if err != nil {
 		h.logger.Error("GetChannels: fallo consultando el catálogo", slog.Any("error", err))
 		h.writeError(w, http.StatusInternalServerError, "Error obteniendo canales")
 		return
 	}
+	// Total real de coincidencias, para que la app muestre un contador veraz en
+	// vez del número de canales que lleva cargados. Va en cabecera y no en el
+	// cuerpo para no tocar el contrato JSON congelado por domain/channel_test.go.
+	if total, err := h.repo.CountFiltered(r.Context(), filtro); err == nil {
+		w.Header().Set("X-Total-Count", strconv.Itoa(total))
+	} else {
+		h.logger.Error("GetChannels: fallo contando el total", slog.Any("error", err))
+	}
+
 	h.writeJSON(w, http.StatusOK, channels)
 }
 

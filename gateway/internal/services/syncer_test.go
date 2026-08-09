@@ -80,6 +80,9 @@ func (f *fakeChannelRepo) Search(context.Context, string, int) ([]domain.Channel
 	return nil, nil
 }
 func (f *fakeChannelRepo) Delete(context.Context, domain.ChannelID) error { return nil }
+func (f *fakeChannelRepo) CountFiltered(context.Context, ports.ChannelFilter) (int, error) {
+	return 0, nil
+}
 
 type deleteStaleCall struct {
 	providerID string

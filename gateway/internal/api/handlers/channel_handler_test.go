@@ -43,6 +43,15 @@ func (m *mockRepo) Search(ctx context.Context, query string, limit int) ([]domai
 	}, nil
 }
 func (m *mockRepo) Delete(ctx context.Context, id domain.ChannelID) error { return nil }
+
+// Devuelve el número de canales que FindFiltered entregaría, para que el test
+// del contador compruebe algo real.
+func (m *mockRepo) CountFiltered(context.Context, ports.ChannelFilter) (int, error) {
+	if m.err != nil {
+		return 0, m.err
+	}
+	return 1, nil
+}
 func (m *mockRepo) DeleteStale(context.Context, string, time.Time) (int64, error) {
 	return 0, nil
 }
@@ -355,5 +364,16 @@ func TestChannelHandler_GetStreamURL_ArranqueEnFrioUsaLaCache(t *testing.T) {
 	_ = json.NewDecoder(rr.Body).Decode(&res)
 	if res["url"] != "http://mock.com/123.ts" {
 		t.Errorf("url = %q, quiero la de la caché del provider", res["url"])
+	}
+}
+
+// La app necesita el total para que su contador no mienta.
+func TestGetChannelsDevuelveElTotalEnCabecera(t *testing.T) {
+	r := setupRouter()
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/channels", nil))
+
+	if got := rr.Header().Get("X-Total-Count"); got == "" {
+		t.Error("falta X-Total-Count; la app lo necesita para el contador")
 	}
 }

@@ -46,4 +46,7 @@ type ChannelRepository interface {
 	// a before. Devuelve cuántos borró. Lo llama el Syncer tras un sync exitoso
 	// para barrer lo que el proveedor dejó de listar.
 	DeleteStale(ctx context.Context, providerID string, before time.Time) (int64, error)
+	// CountFiltered cuenta los canales que casan con el filtro, sin paginar.
+	// Lo consume la barra de filtros para mostrar un total veraz.
+	CountFiltered(ctx context.Context, f ChannelFilter) (int, error)
 }
