@@ -21,6 +21,7 @@ class ConsoleBar extends StatelessWidget implements PreferredSizeWidget {
     required this.gridMode,
     required this.onToggleView,
     required this.onRandom,
+    this.leadingActions = const <Widget>[],
   });
 
   final bool searching;
@@ -34,6 +35,11 @@ class ConsoleBar extends StatelessWidget implements PreferredSizeWidget {
   final bool gridMode;
   final VoidCallback onToggleView;
   final VoidCallback onRandom;
+
+  /// Acciones que van antes de las propias de la barra. El botón de AirPlay
+  /// entra por aquí en vez de hardcodearse: ConsoleBar no debe saber que
+  /// existe una sesión de emisión.
+  final List<Widget> leadingActions;
 
   @override
   Size get preferredSize => const Size.fromHeight(60);
@@ -76,6 +82,9 @@ class ConsoleBar extends StatelessWidget implements PreferredSizeWidget {
               onPressed: onCloseSearch,
             )
           else ...[
+            // Solo fuera de la búsqueda: durante ella la barra deja sitio al
+            // campo de texto y solo conserva el botón de cerrar.
+            ...leadingActions,
             _AccionBarra(
               icon: Icons.search,
               tooltip: 'Buscar canal',

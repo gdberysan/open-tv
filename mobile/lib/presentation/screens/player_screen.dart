@@ -7,6 +7,8 @@ import '../../data/api_error.dart';
 import '../../theme/korven_colors.dart';
 import '../../theme/korven_spacing.dart';
 import '../player/playback_guard.dart';
+import '../widgets/airplay_button.dart';
+import '../widgets/cast_bar.dart';
 import '../widgets/console_line.dart';
 import '../widgets/korven_emblem.dart';
 import '../widgets/state_views.dart';
@@ -151,6 +153,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      bottomNavigationBar: const CastBar(),
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
@@ -165,6 +168,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           ],
         ),
         actions: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: KorvenSpacing.s2),
+            child: AirplayButton(),
+          ),
           if (!_isLoading)
             IconButton(
               icon: const Icon(Icons.refresh, color: Colors.white),
