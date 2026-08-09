@@ -108,10 +108,14 @@ void main() {
         reason: 'el notifier debe haber registrado el error');
 
     // Bajar hasta el final, donde vive la fila de error.
+    // Paso grande y margen de iteraciones: la fila de error vive al final de
+    // 500 filas, y depender de la altura exacta de cada una hace el test
+    // frágil ante cualquier cambio de diseño.
     await tester.dragUntilVisible(
       find.text('Reintentar'),
       find.byType(ListView),
-      const Offset(0, -600),
+      const Offset(0, -3000),
+      maxIteration: 200,
     );
     await tester.pumpAndSettle();
 

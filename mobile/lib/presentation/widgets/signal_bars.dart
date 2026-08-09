@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../domain/models/channel.dart';
+import '../../theme/korven_colors.dart';
 
 /// Indicador de señal de 3 barras (Fase 7.2): verde <200ms, naranja
 /// 200–800ms, rojo >800ms, gris muerto, apagado sin chequear.
@@ -13,11 +14,13 @@ class SignalBars extends StatelessWidget {
   Widget build(BuildContext context) {
     final level = signalLevel(alive, latencyMs);
     final (color, litBars, label) = switch (level) {
-      SignalLevel.good => (Colors.green, 3, 'Señal buena'),
-      SignalLevel.medium => (Colors.orange, 2, 'Señal media'),
-      SignalLevel.poor => (Colors.red, 1, 'Señal baja'),
-      SignalLevel.dead => (Colors.grey, 3, 'Sin señal'),
-      SignalLevel.unknown => (Colors.grey, 0, 'Señal sin datos'),
+      // Semánticos de la marca, no los de Material: pino para lo que va bien,
+      // ámbar para el aviso, óxido para el fallo.
+      SignalLevel.good => (KorvenColors.signalOk, 3, 'Señal buena'),
+      SignalLevel.medium => (KorvenColors.accent, 2, 'Señal media'),
+      SignalLevel.poor => (KorvenColors.signalError, 1, 'Señal baja'),
+      SignalLevel.dead => (KorvenColors.textFaint, 3, 'Sin señal'),
+      SignalLevel.unknown => (KorvenColors.borderStrong, 0, 'Señal sin datos'),
     };
     final dim = color.withValues(alpha: 0.25);
 
