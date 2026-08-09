@@ -22,12 +22,18 @@ enum RoutePicker {
 
   /// Abre el popover anclado a (x, y), que llegan en píxeles lógicos y con el
   /// origen arriba a la izquierda, como los da Flutter.
-  static func mostrar(x: Double, y: Double, lado: Double) -> Bool {
+  ///
+  /// [player] es obligatorio, no decorativo: en macOS `AVRoutePickerView.player`
+  /// es LA forma de decirle al selector qué enrutar. Sin él el popover lista
+  /// destinos y los conecta, pero no viaja ningún vídeo — el televisor dice
+  /// "conectado" y se queda en negro.
+  static func mostrar(x: Double, y: Double, lado: Double, player: AVPlayer) -> Bool {
     guard let ventana = NSApplication.shared.keyWindow ?? NSApplication.shared.windows.first,
           let contentView = ventana.contentView
     else { return false }
 
     let p = pickerVivo(en: contentView)
+    p.player = player
 
     // AppKit tiene el origen abajo a la izquierda; Flutter, arriba. Sin este
     // volteo el popover sale anclado al extremo opuesto de la ventana.

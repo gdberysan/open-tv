@@ -44,10 +44,13 @@ final class AirPlayPlugin: NSObject, FlutterStreamHandler {
       result(nil)
     case "showRoutePicker":
       let args = call.arguments as? [String: Any]
+      // sesionViva() y no session?: el selector necesita un AVPlayer al que
+      // apuntar ANTES de que se elija destino.
       let abierto = RoutePicker.mostrar(
         x: args?["x"] as? Double ?? 0,
         y: args?["y"] as? Double ?? 0,
-        lado: args?["lado"] as? Double ?? 28)
+        lado: args?["lado"] as? Double ?? 28,
+        player: sesionViva().player)
       result(abierto)
     default:
       result(FlutterMethodNotImplemented)
@@ -65,25 +68,9 @@ final class AirPlayPlugin: NSObject, FlutterStreamHandler {
 
   func onListen(withArguments _: Any?, eventSink: @escaping FlutterEventSink) -> FlutterError? {
     sink = eventSink
-
-    // El estado de la ruta lo da CoreAudio, no el AVPlayer: encadenarlo al
-    // reproductor daba una dependencia circular en la que la sesión no salía
-    // nunca de idle. Ver RouteName.
-    RouteName.observar { [weak self] esAirPlay, nombre in
-      NSLog("[airplay] ruta cambia: airplay=%@ nombre=%@",
-            String(esAirPlay), nombre ?? "nil")
-      var evento: [String: Any] = ["type": "route", "active": esAirPlay]
-      if let nombre = nombre { evento["name"] = nombre }
-      self?.sink?(evento)
-    }
-
-    // Emitir el estado de arranque: si ya había una ruta puesta antes de abrir
-    // la app, sin esto no llegaría ningún evento hasta el siguiente cambio.
-    let (esAirPlay, nombre) = RouteName.estadoActual()
-    var inicial: [String: Any] = ["type": "route", "active": esAirPlay]
-    if let nombre = nombre { inicial["name"] = nombre }
-    eventSink(inicial)
-
+    // Crear ya la sesión: su AVPlayer es el que observa la ruta, y sin él no
+    // llegaría ningún evento hasta que alguien pulsara reproducir.
+    _ = sesionViva()
     return nil
   }
 

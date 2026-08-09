@@ -1,27 +1,52 @@
 import AVFoundation
 import Foundation
 
-/// Posee el AVPlayer que emite a AirPlay. Existe solo mientras hay sesión: la
-/// reproducción local sigue siendo de media_kit, y los dos nunca están abiertos
-/// a la vez.
+/// Posee el AVPlayer que emite a AirPlay.
+///
+/// El reproductor se crea **al arrancar**, no al empezar a emitir, y vive toda
+/// la sesión de la app. Es obligatorio: en macOS el selector de rutas enruta un
+/// reproductor concreto vía `AVRoutePickerView.player`, así que el AVPlayer
+/// tiene que existir ANTES de que se abra el popover. Crearlo perezosamente
+/// dentro de start() dejaba al selector sin nada que enrutar — el televisor se
+/// conectaba y no recibía vídeo — y además hacía inalcanzable el estado `armed`,
+/// porque la única fuente de eventos de ruta era un observador sobre ese mismo
+/// reproductor inexistente.
+///
+/// media_kit sigue siendo el único reproductor local: este solo tiene item
+/// cargado mientras hay emisión.
 final class AirPlaySession: NSObject {
-  private var player: AVPlayer?
-  private var observaciones: [NSKeyValueObservation] = []
+  /// Vivo desde el arranque. Sin item no consume nada, pero existe para que el
+  /// selector pueda apuntarle.
+  let player = AVPlayer()
+
+  private var observacionesItem: [NSKeyValueObservation] = []
+  private var observacionRuta: NSKeyValueObservation?
   private let emitir: ([String: Any]) -> Void
 
   init(emitir: @escaping ([String: Any]) -> Void) {
     self.emitir = emitir
+    super.init()
+
+    player.allowsExternalPlayback = true
+
+    // Única fuente de verdad del estado de la ruta. CoreAudio no sirve: al
+    // elegir destino en el selector, macOS NO cambia la salida por defecto del
+    // sistema ni registra el receptor como dispositivo de audio — comprobado
+    // enumerando los dispositivos con el televisor ya conectado.
+    observacionRuta = player.observe(\.isExternalPlaybackActive, options: [.new, .initial]) {
+      [weak self] p, _ in
+      NSLog("[airplay] ruta: externalPlaybackActive=%@", String(p.isExternalPlaybackActive))
+      self?.emitir(["type": "route", "active": p.isExternalPlaybackActive])
+    }
   }
 
-  /// Diagnóstico de la emisión. Se deja encendido a propósito mientras la capa
-  /// nativa no tenga cobertura de CI: es la única ventana que hay sobre ella.
   private func log(_ msg: String) {
     NSLog("[airplay] %@", msg)
   }
 
   func start(url: String, title: String) {
     log("start url=\(url)")
-    stop()
+    limpiarItem()
 
     guard let u = URL(string: url) else {
       emitir(["type": "status", "state": "failed",
@@ -30,27 +55,20 @@ final class AirPlaySession: NSObject {
     }
 
     let item = AVPlayerItem(url: u)
-    let p = AVPlayer(playerItem: item)
-    // allowsExternalPlayback es toda la API en macOS. El acompañante
-    // usesExternalPlaybackWhileExternalScreenIsActive existe solo en iOS: allí
-    // distingue emitir de espejar una pantalla conectada, distinción que macOS
-    // no tiene.
-    p.allowsExternalPlayback = true
-    player = p
-
     emitir(["type": "status", "state": "loading", "formatError": false])
 
-    observaciones.append(item.observe(\.status, options: [.new]) { [weak self] it, _ in
+    observacionesItem.append(item.observe(\.status, options: [.new]) { [weak self] it, _ in
       guard let self = self else { return }
       switch it.status {
       case .readyToPlay:
-        self.log("item readyToPlay → play(); allowsExternalPlayback=\(p.allowsExternalPlayback) externalPlaybackActive=\(p.isExternalPlaybackActive)")
-        p.play()
-        // El desvío al receptor no es inmediato. Esta comprobación diferida es
-        // la que dice si macOS llegó a descargar el vídeo en el televisor o si
-        // se quedó reproduciendo en local con el audio enrutado.
+        self.log("item readyToPlay → play(); externalPlaybackActive=\(self.player.isExternalPlaybackActive)")
+        self.player.play()
+        // El desvío al receptor no es inmediato. Esta comprobación diferida
+        // distingue "macOS descargó el vídeo en el televisor" de "sigue en
+        // local con la ruta puesta".
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-          self?.log("a los 3s: externalPlaybackActive=\(p.isExternalPlaybackActive) timeControlStatus=\(p.timeControlStatus.rawValue)")
+          guard let self = self else { return }
+          self.log("a los 3s: externalPlaybackActive=\(self.player.isExternalPlaybackActive) timeControl=\(self.player.timeControlStatus.rawValue)")
         }
       case .failed:
         let err = it.error
@@ -67,24 +85,27 @@ final class AirPlaySession: NSObject {
 
     // timeControlStatus == .playing es la prueba de reproducción real. El
     // equivalente de por qué PlaybackGuard no se fía de `playing` en mpv.
-    observaciones.append(p.observe(\.timeControlStatus, options: [.new]) { [weak self] pl, _ in
-      guard let self = self, pl.timeControlStatus == .playing else { return }
-      self.emitir(["type": "status", "state": "playing", "formatError": false])
-    })
+    observacionesItem.append(
+      player.observe(\.timeControlStatus, options: [.new]) { [weak self] pl, _ in
+        guard let self = self, pl.timeControlStatus == .playing else { return }
+        self.emitir(["type": "status", "state": "playing", "formatError": false])
+      })
 
-    // Aquí NO se observa isExternalPlaybackActive. El estado de la ruta lo
-    // publica RouteName vía CoreAudio, y tener dos fuentes que pueden
-    // contradecirse es peor que tener una: este observador emite `active:
-    // false` en el hueco entre crear el AVPlayer y que la reproducción se
-    // desvíe al receptor, lo que tumbaría la sesión a idle justo al empezar.
+    player.replaceCurrentItem(with: item)
   }
 
   func stop() {
-    player?.pause()
-    player?.replaceCurrentItem(with: nil)
-    player = nil
-    observaciones.forEach { $0.invalidate() }
-    observaciones.removeAll()
+    log("stop")
+    limpiarItem()
+  }
+
+  /// Descarga el item pero NO destruye el reproductor: si desapareciera, el
+  /// selector se quedaría sin destino y la ruta se perdería.
+  private func limpiarItem() {
+    player.pause()
+    player.replaceCurrentItem(with: nil)
+    observacionesItem.forEach { $0.invalidate() }
+    observacionesItem.removeAll()
   }
 
   /// Distingue "este stream no lo puedo decodificar" de "no llegué al servidor".
