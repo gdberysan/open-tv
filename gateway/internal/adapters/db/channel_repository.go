@@ -191,11 +191,14 @@ func buildChannelWhere(f ports.ChannelFilter) (string, []any) {
 		args = append(args, f.Country)
 	}
 	if f.Category != "" {
-		// NOCASE: las categorías de IPTV-org vienen capitalizadas ("News"), y un
-		// filtro sensible a mayúsculas devolvía cero ante lo que cualquiera
-		// teclearía en minúsculas.
-		where = append(where, "category_id = ? COLLATE NOCASE")
-		args = append(args, f.Category)
+		// Los category_id son compuestos ("Animation;Kids"), así que hay que
+		// preguntar por pertenencia y no por igualdad: con "=" filtrar por Kids
+		// devolvía 253 canales en vez de 337. Los ';' de guarda evitan que
+		// "Kid" case con "Kids". Medido: 7ms de escaneo sobre 12k filas, no
+		// compensa índice. LIKE ya es insensible a mayúsculas para ASCII, lo
+		// que además resuelve news/News.
+		where = append(where, "';' || category_id || ';' LIKE ?")
+		args = append(args, "%;"+f.Category+";%")
 	}
 	if clause, qargs := qualityWhereClause(f.MinQuality); clause != "" {
 		where = append(where, clause)

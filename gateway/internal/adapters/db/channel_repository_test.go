@@ -436,3 +436,42 @@ func TestFindFilteredCategoriaIgnoraMayusculas(t *testing.T) {
 		}
 	}
 }
+
+// Los category_id vienen compuestos ("Animation;Kids"), así que comparar por
+// igualdad descartaba en silencio una cuarta parte de los canales infantiles.
+func TestFindFilteredCategoriaCasaConCompuestas(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	casos := map[string]string{
+		"ch-1": "Kids",
+		"ch-2": "Animation;Kids",
+		"ch-3": "Animation;Kids;Religious",
+		"ch-4": "Movies",
+	}
+	for id, cat := range casos {
+		if err := chRepo.Save(ctx, makeChannel(id, "Canal "+id, "ES", cat)); err != nil {
+			t.Fatalf("Save(%s): %v", id, err)
+		}
+		if err := stRepo.Save(ctx, makeStream("st-"+id, id, "http://a/"+id+".m3u8")); err != nil {
+			t.Fatalf("Save stream: %v", err)
+		}
+	}
+
+	got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{Category: "Kids", Limit: 100})
+	if err != nil {
+		t.Fatalf("FindFiltered: %v", err)
+	}
+	if len(got) != 3 {
+		t.Errorf("categoría Kids devolvió %d, quiero 3 (incluye las compuestas)", len(got))
+	}
+
+	// No debe casar por subcadena suelta: "Kid" no es "Kids".
+	parcial, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{Category: "Kid", Limit: 100})
+	if err != nil {
+		t.Fatalf("FindFiltered parcial: %v", err)
+	}
+	if len(parcial) != 0 {
+		t.Errorf("'Kid' casó con %d canales; debe exigir la categoría completa", len(parcial))
+	}
+}
