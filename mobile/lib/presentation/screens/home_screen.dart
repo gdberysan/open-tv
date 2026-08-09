@@ -7,6 +7,7 @@ import '../../data/api_error.dart';
 import '../../domain/models/channel.dart';
 import '../../domain/models/channel_filter.dart';
 import '../providers/channel_provider.dart';
+import '../widgets/console_bar.dart';
 import '../widgets/signal_bars.dart';
 import 'player_screen.dart';
 
@@ -77,48 +78,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final filter = ref.watch(channelFilterProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: _searching
-            ? TextField(
-                controller: _searchCtrl,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: 'Buscar canal…',
-                  border: InputBorder.none,
-                ),
-                onChanged: _onSearchChanged,
-              )
-            : const Text('IPTV'),
-        actions: [
-          if (_searching)
-            IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: 'Cerrar búsqueda',
-              onPressed: _closeSearch,
-            )
-          else ...[
-            IconButton(
-              icon: const Icon(Icons.search),
-              tooltip: 'Buscar canal',
-              onPressed: () => setState(() => _searching = true),
-            ),
-            IconButton(
-              icon: Icon(ref.watch(showOfflineProvider)
-                  ? Icons.visibility
-                  : Icons.visibility_off),
-              tooltip: ref.watch(showOfflineProvider)
-                  ? 'Ocultar canales offline'
-                  : 'Mostrar canales offline',
-              onPressed: () =>
-                  ref.read(showOfflineProvider.notifier).toggle(),
-            ),
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Recargar',
-              onPressed: () => ref.invalidate(channelListProvider),
-            ),
-          ],
-        ],
+      appBar: ConsoleBar(
+        searching: _searching,
+        searchController: _searchCtrl,
+        onSearchChanged: _onSearchChanged,
+        onOpenSearch: () => setState(() => _searching = true),
+        onCloseSearch: _closeSearch,
+        showOffline: ref.watch(showOfflineProvider),
+        onToggleOffline: () => ref.read(showOfflineProvider.notifier).toggle(),
+        onReload: () => ref.invalidate(channelListProvider),
       ),
       body: Column(
         children: [

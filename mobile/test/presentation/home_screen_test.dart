@@ -125,4 +125,34 @@ void main() {
         isNull,
         reason: 'reintentar con éxito debe limpiar el error');
   });
+
+  testWidgets('la barra muestra el lockup de marca', (tester) async {
+    await pumpHome(tester, FakeRepo(total: 4));
+
+    expect(find.text('RVEN'), findsOneWidget);
+    expect(find.text('open tv'), findsOneWidget);
+    // El título de plantilla ya no está.
+    expect(find.text('IPTV'), findsNothing);
+  });
+
+  testWidgets('el toggle de offline se pinta ámbar solo cuando está activo',
+      (tester) async {
+    await pumpHome(tester, FakeRepo(total: 4));
+
+    Color colorDelIcono(String tooltip) {
+      final icon = tester.widget<Icon>(
+        find.descendant(
+            of: find.byTooltip(tooltip), matching: find.byType(Icon)),
+      );
+      return icon.color!;
+    }
+
+    final apagado = colorDelIcono('Mostrar canales offline');
+    await tester.tap(find.byTooltip('Mostrar canales offline'));
+    await tester.pumpAndSettle();
+    final encendido = colorDelIcono('Ocultar canales offline');
+
+    expect(apagado, isNot(encendido),
+        reason: 'el estado activo tiene que distinguirse, y en ámbar');
+  });
 }
