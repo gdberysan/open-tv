@@ -3,6 +3,13 @@ import 'korven_colors.dart';
 
 /// Tipografía de Korven (tokens/typography.css): Space Grotesk para display,
 /// Inter para lectura, JetBrains Mono para lo que es literalmente dato.
+///
+/// Cada estilo declara fontVariations además de fontWeight. Son fuentes
+/// VARIABLES en un solo fichero, y con eso Flutter puede quedarse en la
+/// instancia por defecto del TTF —que en Space Grotesk es Light— aplicando
+/// negrita sintética en vez del peso real. El eje 'wght' lo hace determinista.
+/// No se puede verificar con flutter test: ahí no se cargan las fuentes de
+/// assets.
 abstract final class KorvenType {
   static const familyDisplay = 'SpaceGrotesk';
   static const familyText = 'Inter';
@@ -22,6 +29,7 @@ abstract final class KorvenType {
   static const h1 = TextStyle(
     fontFamily: familyDisplay,
     fontWeight: FontWeight.w600,
+    fontVariations: [FontVariation('wght', 600)],
     fontSize: size3xl,
     height: 1.05,
     letterSpacing: -0.02 * size3xl,
@@ -31,6 +39,7 @@ abstract final class KorvenType {
   static const h2 = TextStyle(
     fontFamily: familyDisplay,
     fontWeight: FontWeight.w600,
+    fontVariations: [FontVariation('wght', 600)],
     fontSize: size2xl,
     height: 1.2,
     letterSpacing: -0.01 * size2xl,
@@ -40,6 +49,7 @@ abstract final class KorvenType {
   static const h3 = TextStyle(
     fontFamily: familyDisplay,
     fontWeight: FontWeight.w500,
+    fontVariations: [FontVariation('wght', 500)],
     fontSize: sizeXl,
     height: 1.2,
     color: KorvenColors.textStrong,
@@ -48,6 +58,7 @@ abstract final class KorvenType {
   static const h4 = TextStyle(
     fontFamily: familyDisplay,
     fontWeight: FontWeight.w500,
+    fontVariations: [FontVariation('wght', 500)],
     fontSize: sizeMd,
     height: 1.2,
     color: KorvenColors.textStrong,
@@ -56,6 +67,7 @@ abstract final class KorvenType {
   static const body = TextStyle(
     fontFamily: familyText,
     fontWeight: FontWeight.w400,
+    fontVariations: [FontVariation('wght', 400)],
     fontSize: sizeBase,
     height: 1.5,
     color: KorvenColors.textBody,
@@ -64,6 +76,7 @@ abstract final class KorvenType {
   static const bodySm = TextStyle(
     fontFamily: familyText,
     fontWeight: FontWeight.w400,
+    fontVariations: [FontVariation('wght', 400)],
     fontSize: sizeSm,
     height: 1.5,
     color: KorvenColors.textBody,
@@ -72,6 +85,7 @@ abstract final class KorvenType {
   static const label = TextStyle(
     fontFamily: familyText,
     fontWeight: FontWeight.w500,
+    fontVariations: [FontVariation('wght', 500)],
     fontSize: sizeSm,
     height: 1.2,
     color: KorvenColors.textMuted,
@@ -80,6 +94,7 @@ abstract final class KorvenType {
   static const mono = TextStyle(
     fontFamily: familyMono,
     fontWeight: FontWeight.w400,
+    fontVariations: [FontVariation('wght', 400)],
     fontSize: sizeSm,
     height: 1.5,
     letterSpacing: 0.02 * sizeSm,
@@ -90,6 +105,7 @@ abstract final class KorvenType {
   static const monoLabel = TextStyle(
     fontFamily: familyMono,
     fontWeight: FontWeight.w500,
+    fontVariations: [FontVariation('wght', 500)],
     fontSize: sizeXs,
     height: 1.2,
     letterSpacing: 0.06 * sizeXs,

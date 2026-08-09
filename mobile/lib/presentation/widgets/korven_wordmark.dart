@@ -33,6 +33,9 @@ class KorvenWordmark extends StatelessWidget {
     final letra = TextStyle(
       fontFamily: KorvenType.familyDisplay,
       fontWeight: FontWeight.w700,
+      // Eje 'wght' explícito: la instancia por defecto de Space Grotesk es
+      // Light, así que sin esto el wordmark podía salir fino.
+      fontVariations: const [FontVariation('wght', 700)],
       fontSize: fontSize,
       height: 1,
       color: KorvenColors.textStrong,
