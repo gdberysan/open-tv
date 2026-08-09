@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
-import 'package:iptv_ecosystem/data/api_error.dart';
+import 'package:korven_open_tv/data/api_error.dart';
 
 void main() {
   test('el gateway caído se explica, no se vuelca', () {

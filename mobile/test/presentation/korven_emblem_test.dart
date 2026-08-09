@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:iptv_ecosystem/presentation/widgets/korven_emblem.dart';
+import 'package:korven_open_tv/presentation/widgets/korven_emblem.dart';
 
 void main() {
   testWidgets('se dibuja en el tamaño pedido y es accesible', (tester) async {

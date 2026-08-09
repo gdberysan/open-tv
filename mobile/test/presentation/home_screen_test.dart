@@ -3,10 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:iptv_ecosystem/domain/models/channel_filter.dart';
-import 'package:iptv_ecosystem/presentation/providers/channel_provider.dart';
-import 'package:iptv_ecosystem/presentation/screens/home_screen.dart';
-import 'package:iptv_ecosystem/presentation/widgets/signal_bars.dart';
+import 'package:korven_open_tv/domain/models/channel_filter.dart';
+import 'package:korven_open_tv/presentation/providers/channel_provider.dart';
+import 'package:korven_open_tv/presentation/screens/home_screen.dart';
+import 'package:korven_open_tv/presentation/widgets/signal_bars.dart';
 
 import 'channel_list_notifier_test.dart' show FakeRepo;
 

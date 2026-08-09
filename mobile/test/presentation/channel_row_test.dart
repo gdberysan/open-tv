@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:iptv_ecosystem/domain/models/channel.dart';
-import 'package:iptv_ecosystem/presentation/widgets/channel_row.dart';
+import 'package:korven_open_tv/domain/models/channel.dart';
+import 'package:korven_open_tv/presentation/widgets/channel_row.dart';
 
 Channel _canal({String pais = 'MX', String cat = 'News', bool? vivo = true}) =>
     Channel(

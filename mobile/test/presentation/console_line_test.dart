@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:iptv_ecosystem/presentation/widgets/console_line.dart';
+import 'package:korven_open_tv/presentation/widgets/console_line.dart';
 
 void main() {
   testWidgets('muestra el comando y un cursor', (tester) async {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:iptv_ecosystem/theme/korven_typography.dart';
+import 'package:korven_open_tv/theme/korven_typography.dart';
 
 void main() {
   test('cada rol usa la familia que le corresponde', () {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:iptv_ecosystem/theme/korven_colors.dart';
-import 'package:iptv_ecosystem/theme/korven_spacing.dart';
+import 'package:korven_open_tv/theme/korven_colors.dart';
+import 'package:korven_open_tv/theme/korven_spacing.dart';
 
 void main() {
   // Los valores vienen del brand board de Korven (tokens/colors.css). Este test

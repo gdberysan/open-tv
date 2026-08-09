@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:iptv_ecosystem/domain/models/channel.dart';
+import 'package:korven_open_tv/domain/models/channel.dart';
 
 void main() {
   group('Channel.fromJson salud', () {

@@ -4,9 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:iptv_ecosystem/data/repositories/channel_repository.dart';
-import 'package:iptv_ecosystem/domain/models/channel.dart';
-import 'package:iptv_ecosystem/domain/models/channel_filter.dart';
+import 'package:korven_open_tv/data/repositories/channel_repository.dart';
+import 'package:korven_open_tv/domain/models/channel.dart';
+import 'package:korven_open_tv/domain/models/channel_filter.dart';
 
 void main() {
   // Captura la request y responde con el body dado.

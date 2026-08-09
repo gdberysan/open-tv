@@ -3,10 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:iptv_ecosystem/data/repositories/channel_repository.dart';
-import 'package:iptv_ecosystem/domain/models/channel.dart';
-import 'package:iptv_ecosystem/domain/models/channel_filter.dart';
-import 'package:iptv_ecosystem/presentation/providers/channel_provider.dart';
+import 'package:korven_open_tv/data/repositories/channel_repository.dart';
+import 'package:korven_open_tv/domain/models/channel.dart';
+import 'package:korven_open_tv/domain/models/channel_filter.dart';
+import 'package:korven_open_tv/presentation/providers/channel_provider.dart';
 
 /// Repo fake con [total] canales; aplica q/limit/offset como el gateway.
 class FakeRepo implements IChannelRepository {

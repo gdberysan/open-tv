@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:iptv_ecosystem/theme/korven_colors.dart';
-import 'package:iptv_ecosystem/theme/korven_theme.dart';
+import 'package:korven_open_tv/theme/korven_colors.dart';
+import 'package:korven_open_tv/theme/korven_theme.dart';
 
 void main() {
   test('el tema es oscuro y su canvas es grafito', () {
