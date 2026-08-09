@@ -167,6 +167,29 @@ func (h *ChannelHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, res)
 }
 
+// GetCountries y GetCategories alimentan los selectores de filtro de la app:
+// cada valor con su recuento real, para que el usuario vea cuánto hay detrás de
+// cada opción antes de elegirla.
+func (h *ChannelHandler) GetCountries(w http.ResponseWriter, r *http.Request) {
+	facetas, err := h.repo.Countries(r.Context())
+	if err != nil {
+		h.logger.Error("GetCountries: fallo consultando países", slog.Any("error", err))
+		h.writeError(w, http.StatusInternalServerError, "Error obteniendo países")
+		return
+	}
+	h.writeJSON(w, http.StatusOK, facetas)
+}
+
+func (h *ChannelHandler) GetCategories(w http.ResponseWriter, r *http.Request) {
+	facetas, err := h.repo.Categories(r.Context())
+	if err != nil {
+		h.logger.Error("GetCategories: fallo consultando categorías", slog.Any("error", err))
+		h.writeError(w, http.StatusInternalServerError, "Error obteniendo categorías")
+		return
+	}
+	h.writeJSON(w, http.StatusOK, facetas)
+}
+
 func queryInt(r *http.Request, key string, def, max int) int {
 	v, err := strconv.Atoi(r.URL.Query().Get(key))
 	if err != nil || v < 0 {

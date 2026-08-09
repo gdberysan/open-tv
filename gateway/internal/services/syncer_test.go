@@ -83,6 +83,8 @@ func (f *fakeChannelRepo) Delete(context.Context, domain.ChannelID) error { retu
 func (f *fakeChannelRepo) CountFiltered(context.Context, ports.ChannelFilter) (int, error) {
 	return 0, nil
 }
+func (f *fakeChannelRepo) Countries(context.Context) ([]ports.Faceta, error)  { return nil, nil }
+func (f *fakeChannelRepo) Categories(context.Context) ([]ports.Faceta, error) { return nil, nil }
 
 type deleteStaleCall struct {
 	providerID string

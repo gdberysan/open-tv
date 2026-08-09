@@ -475,3 +475,54 @@ func TestFindFilteredCategoriaCasaConCompuestas(t *testing.T) {
 		t.Errorf("'Kid' casó con %d canales; debe exigir la categoría completa", len(parcial))
 	}
 }
+
+func TestCountriesDevuelveRecuentosOrdenados(t *testing.T) {
+	ctx := context.Background()
+	chRepo, _ := openStreamTestRepos(t)
+	for i, p := range []string{"ES", "ES", "ES", "MX", "MX", "GB"} {
+		if err := chRepo.Save(ctx, makeChannel("ch-"+strconv.Itoa(i), "C", p, "News")); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	got, err := chRepo.Countries(ctx)
+	if err != nil {
+		t.Fatalf("Countries: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("quiero 3 países, tengo %d", len(got))
+	}
+	// Ordenados por volumen: el selector los enseña así.
+	if got[0].Valor != "ES" || got[0].Count != 3 {
+		t.Errorf("primero = %+v, quiero ES con 3", got[0])
+	}
+}
+
+// Las categorías se devuelven ATÓMICAS: "Animation;Kids" alimenta a las dos.
+func TestCategoriesDescomponeLasCompuestas(t *testing.T) {
+	ctx := context.Background()
+	chRepo, _ := openStreamTestRepos(t)
+	for i, c := range []string{"Kids", "Animation;Kids", "Movies"} {
+		if err := chRepo.Save(ctx, makeChannel("ch-"+strconv.Itoa(i), "C", "ES", c)); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	got, err := chRepo.Categories(ctx)
+	if err != nil {
+		t.Fatalf("Categories: %v", err)
+	}
+	porNombre := map[string]int{}
+	for _, f := range got {
+		porNombre[f.Valor] = f.Count
+	}
+	if porNombre["Kids"] != 2 {
+		t.Errorf("Kids = %d, quiero 2 (la compuesta cuenta)", porNombre["Kids"])
+	}
+	if porNombre["Animation"] != 1 {
+		t.Errorf("Animation = %d, quiero 1", porNombre["Animation"])
+	}
+	if _, hay := porNombre["Animation;Kids"]; hay {
+		t.Error("no debe aparecer la compuesta como categoría propia")
+	}
+}

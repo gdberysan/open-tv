@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -437,4 +438,74 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// Countries devuelve los países con canales y su recuento, ordenados por
+// volumen. Lo consume el selector de país de la app.
+func (r *SQLiteChannelRepository) Countries(ctx context.Context) ([]ports.Faceta, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT country_code, COUNT(*) FROM channels
+		WHERE country_code IS NOT NULL AND country_code != ''
+		GROUP BY country_code ORDER BY COUNT(*) DESC, country_code`)
+	if err != nil {
+		return nil, fmt.Errorf("db.Countries: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ports.Faceta
+	for rows.Next() {
+		var f ports.Faceta
+		if err := rows.Scan(&f.Valor, &f.Count); err != nil {
+			return nil, fmt.Errorf("db.Countries (scan): %w", err)
+		}
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("db.Countries (rows.Err): %w", err)
+	}
+	return out, nil
+}
+
+// Categories descompone los category_id compuestos ("Animation;Kids") en sus
+// categorías atómicas y las cuenta por separado: la taxonomía real son unas 30,
+// no los 181 strings compuestos que hay en la columna. SQLite no tiene split,
+// así que el troceo va en Go; son 12k filas agrupadas, es despreciable.
+func (r *SQLiteChannelRepository) Categories(ctx context.Context) ([]ports.Faceta, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT category_id, COUNT(*) FROM channels
+		WHERE category_id IS NOT NULL AND category_id != ''
+		GROUP BY category_id`)
+	if err != nil {
+		return nil, fmt.Errorf("db.Categories: %w", err)
+	}
+	defer rows.Close()
+
+	acum := map[string]int{}
+	for rows.Next() {
+		var compuesta string
+		var n int
+		if err := rows.Scan(&compuesta, &n); err != nil {
+			return nil, fmt.Errorf("db.Categories (scan): %w", err)
+		}
+		for _, atomica := range strings.Split(compuesta, ";") {
+			if atomica = strings.TrimSpace(atomica); atomica != "" {
+				acum[atomica] += n
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("db.Categories (rows.Err): %w", err)
+	}
+
+	out := make([]ports.Faceta, 0, len(acum))
+	for v, n := range acum {
+		out = append(out, ports.Faceta{Valor: v, Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Valor < out[j].Valor
+	})
+	return out, nil
 }
