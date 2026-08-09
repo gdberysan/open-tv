@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/api_error.dart';
 import '../../domain/models/channel.dart';
-import '../../domain/models/channel_filter.dart';
 import '../providers/channel_provider.dart';
 import '../widgets/console_bar.dart';
 import '../widgets/filter_bar.dart';
