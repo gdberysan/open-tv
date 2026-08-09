@@ -24,6 +24,20 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>$(PRODUCT_COPYRIGHT)</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- El 19 % del catálogo son URLs http:// sin TLS.
+		     NSAllowsArbitraryLoadsInMedia sola NO basta: con solo esa clave,
+		     AVFoundation seguía rechazando los streams en claro con "the App
+		     Transport Security policy requires the use of a secure connection"
+		     (visto en el log, stream.mcquack.net). Se añade la general, que es
+		     el emparejamiento que documenta Apple: los sistemas que entienden
+		     las claves específicas ignoran la general, y los que no, la usan. -->
+		<key>NSAllowsArbitraryLoadsInMedia</key>
+		<true/>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>

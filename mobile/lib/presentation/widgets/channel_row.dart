@@ -4,6 +4,7 @@ import '../../theme/korven_colors.dart';
 import '../../theme/korven_motion.dart';
 import '../../theme/korven_spacing.dart';
 import '../../theme/korven_typography.dart';
+import 'airplay_mark.dart';
 import 'channel_logo.dart';
 import 'favorite_star.dart';
 import 'signal_bars.dart';
@@ -88,6 +89,8 @@ class _ChannelRowState extends State<ChannelRow> {
                 ),
               ),
               const SizedBox(width: KorvenSpacing.s4),
+              AirplayMark(channelId: widget.channel.id),
+              const SizedBox(width: KorvenSpacing.s2),
               SignalBars(
                   alive: widget.channel.alive,
                   latencyMs: widget.channel.latencyMs),

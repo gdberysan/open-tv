@@ -134,7 +134,8 @@ func setupRouterWith(provider ports.ProviderPort, streams ports.StreamRepository
 
 func setupRouterFull(repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository) http.Handler {
 	r := chi.NewRouter()
-	h := NewChannelHandler(slog.New(slog.DiscardHandler), repo, provider, streams)
+	h := NewChannelHandler(slog.New(slog.DiscardHandler), repo, provider, streams,
+		NewAirplayProber(http.DefaultClient, time.Hour, 10))
 	r.Get("/channels", h.GetChannels)
 	r.Get("/channels/stream", h.GetStreamURL)
 	r.Get("/channels/{id}/health", h.GetHealth)
@@ -286,7 +287,8 @@ func TestGetChannelsLogueaLaCausaDelError(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&buf, nil))
 
 	h := NewChannelHandler(logger, &mockRepo{err: errors.New("disco en llamas")},
-		&mockProvider{}, &mockStreamRepo{})
+		&mockProvider{}, &mockStreamRepo{},
+		NewAirplayProber(http.DefaultClient, time.Hour, 10))
 
 	rec := httptest.NewRecorder()
 	h.GetChannels(rec, httptest.NewRequest(http.MethodGet, "/channels", nil))
@@ -389,5 +391,43 @@ func TestGetChannelsDevuelveElTotalEnCabecera(t *testing.T) {
 
 	if got := rr.Header().Get("X-Total-Count"); got == "" {
 		t.Error("falta X-Total-Count; la app lo necesita para el contador")
+	}
+}
+
+func TestGetStreamURLIncluyeAirplayOK(t *testing.T) {
+	origen := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(masterOK))
+	}))
+	defer origen.Close()
+
+	// mockStreamRepo guarda un map[ChannelID][]Stream y FindBestByChannelID
+	// escoge el vivo de menor latencia, así que IsAlive es obligatorio.
+	streams := &mockStreamRepo{
+		streams: map[domain.ChannelID][]domain.Stream{
+			"1": {{URL: origen.URL + "/a.m3u8", IsAlive: true, LatencyMs: 10}},
+		},
+	}
+	h := NewChannelHandler(nil, &mockRepo{}, &mockProvider{}, streams,
+		NewAirplayProber(origen.Client(), time.Hour, 10))
+
+	req := httptest.NewRequest(http.MethodGet, "/channels/stream?id=1", nil)
+	rec := httptest.NewRecorder()
+	h.GetStreamURL(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("código = %d, quiero 200", rec.Code)
+	}
+	var body struct {
+		URL       string `json:"url"`
+		AirplayOK *bool  `json:"airplay_ok"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if body.URL == "" {
+		t.Error("url vacía: el sondeo no puede romper la respuesta principal")
+	}
+	if body.AirplayOK == nil || !*body.AirplayOK {
+		t.Errorf("airplay_ok = %v, quiero true", body.AirplayOK)
 	}
 }

@@ -1,6 +1,10 @@
 package validator
 
-import "time"
+import (
+	"time"
+
+	"github.com/gdberysan/open-tv/gateway/internal/domain"
+)
 
 // StreamResult representa el resultado de una validación de stream.
 type StreamResult struct {
@@ -9,6 +13,10 @@ type StreamResult struct {
 	LatencyMs int64
 	Protocol  string
 	Error     error
+
+	// Compatibilidad con AirPlay, cuando se ha podido determinar. Solo la
+	// rellena el camino con fallback a GET: es el único que lee cuerpo.
+	Airplay domain.AirplaySupport
 }
 
 // Config estructura las configuraciones del Validator.

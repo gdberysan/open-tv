@@ -17,13 +17,14 @@ type ChannelHandler struct {
 	repo     ports.ChannelRepository
 	provider ports.ProviderPort
 	streams  ports.StreamRepository
+	prober   *AirplayProber
 }
 
-func NewChannelHandler(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository) *ChannelHandler {
+func NewChannelHandler(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, prober *AirplayProber) *ChannelHandler {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return &ChannelHandler{logger: logger, repo: repo, provider: provider, streams: streams}
+	return &ChannelHandler{logger: logger, repo: repo, provider: provider, streams: streams, prober: prober}
 }
 
 // GetChannels aplica filtros combinados y devuelve canales paginados.
@@ -74,6 +75,10 @@ func (h *ChannelHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
 // GetStreamURL resuelve la URL de reproducción para un canal.
 // Ruta: GET /channels/stream?id=<channelID>
 // Usa query param para soportar IDs con "/" (ej: "24/7 News").
+//
+// airplay_ok viaja aquí y no en /channels porque el sondeo cuesta una petición
+// al origen: se paga solo por los canales que de verdad se van a reproducir.
+// null significa "no se pudo determinar", que es el caso más común.
 func (h *ChannelHandler) GetStreamURL(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -85,7 +90,12 @@ func (h *ChannelHandler) GetStreamURL(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusNotFound, "Stream no encontrado")
 		return
 	}
-	h.writeJSON(w, http.StatusOK, map[string]string{"url": url})
+
+	respuesta := map[string]any{"url": url}
+	if h.prober != nil {
+		respuesta["airplay_ok"] = aBool(h.prober.Veredicto(r.Context(), url))
+	}
+	h.writeJSON(w, http.StatusOK, respuesta)
 }
 
 // resolveStreamURL elige qué URL servir, de mejor a peor fuente.

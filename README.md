@@ -58,6 +58,41 @@ La URL del gateway se fija en tiempo de compilación:
 flutter run -d macos --dart-define=GATEWAY_URL=http://192.168.1.50:8080
 ```
 
+## Emisión a un televisor
+
+Con un Apple TV o un televisor con AirPlay 2 en la misma red, el botón de
+AirPlay de la barra superior abre el selector del sistema. Al elegir destino, la
+barra inferior queda fija y los toques en la rejilla emiten al televisor en vez
+de abrir el reproductor.
+
+Solo AirPlay: no hay Chromecast, DLNA ni Roku.
+
+Algunos canales se ven en el Mac y no viajan a AirPlay. AVFoundation es mucho
+más estricto que libmpv y rechaza manifiestos y códecs que mpv reproduce sin
+quejarse. Cuando pasa, la app se da cuenta en 15 s, reproduce el canal en local
+y lo recuerda para marcarlo en la lista.
+
+También se puede ceder un canal que ya se está viendo: abrir el canal, pulsar
+AirPlay y elegir destino. El reproductor local para y el televisor toma el
+relevo.
+
+El ⏹ de la barra termina la sesión, pero **no** deselecciona la ruta del
+sistema: esa UI es de Apple y una app no puede tocarla. macOS puede seguir
+enviando el audio del sistema al televisor hasta que se cambie a mano.
+
+### Depurar la emisión
+
+La capa Swift no pasa por CI, así que va instrumentada. Los mensajes salen por
+**stderr**, es decir en la salida de `flutter run` — no con `log stream`:
+
+```bash
+cd mobile && flutter run -d macos 2>&1 | grep airplay
+```
+
+La línea que importa es `a los 3s: externalPlaybackActive=…`: `true` significa
+que macOS está descargando el vídeo en el televisor. En `readyToPlay` todavía
+sale `false`, tarda un par de segundos en cambiar.
+
 ## Desarrollo
 
 ```bash

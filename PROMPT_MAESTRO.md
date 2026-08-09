@@ -201,6 +201,7 @@ no por problemas técnicos. Texto completo y motivo en
 | **`StreamRepository` SQLite** | ✓ | Fase 7.1 (`1ec19f0`) |
 | **Stream health validator + worker** | ✓ | Fase 7.1. Pool HEAD→GET, `HEALTH_INTERVAL` default 60m |
 | **Indicador de señal + toggle offline** | ✓ | Fase 7.2 (`cf98db2`) |
+| **Emisión por AirPlay** | ✓ | `AVPlayer` nativo tras `AVRoutePickerView`; `media_kit` intacto para local |
 | CI (GitHub Actions) | ✓ | build, vet, gofmt, test `-race`, analyze |
 | `README.md` | ✓ | Arranque del stack y tabla de variables de entorno |
 
@@ -212,6 +213,9 @@ no por problemas técnicos. Texto completo y motivo en
 | Empaquetado del gateway | ✗ Se arranca a mano; sin launchd, Docker ni supervisor |
 | `/metrics` y `/health` enriquecido | ✗ Fase 10 |
 | Favoritos e historial | ✗ Fase 8; `sqflite` no está en `pubspec.yaml` |
+| Relleno de fondo de compatibilidad AirPlay | ✗ Descartado; el veredicto se sondea bajo demanda y se cachea en memoria |
+| Google Cast / DLNA / Roku | ✗ Fuera de alcance |
+| Cobertura de CI del código Swift | ✗ Imposible: los dos jobs corren en `ubuntu-latest`. Solo checklist manual |
 
 ### Plan de fiabilidad en curso
 

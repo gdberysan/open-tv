@@ -4,10 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/api_error.dart';
+import '../../domain/models/cast_session.dart';
 import '../../domain/models/channel.dart';
 import '../../domain/models/channel_filter.dart';
+import '../providers/cast_provider.dart';
 import '../providers/channel_provider.dart';
 import '../providers/view_mode_provider.dart';
+import '../widgets/airplay_button.dart';
+import '../widgets/cast_bar.dart';
 import '../widgets/channel_grid.dart';
 import '../widgets/channel_row.dart';
 import '../widgets/console_bar.dart';
@@ -76,7 +80,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  /// Con sesión de emisión activa el toque va al televisor y la rejilla no se
+  /// abandona: es el punto entero de la segunda pantalla. Sin sesión, se
+  /// comporta como siempre.
   void _abrirCanal(BuildContext context, Channel ch) {
+    if (ref.read(castProvider).intercepta) {
+      ref.read(castProvider.notifier).reproducir(ch);
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PlayerScreen(
@@ -84,6 +95,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           channelName: ch.name,
           countryCode: ch.countryCode,
         ),
+      ),
+    );
+  }
+
+  /// El notifier no navega: publica failed y aquí se decide. Al fallar la
+  /// emisión, el canal se abre en local con media_kit y se reconoce el fallo
+  /// para que la barra vuelva a "listo para emitir".
+  void _alFallarLaEmision(CastSession sesion) {
+    final id = sesion.channelId;
+    final nombre = sesion.channelName;
+    ref.read(castProvider.notifier).reconocerFallo();
+    if (id == null || nombre == null) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('// ${sesion.error ?? 'este canal no viaja a '
+          'AirPlay'} — reproduciendo en local')),
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(channelId: id, channelName: nombre),
       ),
     );
   }
@@ -109,8 +140,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final filter = ref.watch(channelFilterProvider);
     final modo = ref.watch(viewModeProvider);
 
+    ref.listen(castProvider, (_, actual) {
+      if (actual.state == CastState.failed) _alFallarLaEmision(actual);
+    });
+
     return Scaffold(
+      bottomNavigationBar: const CastBar(),
       appBar: ConsoleBar(
+        leadingActions: const [AirplayButton()],
         searching: _searching,
         searchController: _searchCtrl,
         onSearchChanged: _onSearchChanged,

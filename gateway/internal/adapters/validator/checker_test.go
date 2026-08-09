@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gdberysan/open-tv/gateway/internal/adapters/validator"
+	"github.com/gdberysan/open-tv/gateway/internal/domain"
 )
 
 // Los orígenes IPTV rotos responden a un HEAD escribiendo cuerpo igualmente.
@@ -41,5 +42,46 @@ func TestCheckerMandaUserAgentDeReproductor(t *testing.T) {
 	}
 	if recibido == "" || strings.HasPrefix(recibido, "Go-http-client") {
 		t.Errorf("User-Agent = %q; algunos orígenes filtran el default de Go", recibido)
+	}
+}
+
+func TestCheckClasificaAirplayEnElFallbackGET(t *testing.T) {
+	const master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000,CODECS=\"avc1.4d4028,mp4a.40.2\"\n720p.m3u8\n"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// HEAD rechazado a propósito: es lo que fuerza el fallback a GET, que
+		// es el único camino donde hay cuerpo que clasificar.
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(master))
+	}))
+	defer srv.Close()
+
+	c := validator.NewChecker(nil, 5*time.Second)
+	res := c.Check(context.Background(), srv.URL+"/a.m3u8")
+
+	if !res.IsAlive {
+		t.Fatalf("IsAlive = false, quiero true")
+	}
+	if res.Airplay != domain.AirplayOK {
+		t.Errorf("Airplay = %v, quiero AirplayOK", res.Airplay)
+	}
+}
+
+func TestCheckDejaAirplayDesconocidoSiElHEADBasta(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := validator.NewChecker(nil, 5*time.Second)
+	res := c.Check(context.Background(), srv.URL+"/a.m3u8")
+
+	// Sin GET no hay cuerpo, y sin cuerpo no se inventa un veredicto.
+	if res.Airplay != domain.AirplayUnknown {
+		t.Errorf("Airplay = %v, quiero AirplayUnknown", res.Airplay)
 	}
 }
