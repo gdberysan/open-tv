@@ -4,7 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../../data/api_error.dart';
+import '../../theme/korven_colors.dart';
+import '../../theme/korven_spacing.dart';
 import '../player/playback_guard.dart';
+import '../widgets/console_line.dart';
+import '../widgets/korven_emblem.dart';
+import '../widgets/state_views.dart';
 import '../providers/channel_provider.dart';
 
 const _kPlayTimeout = Duration(seconds: 15);
@@ -170,35 +175,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   Widget _buildBody() {
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.signal_wifi_off, color: Colors.red, size: 56),
-            const SizedBox(height: 16),
-            Text(
-              'Canal no disponible',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(color: Colors.white),
-            ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                _error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.grey, fontSize: 12),
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _loadAndPlay,
-              icon: const Icon(Icons.play_arrow),
-              label: const Text('Reintentar'),
-            ),
-          ],
+      return KorvenStateView(
+        eyebrow: '// canal no disponible',
+        message: _error!,
+        action: ElevatedButton.icon(
+          onPressed: _loadAndPlay,
+          icon: const Icon(Icons.play_arrow, size: 18),
+          label: const Text('Reintentar'),
         ),
       );
     }
@@ -208,22 +191,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         Video(controller: _controller),
         if (_isLoading)
           Container(
-            color: Colors.black,
+            color: KorvenColors.surfaceBase,
             child: Center(
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Cargando ${widget.channelName}…',
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Timeout en ${_kPlayTimeout.inSeconds}s',
-                    style:
-                        const TextStyle(color: Colors.grey, fontSize: 10),
+                  const Opacity(opacity: 0.5, child: KorvenEmblem(size: 64)),
+                  const SizedBox(height: KorvenSpacing.s5),
+                  // Nombra lo que está pasando, en vez de un spinner que solo
+                  // dice "algo ocurre". El watchdog de 15s sigue igual.
+                  ConsoleLine(
+                    text: '\$ korven tune --channel "${widget.channelName}"',
                   ),
                 ],
               ),
