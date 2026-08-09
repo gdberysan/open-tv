@@ -86,7 +86,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _error = null;
     });
 
-    final guard = PlaybackGuard(onFatal: _onFatal, loadTimeout: _kPlayTimeout);
+    final guard = PlaybackGuard(
+      onFatal: _onFatal,
+      // Quitar el indicador de carga solo con reproducción probada. Hacerlo con
+      // `playing` enseñaba un rectángulo negro sin spinner ni error en canales
+      // que nunca llegan a decodificar.
+      onPlaybackConfirmed: () {
+        if (mounted && _isLoading) setState(() => _isLoading = false);
+      },
+      loadTimeout: _kPlayTimeout,
+    );
     _guard = guard;
 
     // Armar ANTES de resolver la URL, no solo antes de open(): el fetch al
@@ -109,12 +118,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       }
       if (generacion != _generacion) return;
 
-      _subs.add(_player.stream.playing.listen((playing) {
-        guard.onPlaying(playing);
-        if (playing && _isLoading && mounted) {
-          setState(() => _isLoading = false);
-        }
-      }));
+      _subs.add(_player.stream.playing.listen(guard.onPlaying));
       _subs.add(_player.stream.position.listen(guard.onPosition));
       // Los errores de mpv pasan por el guard: los transitorios de HLS en
       // vivo (EOF de segmento, reconexiones) NO matan la reproducción.
