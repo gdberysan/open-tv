@@ -73,18 +73,37 @@ func (h *ChannelHandler) GetStreamURL(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusBadRequest, "id requerido")
 		return
 	}
-	url, err := h.provider.GetStreamURL(r.Context(), domain.ChannelID(id))
+	url, err := h.resolveStreamURL(r, domain.ChannelID(id))
 	if err != nil {
-		// Caché del provider vacío (p.ej. tras un reinicio, antes del primer
-		// sync): caer a los streams persistidos en DB por el último sync.
-		persisted, dbErr := h.streams.FindByChannelID(r.Context(), domain.ChannelID(id))
-		if dbErr != nil || len(persisted) == 0 {
-			h.writeError(w, http.StatusNotFound, "Stream no encontrado")
-			return
-		}
-		url = persisted[0].URL
+		h.writeError(w, http.StatusNotFound, "Stream no encontrado")
+		return
 	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"url": url})
+}
+
+// resolveStreamURL elige qué URL servir, de mejor a peor fuente.
+//
+// La DB va primero a propósito. La caché del provider es un map[ChannelID]string
+// poblado en el sync: una sola URL por canal, la última que gana si dos entradas
+// del M3U comparten nombre, y sin ninguna noción de salud ni latencia. La DB, en
+// cambio, guarda todos los streams del canal y el health-worker mantiene ahí
+// is_alive y latency_ms. Consultar la caché primero significaba tirar esa
+// información a la basura y poder devolver un stream muerto teniendo uno vivo al
+// lado.
+func (h *ChannelHandler) resolveStreamURL(r *http.Request, id domain.ChannelID) (string, error) {
+	// 1. El mejor: vivo y de menor latencia.
+	if best, err := h.streams.FindBestByChannelID(r.Context(), id); err == nil {
+		return best.URL, nil
+	}
+
+	// 2. Ninguno vivo. Puede ser que el health-worker aún no haya pasado, así
+	//    que servimos cualquiera antes que dar un 404 gratuito.
+	if persisted, err := h.streams.FindByChannelID(r.Context(), id); err == nil && len(persisted) > 0 {
+		return persisted[0].URL, nil
+	}
+
+	// 3. La DB no sabe nada del canal: arranque en frío antes del primer sync.
+	return h.provider.GetStreamURL(r.Context(), id)
 }
 
 // GetHealth resume el estado de salud de un canal a partir de sus streams.
