@@ -51,7 +51,7 @@ func TestProvider_GetLiveChannels(t *testing.T) {
 	if channels[0].ProviderType != domain.ProviderOpenSource {
 		t.Errorf("Expected provider type '%s', got '%s'", domain.ProviderOpenSource, channels[0].ProviderType)
 	}
-	// El tvg-id es la clave que une el canal con su guía XMLTV (EPG)
+	// Del tvg-id se deriva CountryCode (formato "Nombre.cc@Feed")
 	if channels[0].TvgID != "1" {
 		t.Errorf("Expected TvgID '1', got '%s'", channels[0].TvgID)
 	}

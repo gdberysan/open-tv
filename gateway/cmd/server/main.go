@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/db"
-	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/epg"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/providers/opensource"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/adapters/validator"
 	"github.com/tu-org/iptv-ecosystem/gateway/internal/api"
@@ -71,12 +70,10 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	// Escritura: los usan el syncer y el health-worker.
 	channelRepo := db.NewChannelRepository(sqlDB)
 	streamRepo := db.NewStreamRepository(sqlDB)
-	epgRepo := db.NewEPGRepository(sqlDB)
 
 	// Lectura: los usan los handlers HTTP.
 	channelRepoRO := db.NewChannelRepository(lecturaDB)
 	streamRepoRO := db.NewStreamRepository(lecturaDB)
-	epgRepoRO := db.NewEPGRepository(lecturaDB)
 
 	iptvOrgURL := os.Getenv("IPTV_ORG_URL")
 	if iptvOrgURL == "" {
@@ -119,28 +116,6 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		}
 	}()
 
-	// 3c. Worker EPG (opt-in): no existe una URL XMLTV pública canónica para
-	// el catálogo completo de IPTV-org, así que la fuente se configura vía
-	// EPG_URL (acepta .xml y .xml.gz). Sin ella el worker no arranca y los
-	// endpoints /epg responden vacío.
-	if epgURL := os.Getenv("EPG_URL"); epgURL != "" {
-		epgWorker := epg.NewWorker(epg.NewParser(), epgRepo, epgURL,
-			durationEnv(logger, "EPG_INTERVAL", 12*time.Hour), logger)
-		// Esperar al primer sync de canales: sin tvg_id en DB, el EPG
-		// descartaría todas las entradas en silencio.
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			select {
-			case <-syncCtx.Done():
-			case <-syncer.FirstSyncDone():
-				epgWorker.Start(syncCtx)
-			}
-		}()
-	} else {
-		logger.Info("EPG_URL no configurada; worker EPG desactivado")
-	}
-
 	// 4. Router y servidor HTTP
 	// Loopback por defecto: la API no tiene auth y solo la consume la app
 	// local. El gateway nunca proxya video (solo devuelve JSON con la URL),
@@ -151,7 +126,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	srv := &http.Server{
 		Addr:              listenAddr,
-		Handler:           api.NewRouter(logger, channelRepoRO, provider, streamRepoRO, epgRepoRO, lecturaDB, syncer),
+		Handler:           api.NewRouter(logger, channelRepoRO, provider, streamRepoRO, lecturaDB, syncer),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,

@@ -81,22 +81,8 @@ CREATE TABLE IF NOT EXISTS streams (
 CREATE INDEX IF NOT EXISTS idx_streams_channel_alive ON streams(channel_id, is_alive);
 CREATE INDEX IF NOT EXISTS idx_streams_latency       ON streams(channel_id, latency_ms) WHERE is_alive = 1;
 
--- ─────────────────────────────────────────
--- EPG / GUÍA DE PROGRAMACIÓN
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS epg_entries (
-    id          TEXT    PRIMARY KEY,
-    channel_id  TEXT    NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
-    title       TEXT    NOT NULL,
-    description TEXT,
-    start_at    INTEGER NOT NULL,
-    end_at      INTEGER NOT NULL,
-    created_at  INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_epg_channel_time ON epg_entries(channel_id, start_at, end_at);
-CREATE INDEX IF NOT EXISTS idx_epg_window       ON epg_entries(start_at, end_at);
-
--- Nota: sync_log y user_agents existieron en esquemas anteriores y pueden
--- seguir presentes en DBs antiguas. No se usan (nunca se escribieron ni se
--- leyeron); no se borran para no tocar datos existentes sin necesidad.
+-- Nota: sync_log, user_agents y epg_entries existieron en esquemas anteriores
+-- y pueden seguir presentes en DBs antiguas. Ya no se usan; no se borran para
+-- no tocar datos existentes sin necesidad. epg_entries se retiró al revertir la
+-- guía de programación: la única fuente XMLTV pública con ids compatibles
+-- cubría 465 canales de India de 477, inservible para este catálogo.

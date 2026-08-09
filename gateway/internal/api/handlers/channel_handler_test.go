@@ -77,8 +77,25 @@ func (m *mockStreamRepo) FindAll(ctx context.Context) ([]domain.Stream, error)  
 func (m *mockStreamRepo) FindByChannelID(ctx context.Context, id domain.ChannelID) ([]domain.Stream, error) {
 	return m.streams[id], nil
 }
+
+// FindBestByChannelID replica la semántica del repo real: solo streams vivos,
+// el de menor latencia. Antes devolvía siempre error, lo que ocultaba que el
+// handler ni siquiera lo llamaba.
 func (m *mockStreamRepo) FindBestByChannelID(ctx context.Context, id domain.ChannelID) (domain.Stream, error) {
-	return domain.Stream{}, errors.New("sin streams vivos")
+	var mejor domain.Stream
+	encontrado := false
+	for _, s := range m.streams[id] {
+		if !s.IsAlive {
+			continue
+		}
+		if !encontrado || s.LatencyMs < mejor.LatencyMs {
+			mejor, encontrado = s, true
+		}
+	}
+	if !encontrado {
+		return domain.Stream{}, errors.New("sin streams vivos")
+	}
+	return mejor, nil
 }
 func (m *mockStreamRepo) MarkAlive(ctx context.Context, id string, latencyMs int64) error { return nil }
 func (m *mockStreamRepo) MarkDead(ctx context.Context, id string) error                   { return nil }
@@ -256,5 +273,87 @@ func TestGetChannelsLogueaLaCausaDelError(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "disco en llamas") {
 		t.Errorf("la causa del 500 debe aparecer en los logs; log:\n%s", buf.String())
+	}
+}
+
+// El health-worker sabe qué stream está vivo y cuál no; servir persisted[0]
+// (el primero por ID) tiraba esa información a la basura. En la DB real hay 19
+// canales con un stream vivo y otro muerto.
+func TestChannelHandler_GetStreamURL_PrefiereElStreamVivo(t *testing.T) {
+	streams := &mockStreamRepo{streams: map[domain.ChannelID][]domain.Stream{
+		// st-a es el primero por ID pero está muerto; st-b es el bueno.
+		"123": {
+			{ID: "st-a", ChannelID: "123", URL: "http://muerto/1.m3u8", IsAlive: false},
+			{ID: "st-b", ChannelID: "123", URL: "http://vivo/1.m3u8", IsAlive: true, LatencyMs: 120},
+		},
+	}}
+	r := setupRouterWith(&mockProvider{}, streams)
+
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/channels/stream?id=123", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, quiero 200 (body %s)", rr.Code, rr.Body.String())
+	}
+	var res map[string]string
+	_ = json.NewDecoder(rr.Body).Decode(&res)
+	if res["url"] != "http://vivo/1.m3u8" {
+		t.Errorf("url = %q, quiero la del stream vivo", res["url"])
+	}
+}
+
+// Entre varios vivos, el de menor latencia.
+func TestChannelHandler_GetStreamURL_PrefiereMenorLatencia(t *testing.T) {
+	streams := &mockStreamRepo{streams: map[domain.ChannelID][]domain.Stream{
+		"123": {
+			{ID: "st-a", ChannelID: "123", URL: "http://lento/1.m3u8", IsAlive: true, LatencyMs: 900},
+			{ID: "st-b", ChannelID: "123", URL: "http://rapido/1.m3u8", IsAlive: true, LatencyMs: 80},
+		},
+	}}
+	r := setupRouterWith(&mockProvider{}, streams)
+
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/channels/stream?id=123", nil))
+
+	var res map[string]string
+	_ = json.NewDecoder(rr.Body).Decode(&res)
+	if res["url"] != "http://rapido/1.m3u8" {
+		t.Errorf("url = %q, quiero la de menor latencia", res["url"])
+	}
+}
+
+// Antes de la primera pasada del health-worker ningún stream está vivo, pero el
+// canal sí se puede reproducir: hay que servir alguno en vez de dar 404.
+func TestChannelHandler_GetStreamURL_SinChequearSirveIgual(t *testing.T) {
+	streams := &mockStreamRepo{streams: map[domain.ChannelID][]domain.Stream{
+		"123": {{ID: "st-a", ChannelID: "123", URL: "http://sinchequear/1.m3u8"}},
+	}}
+	r := setupRouterWith(&mockProvider{}, streams)
+
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/channels/stream?id=123", nil))
+
+	var res map[string]string
+	_ = json.NewDecoder(rr.Body).Decode(&res)
+	if res["url"] != "http://sinchequear/1.m3u8" {
+		t.Errorf("url = %q, quiero el stream sin chequear", res["url"])
+	}
+}
+
+// Arranque en frío: la DB aún no sabe nada del canal, pero el provider ya
+// parseó el M3U. Es el único caso en que la caché en memoria manda.
+func TestChannelHandler_GetStreamURL_ArranqueEnFrioUsaLaCache(t *testing.T) {
+	r := setupRouterWith(&mockProvider{}, &mockStreamRepo{})
+
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/channels/stream?id=123", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, quiero 200", rr.Code)
+	}
+	var res map[string]string
+	_ = json.NewDecoder(rr.Body).Decode(&res)
+	if res["url"] != "http://mock.com/123.ts" {
+		t.Errorf("url = %q, quiero la de la caché del provider", res["url"])
 	}
 }

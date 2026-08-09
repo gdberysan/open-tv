@@ -70,7 +70,7 @@ func TestMigrateToleraPuntoYComaEnComentarios(t *testing.T) {
 	defer sqlDB.Close()
 
 	// Si el troceo hubiera fallado, faltarían tablas.
-	for _, tabla := range []string{"channels", "streams", "epg_entries", "providers", "categories"} {
+	for _, tabla := range []string{"channels", "streams", "providers", "categories"} {
 		var n int
 		if err := sqlDB.QueryRow(
 			"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", tabla,

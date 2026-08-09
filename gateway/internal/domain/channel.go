@@ -19,7 +19,11 @@ const (
 // Ver internal/domain/channel_test.go.
 type Channel struct {
 	ID ChannelID `json:"ID"`
-	// TvgID es el identificador XMLTV (tvg-id del M3U); une el canal con su EPG.
+	// TvgID es el tvg-id del M3U. Nació para unir el canal con su EPG, y esa
+	// guía se retiró — pero NO se puede borrar: opensource.countryFromTvgID lo
+	// usa para derivar CountryCode (formato "Nombre.cc@Feed"), y 10 835 de
+	// 12 639 canales obtienen su país por esa vía. Sin él, el filtro de países
+	// se queda casi vacío.
 	TvgID        string `json:"TvgID"`
 	Name         string `json:"Name"`
 	LogoURL      string `json:"LogoURL"`

@@ -47,36 +47,6 @@ lsof -iTCP:8080 -sTCP:LISTEN -n -P
 | `IPTV_ORG_URL` | `https://iptv-org.github.io/iptv/index.m3u` | Origen del catálogo M3U. |
 | `SYNC_INTERVAL` | `12h` | Cadencia del re-sync del catálogo. |
 | `HEALTH_INTERVAL` | `60m` | Cadencia del health-check de streams. |
-| `EPG_URL` | *(ninguno)* | **Opt-in.** Fuente XMLTV (`.xml` o `.xml.gz`). **Sin ella el worker de EPG no arranca y la guía sale vacía.** |
-| `EPG_INTERVAL` | `12h` | Cadencia de refresco del EPG. |
-
-### Sobre `EPG_URL`
-
-No existe una URL XMLTV pública canónica que cubra el catálogo de IPTV-org,
-por eso es opt-in. Para que la guía muestre algo, los `channel id` del XMLTV
-deben coincidir con los `tvg-id` del M3U (formato `Nombre.cc@Feed`, p.ej.
-`10TV.in@SD`).
-
-**Fuente que funciona hoy** — la única de la lista comunitaria de
-[iptv-org/epg](https://github.com/iptv-org/epg/blob/master/GUIDES.md) con ids
-compatibles:
-
-```bash
-EPG_URL="https://raw.githubusercontent.com/StrangeDrVN/epg/public/output/guide.xml" go run ./cmd/server
-```
-
-> ⚠️ **Cobertura limitada.** Son 478 canales, de los cuales 477 casan con el
-> catálogo, pero **465 son de India**. El resto: 7 de Canadá, 3 de Países
-> Bajos, 1 de EE.UU. y 1 del Reino Unido. La guía se llena de verdad para esos
-> canales y queda vacía para todos los demás.
->
-> Ojo: el enlace que aparece en `GUIDES.md` (`.../public/guide.xml`) da 404;
-> la ruta buena lleva `/output/`.
-
-**Para cubrir otros países** hay que generar la guía uno mismo con el grabber
-de iptv-org/epg (`npm run grab --- --sites=...`) y servir el XML resultante por
-HTTP. El grabber tiene sites por país; el `channels.xml` del proyecto dice qué
-ids produce cada uno.
 
 ## Configuración de la app
 

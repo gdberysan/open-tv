@@ -139,7 +139,7 @@ void main() {
     expect(state.channels.every((c) => c.name.contains('Impar')), isTrue);
   });
 
-  test('un error en loadMore conserva lo ya cargado', () async {
+  test('un error en loadMore conserva lo ya cargado y lo expone', () async {
     final repo = FakeRepo(total: 600);
     final container = await containerCon(repo);
     await container.read(channelListProvider.future);
@@ -150,6 +150,26 @@ void main() {
     final state = container.read(channelListProvider).requireValue;
     expect(state.channels, hasLength(500));
     expect(state.isLoadingMore, isFalse);
+    // Sin esto el error se tragaba y la UI seguía mostrando un spinner.
+    expect(state.loadMoreError, isNotNull);
+    expect(state.hasMore, isTrue, reason: 'sigue habiendo páginas que cargar');
+  });
+
+  test('un loadMore posterior con éxito limpia el error', () async {
+    final repo = FakeRepo(total: 600);
+    final container = await containerCon(repo);
+    await container.read(channelListProvider.future);
+
+    repo.failNext = true;
+    await container.read(channelListProvider.notifier).loadMore();
+    expect(container.read(channelListProvider).requireValue.loadMoreError,
+        isNotNull);
+
+    await container.read(channelListProvider.notifier).loadMore();
+
+    final state = container.read(channelListProvider).requireValue;
+    expect(state.loadMoreError, isNull);
+    expect(state.channels, hasLength(600));
   });
 
   test('loadMore no pisa el resultado de un filtro cambiado a media carga',

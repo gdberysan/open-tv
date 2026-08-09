@@ -16,7 +16,7 @@ claude < PROMPT_MAESTRO.md
 Al inicio de **cada sesión nueva**, antepón el siguiente bloque de contexto antes de tu instrucción:
 
 ```
-FASE ACTUAL    : [número y nombre, ej. "Fase 6 — EPG"]
+FASE ACTUAL    : [número y nombre, ej. "Fase 8 — Favoritos y UX"]
 ARCHIVOS TOCADOS EN SESIÓN ANTERIOR : [lista o "ninguno — primera sesión"]
 BLOQUEANTES CONOCIDOS : [lista o "ninguno"]
 TAREA DE ESTA SESIÓN  : [una sola oración concreta y verificable]
@@ -47,7 +47,6 @@ Sistema open-source para agregación, indexación y reproducción de **televisi�
 |---|---|---|---|
 | API Gateway | Go + `chi` router | 1.22 / chi v5 | Sin magic, middleware composable |
 | Base de datos | SQLite (`modernc.org/sqlite`) | latest | Zero dependencias C, embebido, portable |
-| EPG Parser | `xml.Decoder` streaming | stdlib | Archivos >500MB; nunca carga total en memoria |
 | Frontend | Flutter | 3.x stable | Un codebase → iOS + Android + macOS |
 | Logging | `log/slog` | stdlib Go 1.21+ | Estructurado, sin dependencias externas |
 
@@ -66,7 +65,6 @@ iptv-ecosystem/
 │   │   ├── services/                   # Casos de uso (Syncer)
 │   │   ├── adapters/
 │   │   │   ├── db/                     # SQLite repositories + schema.sql
-│   │   │   ├── epg/                    # XMLTV streaming parser + worker
 │   │   │   ├── validator/              # Health-check de streams (pool HEAD→GET)
 │   │   │   └── providers/
 │   │   │       └── opensource/         # IPTV-org y fuentes públicas M3U
@@ -127,14 +125,6 @@ type Channel struct {
 
 func (c Channel) Validate() error
 
-// epg.go
-type EPGEntry struct {
-    ChannelID   ChannelID
-    Title       string
-    Description string
-    StartAt     time.Time
-    EndAt       time.Time
-}
 ```
 
 ---
@@ -169,7 +159,6 @@ type ProviderPort interface {
     Type() domain.ProviderType
     GetLiveChannels(ctx context.Context) ([]domain.Channel, error)
     GetStreamURL(ctx context.Context, channelID domain.ChannelID) (string, error)
-    GetEPGData(ctx context.Context, channelID domain.ChannelID) ([]domain.EPGEntry, error)
     HealthCheck(ctx context.Context) error
 }
 ```
@@ -181,7 +170,6 @@ type ProviderPort interface {
 | # | Riesgo | Severidad | Mitigación |
 |---|---|---|---|
 | 1 | **Race condition en validador** | Alta | Canal `results chan StreamResult` con un único consumidor. Sin mutex en escritura. |
-| 2 | **OOM en parser EPG** — XMLs >500MB | Alta | `xml.Decoder.Token()` streaming. Pool de buffers con `sync.Pool`. |
 | 3 | **Rate limiting de IPTV-org** | Media | Pool acotado (50 goroutines max). Jitter 100–500ms. Backoff exponencial. |
 | 4 | **URLs rotatorias** — tokens en URL | Media | `GetStreamURL` nunca cachea la URL final. TTL corto (5min) en caché L1. |
 | 5 | **Goroutine leak en validador** | Alta | `context.WithTimeout` en cada request. `defer cancel()` inmediato. |
@@ -189,13 +177,12 @@ type ProviderPort interface {
 
 ---
 
-## 7. ADR-001: ESTRATEGIA DE PARSING EPG
+## 7. ADR-001: ESTRATEGIA DE PARSING EPG — ❌ REVERTIDO
 
-**Decisión:** `xml.Decoder.Token()` en streaming, con callback `onEntry` para batch-insert cada 500 entradas.
-
-**Razón:** Archivos XMLTV pueden superar 500MB. Carga total en memoria causaría OOM.
-
-**Trade-off:** Mayor complejidad vs. RAM constante ~2MB independiente del tamaño del archivo.
+La decisión (parseo XMLTV en streaming con `xml.Decoder.Token()`) era correcta y
+funcionó, pero la guía se eliminó del producto por falta de datos utilizables,
+no por problemas técnicos. Texto completo y motivo en
+`docs/adr/001-epg-parsing-strategy.md`.
 
 ---
 
@@ -211,18 +198,11 @@ type ProviderPort interface {
 | Flutter macOS — media_kit + libmpv | ✓ | HLS nativo |
 | Player timeout 15 s + `PlaybackGuard` | ✓ | Los errores transitorios de mpv ya no matan el vídeo |
 | Filter bar (calidad + país + categoría) | ✓ | `channelFilterProvider`, `FilterChip`, picker dialog |
-| **EPG Worker wired en `main.go`** | ✓ | Fase 6.1 (`4fbb821`). Capa de persistencia completa, no las "10 líneas" previstas |
 | **`StreamRepository` SQLite** | ✓ | Fase 7.1 (`1ec19f0`) |
 | **Stream health validator + worker** | ✓ | Fase 7.1. Pool HEAD→GET, `HEALTH_INTERVAL` default 60m |
-| **Guía EPG en Flutter** | ✓ | Fase 6.2 (`0ba8467`). Parrilla canales × slots de 30 min |
 | **Indicador de señal + toggle offline** | ✓ | Fase 7.2 (`cf98db2`) |
 | CI (GitHub Actions) | ✓ | build, vet, gofmt, test `-race`, analyze |
 | `README.md` | ✓ | Arranque del stack y tabla de variables de entorno |
-
-> ⚠️ **La Fase 6 está completa pero apagada por defecto.** `EPG_URL` es opt-in
-> y no tiene default: sin configurarla, el worker de EPG no arranca y la guía
-> sale vacía. No existe una URL XMLTV pública canónica para el catálogo de
-> IPTV-org. Ver `README.md`.
 
 ### Pendiente prioritario
 
@@ -246,22 +226,16 @@ app (timeouts, watchdog), observabilidad y limpieza de código muerto.
 
 ---
 
-### FASE 6 — EPG: Guía de programación en vivo
-> **Output verificable:** `GET /epg?channel=X&from=T1&to=T2` retorna JSON; Flutter muestra timeline.
+### FASE 6 — EPG: Guía de programación ❌ REVERTIDA (2026-08-08)
 
-#### 6.1 Backend
-- [ ] Wire `epg.NewWorker` en `cmd/server/main.go` con URL de EPG de IPTV-org
-- [ ] `internal/adapters/db/epg_repository.go`: `SaveBatch([]domain.EPGEntry)` con upsert, batch de 500
-- [ ] `internal/ports/epg_repository.go`: interfaz con `SaveBatch`, `FindByChannelAndWindow`, `FindCurrentlyAiring`
-- [ ] `GET /epg?channel=X&from=RFC3339&to=RFC3339` — ventana máxima 24 h
-- [ ] `GET /epg/now` — todos los canales con su programa actual
+Se implementó completa (backend `4fbb821` + Flutter `0ba8467`) y se eliminó
+después. El motivo no fue técnico: la única fuente XMLTV pública con ids
+compatibles con iptv-org cubre 478 canales, **465 de ellos de India**. Para este
+catálogo la parrilla salía vacía para casi cualquier canal real, y no hay forma
+de arreglarlo sin montar y hospedar el grabber de iptv-org/epg.
 
-#### 6.2 Flutter — Timeline
-- [ ] `lib/domain/models/epg_entry.dart`
-- [ ] `lib/data/repositories/epg_repository.dart`
-- [ ] `lib/presentation/providers/epg_provider.dart`: `FutureProvider` que recarga cada 5 min
-- [ ] `lib/presentation/screens/guide_screen.dart`: grid horizontal, canales × slots de 30 min
-- [ ] `HomeScreen`: nombre del programa actual debajo del nombre de canal
+Se conservó `channels.tvg_id`: pese a nacer para el EPG, `countryFromTvgID`
+deriva de él el país de 10 835 de 12 639 canales. Ver `docs/adr/001-epg-parsing-strategy.md`.
 
 ---
 
@@ -318,7 +292,7 @@ app (timeouts, watchdog), observabilidad y limpieza de código muerto.
 
 | Fase | Nombre | Prioridad | Esfuerzo estimado |
 |---|---|---|---|
-| **6** | EPG + Guía interactiva | 🔴 Alta | 2–3 sesiones |
+| ~~6~~ | ~~EPG + Guía~~ | ❌ Revertida | Cobertura 465/477 India |
 | **7** | Channel health scoring | 🔴 Alta | 1–2 sesiones |
 | **8** | Favoritos + UX premium | 🟠 Media | 1–2 sesiones |
 | **9** | iOS + Android + TV | 🟡 Media | 3–4 sesiones |

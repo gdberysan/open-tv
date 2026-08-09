@@ -289,8 +289,8 @@ func TestSyncer_Run_ResincronizaPeriodicamente(t *testing.T) {
 		"no hubo re-sync periódico tras el primer éxito")
 }
 
-// El worker EPG debe esperar al primer sync de canales: sin tvg_id en DB,
-// todas las entradas EPG se descartarían en silencio.
+// El health-worker debe esperar al primer sync: sin streams en DB no tendría
+// nada que chequear y la primera pasada se desperdiciaría.
 func TestSyncer_FirstSyncDone_SeCierraTrasElPrimerExito(t *testing.T) {
 	chs, urls := testChannels()
 	prov := &fakeProvider{channels: chs, urls: urls, failFirst: 1}

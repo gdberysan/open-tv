@@ -4,12 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:iptv_ecosystem/presentation/providers/channel_provider.dart';
-import 'package:iptv_ecosystem/presentation/providers/epg_provider.dart';
 import 'package:iptv_ecosystem/presentation/screens/home_screen.dart';
 import 'package:iptv_ecosystem/presentation/widgets/signal_bars.dart';
 
 import 'channel_list_notifier_test.dart' show FakeRepo;
-import 'guide_screen_test.dart' show FakeEPGRepo;
 
 void main() {
   Future<void> pumpHome(WidgetTester tester, FakeRepo repo) async {
@@ -20,7 +18,6 @@ void main() {
         overrides: [
           channelRepositoryProvider.overrideWithValue(repo),
           sharedPreferencesProvider.overrideWithValue(prefs),
-          epgRepositoryProvider.overrideWithValue(FakeEPGRepo()),
         ],
         child: const MaterialApp(home: HomeScreen()),
       ),
@@ -33,16 +30,6 @@ void main() {
 
     expect(find.text('Canal Par 0'), findsOneWidget);
     expect(find.text('Canal Impar 1'), findsOneWidget);
-  });
-
-  testWidgets('el botón de guía abre la parrilla EPG', (tester) async {
-    await pumpHome(tester, FakeRepo(total: 4));
-
-    await tester.tap(find.byTooltip('Guía de programación'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Guía de programación'), findsOneWidget);
-    expect(find.text('Canal Par 0'), findsOneWidget);
   });
 
   testWidgets('cada canal muestra su indicador de señal', (tester) async {
@@ -101,5 +88,41 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Canal Par 0'), findsOneWidget);
+  });
+
+  testWidgets('una página fallida muestra fila de error y deja reintentar',
+      (tester) async {
+    final repo = FakeRepo(total: 1200);
+    await pumpHome(tester, repo);
+
+    final container =
+        ProviderScope.containerOf(tester.element(find.byType(HomeScreen)));
+
+    // Provocar el fallo de la siguiente página.
+    repo.failNext = true;
+    await container.read(channelListProvider.notifier).loadMore();
+    await tester.pumpAndSettle();
+
+    expect(container.read(channelListProvider).requireValue.loadMoreError,
+        isNotNull,
+        reason: 'el notifier debe haber registrado el error');
+
+    // Bajar hasta el final, donde vive la fila de error.
+    await tester.dragUntilVisible(
+      find.text('Reintentar'),
+      find.byType(ListView),
+      const Offset(0, -600),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reintentar'), findsOneWidget,
+        reason: 'el fallo de página debe ser visible, no un spinner eterno');
+
+    await tester.tap(find.text('Reintentar'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(channelListProvider).requireValue.loadMoreError,
+        isNull,
+        reason: 'reintentar con éxito debe limpiar el error');
   });
 }
