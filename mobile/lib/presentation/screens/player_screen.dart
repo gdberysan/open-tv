@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../../data/api_error.dart';
+import '../../domain/models/cast_session.dart';
 import '../../theme/korven_colors.dart';
 import '../../theme/korven_spacing.dart';
 import '../player/playback_guard.dart';
@@ -12,6 +13,7 @@ import '../widgets/cast_bar.dart';
 import '../widgets/console_line.dart';
 import '../widgets/korven_emblem.dart';
 import '../widgets/state_views.dart';
+import '../providers/cast_provider.dart';
 import '../providers/channel_provider.dart';
 
 const _kPlayTimeout = Duration(seconds: 15);
@@ -149,8 +151,37 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     super.dispose();
   }
 
+  /// Cede a la tele lo que se está viendo aquí.
+  ///
+  /// Sin esto, elegir destino desde el reproductor dejaba los DOS reproductores
+  /// sonando: media_kit seguía pintando en el Mac mientras AVPlayer cargaba el
+  /// mismo canal. Se veía vídeo en el portátil y parecía que la emisión no
+  /// hacía nada.
+  Future<void> _cederALaTele() async {
+    await _player.stop();
+    _guard?.dispose();
+    for (final s in _subs) {
+      s.cancel();
+    }
+    _subs.clear();
+    if (!mounted) return;
+    ref
+        .read(castProvider.notifier)
+        .reproducirPorId(widget.channelId, widget.channelName);
+  }
+
   @override
   Widget build(BuildContext context) {
+    // El invariante del diseño es que solo un reproductor tiene el stream. Al
+    // armarse una ruta estando aquí, este cede y para.
+    ref.listen(castProvider, (anterior, actual) {
+      final seAcabaDeArmar = anterior?.state == CastState.idle &&
+          actual.state == CastState.armed;
+      if (seAcabaDeArmar) _cederALaTele();
+    });
+
+    final emitiendo = ref.watch(castProvider).intercepta;
+
     return Scaffold(
       backgroundColor: Colors.black,
       bottomNavigationBar: const CastBar(),
@@ -180,7 +211,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             ),
         ],
       ),
-      body: _buildBody(),
+      body: emitiendo ? _cuerpoEmitiendo() : _buildBody(),
+    );
+  }
+
+  /// Con la emisión en marcha aquí no hay vídeo que enseñar: lo tiene el
+  /// televisor. Decirlo es mejor que dejar un rectángulo negro.
+  Widget _cuerpoEmitiendo() {
+    final sesion = ref.watch(castProvider);
+    return KorvenStateView(
+      eyebrow: '// emitiendo',
+      message: '${widget.channelName} se está viendo en '
+          '${sesion.etiquetaDispositivo}.',
+      action: ElevatedButton.icon(
+        onPressed: () => ref.read(castProvider.notifier).detener(),
+        icon: const Icon(Icons.stop, size: 18),
+        label: const Text('Terminar sesión'),
+      ),
     );
   }
 

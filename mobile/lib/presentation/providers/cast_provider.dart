@@ -37,13 +37,18 @@ class CastNotifier extends Notifier<CastSession> {
     return const CastSession();
   }
 
-  Future<void> reproducir(Channel ch) async {
+  Future<void> reproducir(Channel ch) => reproducirPorId(ch.id, ch.name);
+
+  /// Por id y nombre porque PlayerScreen no tiene el Channel entero: solo
+  /// recibe esos dos campos. Sin esto, ceder a la tele lo que ya se está viendo
+  /// en local exigiría volver a pedir el canal al gateway.
+  Future<void> reproducirPorId(String channelId, String channelName) async {
     final generacion = ++_generacion;
 
     _guard?.dispose();
     final guard = AirplayGuard(
       onFatal: (mensaje, {formatError = false}) =>
-          _alFallo(ch, mensaje, formatError: formatError),
+          _alFallo(channelId, mensaje, formatError: formatError),
     );
     _guard = guard;
     // Armar antes de resolver la URL: el gateway puede colgarse igual que la
@@ -52,19 +57,19 @@ class CastNotifier extends Notifier<CastSession> {
 
     state = state.copyWith(
       state: CastState.connecting,
-      channelId: ch.id,
-      channelName: ch.name,
+      channelId: channelId,
+      channelName: channelName,
       clearError: true,
     );
 
     try {
-      final url = await ref.read(channelRepositoryProvider).getStreamUrl(ch.id);
+      final url = await ref.read(channelRepositoryProvider).getStreamUrl(channelId);
       if (generacion != _generacion) return;
-      await _plataforma.start(url: url, title: ch.name);
+      await _plataforma.start(url: url, title: channelName);
     } catch (e) {
       if (generacion != _generacion) return;
       guard.dispose();
-      _alFallo(ch, ApiError.desde(e).mensaje, formatError: false);
+      _alFallo(channelId, ApiError.desde(e).mensaje, formatError: false);
     }
   }
 
@@ -93,12 +98,12 @@ class CastNotifier extends Notifier<CastSession> {
     );
   }
 
-  void _alFallo(Channel ch, String mensaje, {required bool formatError}) {
+  void _alFallo(String channelId, String mensaje, {required bool formatError}) {
     // Solo los fallos de formato enseñan algo sobre el canal. Un Apple TV
     // dormido y un stream MPEG-2 llegan los dos como fallo, y marcar por red
     // etiquetaría canales buenos para siempre.
     if (formatError) {
-      ref.read(airplayMemoryProvider.notifier).marcarIncompatible(ch.id);
+      ref.read(airplayMemoryProvider.notifier).marcarIncompatible(channelId);
     }
     unawaited(_plataforma.stop());
     state = state.copyWith(state: CastState.failed, error: mensaje);
