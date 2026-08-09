@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # Sin lista de ramas: el gate vale para cualquier rama. Con una lista fija se
+  # queda obsoleta en cuanto se crea una rama nueva y el trabajo se mergea sin
+  # haber pasado nunca por CI.
   push:
-    branches: [main, fiabilidad]
   pull_request:
     branches: [main]
 
