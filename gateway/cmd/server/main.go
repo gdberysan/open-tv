@@ -43,7 +43,7 @@ func main() {
 // main para que sea testeable: main solo traduce el error a un exit code, y así
 // el cableado de workers y el orden de apagado quedan bajo test.
 func run(ctx context.Context, logger *slog.Logger) error {
-	logger.Info("Iniciando IPTV Ecosystem API Gateway")
+	logger.Info("Iniciando Korven Open TV — gateway")
 
 	// 1. Base de datos SQLite
 	dbPath := os.Getenv("DB_PATH")

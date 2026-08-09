@@ -55,15 +55,15 @@
       "Bash(if:*)",
       "Bash(cd:*)",
 
-      "Read(//Users/usuario/Dev/ip-tv/**)",
+      "Read(//Users/usuario/Dev/open-tv/**)",
       "Read(//private/tmp/**)",
       "Read(//tmp/**)",
       "Read(//Users/usuario/.claude/**)",
       "Read(//Users/usuario/development/flutter/**)",
       "Read(//Users/usuario/.pub-cache/**)",
 
-      "Write(//Users/usuario/Dev/ip-tv/**)",
-      "Edit(//Users/usuario/Dev/ip-tv/**)",
+      "Write(//Users/usuario/Dev/open-tv/**)",
+      "Edit(//Users/usuario/Dev/open-tv/**)",
       "Write(//private/tmp/**)",
       "Edit(//private/tmp/**)"
     ]
