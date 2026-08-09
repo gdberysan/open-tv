@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:iptv_ecosystem/domain/models/channel_filter.dart';
 import 'package:iptv_ecosystem/presentation/providers/channel_provider.dart';
 import 'package:iptv_ecosystem/presentation/screens/home_screen.dart';
 import 'package:iptv_ecosystem/presentation/widgets/signal_bars.dart';
@@ -158,5 +159,30 @@ void main() {
 
     expect(apagado, isNot(encendido),
         reason: 'el estado activo tiene que distinguirse, y en ámbar');
+  });
+
+  testWidgets('con filtros activos y cero resultados culpa a los filtros, no al sync',
+      (tester) async {
+    await pumpHome(tester, FakeRepo(total: 0));
+
+    final container =
+        ProviderScope.containerOf(tester.element(find.byType(HomeScreen)));
+    container.read(channelFilterProvider.notifier).state =
+        const ChannelFilter(country: 'ZZ');
+    await tester.pumpAndSettle();
+
+    expect(find.text('// sin resultados'), findsOneWidget);
+    expect(find.textContaining('filtros'), findsWidgets);
+    // El mensaje viejo culpaba siempre al sync, incluso cuando el problema era
+    // que los filtros no casaban.
+    expect(find.textContaining('sincronizado'), findsNothing);
+  });
+
+  testWidgets('sin filtros y cero resultados sí culpa al catálogo',
+      (tester) async {
+    await pumpHome(tester, FakeRepo(total: 0));
+
+    expect(find.text('// catálogo vacío'), findsOneWidget);
+    expect(find.textContaining('sincronizado'), findsOneWidget);
   });
 }

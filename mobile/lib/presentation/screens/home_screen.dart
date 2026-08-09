@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/api_error.dart';
 import '../../domain/models/channel.dart';
+import '../../domain/models/channel_filter.dart';
 import '../providers/channel_provider.dart';
 import '../widgets/channel_row.dart';
 import '../widgets/console_bar.dart';
 import '../widgets/filter_bar.dart';
+import '../widgets/state_views.dart';
 import 'player_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -95,12 +97,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: listAsync.when(
               data: (state) {
                 if (state.channels.isEmpty) {
-                  return _EmptyState(
-                    message: filter.hasActiveFilters
-                        ? 'Sin canales con estos filtros'
-                        : 'El gateway está sincronizando canales.\nEspera y recarga.',
-                    onRetry: () => ref.invalidate(channelListProvider),
-                  );
+                  // Tres situaciones distintas merecen tres mensajes: no es lo
+                  // mismo que los filtros no casen a que el gateway no haya
+                  // sincronizado. Antes ambas culpaban al sync.
+                  return filter.hasActiveFilters
+                      ? KorvenStateView(
+                          eyebrow: '// sin resultados',
+                          message: 'Ningún canal casa con estos filtros.',
+                          action: TextButton(
+                            onPressed: () => ref
+                                .read(channelFilterProvider.notifier)
+                                .state = const ChannelFilter(),
+                            child: const Text('limpiar filtros'),
+                          ),
+                        )
+                      : KorvenStateView(
+                          eyebrow: '// catálogo vacío',
+                          message:
+                              'El gateway todavía no ha sincronizado el catálogo.',
+                          action: ElevatedButton(
+                            onPressed: () =>
+                                ref.invalidate(channelListProvider),
+                            child: const Text('Recargar'),
+                          ),
+                        );
                 }
                 return _ChannelList(
                   channels: state.channels,
@@ -114,10 +134,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => _EmptyState(
+              error: (e, _) => KorvenStateView(
+                eyebrow: '// error',
                 message: ApiError.desde(e).mensaje,
-                icon: Icons.error_outline,
-                onRetry: () => ref.invalidate(channelListProvider),
+                action: ElevatedButton(
+                  onPressed: () => ref.invalidate(channelListProvider),
+                  child: const Text('Reintentar'),
+                ),
               ),
             ),
           ),
@@ -201,39 +224,3 @@ class _ChannelList extends StatelessWidget {
 
 }
 
-// ── Empty state ──────────────────────────────────────────────────────────────
-
-class _EmptyState extends StatelessWidget {
-  final String message;
-  final IconData icon;
-  final VoidCallback onRetry;
-
-  const _EmptyState({
-    required this.message,
-    this.icon = Icons.tv_off,
-    required this.onRetry,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 56, color: Colors.grey),
-          const SizedBox(height: 16),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.grey, fontSize: 13),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: onRetry,
-            child: const Text('Reintentar'),
-          ),
-        ],
-      ),
-    );
-  }
-}
