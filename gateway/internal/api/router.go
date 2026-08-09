@@ -33,6 +33,7 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 		r.Get("/stream", ch.GetStreamURL) // ?id=<channelID>
 		r.Get("/countries", ch.GetCountries)
 		r.Get("/categories", ch.GetCategories)
+		r.Get("/random", ch.GetRandom)
 		r.Get("/{id}/health", ch.GetHealth)
 	})
 

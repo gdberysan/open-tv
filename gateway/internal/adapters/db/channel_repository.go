@@ -221,6 +221,14 @@ func buildChannelWhere(f ports.ChannelFilter) (string, []any) {
 		)`, DeadFailThreshold))
 	}
 
+	if len(f.IDs) > 0 {
+		marcas := strings.Repeat("?,", len(f.IDs)-1) + "?"
+		where = append(where, "id IN ("+marcas+")")
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+
 	if len(where) == 0 {
 		return "1=1", args
 	}
@@ -508,4 +516,33 @@ func (r *SQLiteChannelRepository) Categories(ctx context.Context) ([]ports.Facet
 		return out[i].Valor < out[j].Valor
 	})
 	return out, nil
+}
+
+// Random devuelve un canal al azar que case con el filtro. El sorteo va en SQL
+// y no en el cliente: elegir entre las páginas ya cargadas sesgaría el
+// resultado hacia el principio del catálogo.
+func (r *SQLiteChannelRepository) Random(ctx context.Context, f ports.ChannelFilter) (domain.Channel, error) {
+	f = f.Normalize()
+	whereSQL, args := buildChannelWhere(f)
+
+	q := "SELECT" + channelColumns + `,
+		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.last_checked IS NOT NULL) AS any_checked,
+		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS any_alive,
+		(SELECT MIN(s.latency_ms) FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS best_latency
+		FROM channels WHERE ` + whereSQL + " ORDER BY RANDOM() LIMIT 1"
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return domain.Channel{}, fmt.Errorf("db.Random: %w", err)
+	}
+	defer rows.Close()
+
+	canales, err := scanChannelsWithHealth(rows)
+	if err != nil {
+		return domain.Channel{}, fmt.Errorf("db.Random (scan): %w", err)
+	}
+	if len(canales) == 0 {
+		return domain.Channel{}, fmt.Errorf("db.Random: ningún canal casa con el filtro")
+	}
+	return canales[0], nil
 }

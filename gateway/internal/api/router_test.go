@@ -33,6 +33,10 @@ func (repoVacio) DeleteStale(context.Context, string, time.Time) (int64, error) 
 func (repoVacio) CountFiltered(context.Context, ports.ChannelFilter) (int, error) {
 	return 0, nil
 }
+func (repoVacio) Random(context.Context, ports.ChannelFilter) (domain.Channel, error) {
+	return domain.Channel{}, errors.New("vacío")
+}
+
 func (repoVacio) Countries(context.Context) ([]ports.Faceta, error)  { return nil, nil }
 func (repoVacio) Categories(context.Context) ([]ports.Faceta, error) { return nil, nil }
 

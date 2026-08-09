@@ -526,3 +526,114 @@ func TestCategoriesDescomponeLasCompuestas(t *testing.T) {
 		t.Error("no debe aparecer la compuesta como categoría propia")
 	}
 }
+
+// Un aleatorio muerto arruina la función: el sorteo es solo entre vivos.
+func TestRandomSoloDevuelveCanalesVivos(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	for _, id := range []string{"vivo", "muerto"} {
+		if err := chRepo.Save(ctx, makeChannel(id, "C-"+id, "ES", "News")); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		if err := stRepo.Save(ctx, makeStream("st-"+id, id, "http://a/"+id+".m3u8")); err != nil {
+			t.Fatalf("Save stream: %v", err)
+		}
+	}
+	if err := stRepo.MarkAlive(ctx, "st-vivo", 100); err != nil {
+		t.Fatalf("MarkAlive: %v", err)
+	}
+	for i := int64(0); i < db.DeadFailThreshold; i++ {
+		if err := stRepo.MarkDead(ctx, "st-muerto"); err != nil {
+			t.Fatalf("MarkDead: %v", err)
+		}
+	}
+
+	for i := 0; i < 20; i++ {
+		got, err := chRepo.Random(ctx, ports.ChannelFilter{AliveOnly: true})
+		if err != nil {
+			t.Fatalf("Random: %v", err)
+		}
+		if got.ID != "vivo" {
+			t.Fatalf("devolvió %q, que está muerto", got.ID)
+		}
+	}
+}
+
+// Sortear mal es fácil y silencioso: si siempre sale el mismo, no es aleatorio.
+func TestRandomVaria(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+	for i := 0; i < 10; i++ {
+		id := "ch-" + strconv.Itoa(i)
+		if err := chRepo.Save(ctx, makeChannel(id, "C"+id, "ES", "News")); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		if err := stRepo.Save(ctx, makeStream("st-"+id, id, "http://a/"+id+".m3u8")); err != nil {
+			t.Fatalf("Save stream: %v", err)
+		}
+	}
+
+	vistos := map[string]bool{}
+	for i := 0; i < 40; i++ {
+		got, err := chRepo.Random(ctx, ports.ChannelFilter{AliveOnly: true})
+		if err != nil {
+			t.Fatalf("Random: %v", err)
+		}
+		vistos[string(got.ID)] = true
+	}
+	if len(vistos) < 3 {
+		t.Errorf("40 sorteos dieron %d canales distintos; no parece aleatorio", len(vistos))
+	}
+}
+
+func TestRandomRespetaElFiltro(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+	for i, p := range []string{"ES", "MX", "MX"} {
+		id := "ch-" + strconv.Itoa(i)
+		if err := chRepo.Save(ctx, makeChannel(id, "C", p, "News")); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		if err := stRepo.Save(ctx, makeStream("st-"+id, id, "http://a/"+id+".m3u8")); err != nil {
+			t.Fatalf("Save stream: %v", err)
+		}
+	}
+
+	for i := 0; i < 15; i++ {
+		got, err := chRepo.Random(ctx, ports.ChannelFilter{Country: "MX", AliveOnly: true})
+		if err != nil {
+			t.Fatalf("Random: %v", err)
+		}
+		if got.CountryCode != "MX" {
+			t.Fatalf("devolvió un canal de %q con filtro MX", got.CountryCode)
+		}
+	}
+}
+
+// Los favoritos son un concepto del cliente: se resuelven pidiendo sus ids, no
+// paginando el catálogo — un favorito puede estar en la página 20.
+func TestFindFilteredPorIDs(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+	for i := 0; i < 5; i++ {
+		id := "ch-" + strconv.Itoa(i)
+		if err := chRepo.Save(ctx, makeChannel(id, "C"+id, "ES", "News")); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		if err := stRepo.Save(ctx, makeStream("st-"+id, id, "http://a/"+id+".m3u8")); err != nil {
+			t.Fatalf("Save stream: %v", err)
+		}
+	}
+
+	got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{
+		IDs:   []string{"ch-1", "ch-3"},
+		Limit: 100,
+	})
+	if err != nil {
+		t.Fatalf("FindFiltered: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("quiero 2 canales, tengo %d", len(got))
+	}
+}
