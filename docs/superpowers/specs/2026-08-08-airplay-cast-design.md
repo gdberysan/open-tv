@@ -442,6 +442,38 @@ Ningún test toca un `MethodChannel` real, así que CI sigue verde en Ubuntu
 
 ---
 
+## 9 bis. Lo que costó hacer funcionar la capa nativa (2026-08-09)
+
+Cinco cosas que el diseño daba por sentadas y eran falsas. Todas se descubrieron
+probando contra un televisor real, ninguna habría salido en CI, y las tres
+primeras se afirmaron en este documento sin comprobarlas.
+
+| # | Se creía | La realidad | Cómo se supo |
+|---|---|---|---|
+| 1 | `AppKitView` basta para incrustar el `AVRoutePickerView` | Flutter **no** reenvía gestos a vistas de plataforma en macOS: `RenderAppKitView.updateGestureRecognizers` tiene el cuerpo vacío (flutter/flutter#128519). El botón se dibujaba y no recibía un clic. | Leyendo `rendering/platform_view.dart` |
+| 2 | Basta con `allowsExternalPlayback` | En macOS hay que asignar además `AVRoutePickerView.player`, propiedad **solo de macOS** — en iOS el enrutado es de sesión, por eso no aparece en ningún tutorial. Sin ella el selector conecta el destino y no le manda nada. | Leyendo `AVKit/AVRoutePickerView.h` |
+| 3 | La ruta se detecta por CoreAudio | Al elegir destino, macOS **no** cambia la salida por defecto del sistema ni registra el receptor como dispositivo de audio. Ver `RouteName.swift`. | Enumerando dispositivos con el televisor conectado |
+| 4 | `isExternalPlaybackActive` dice si hay destino elegido | Dice si hay vídeo descargándose **ahora**. Con el reproductor sin item es `false`, así que armar con él era circular. Y llega en `false` incluso en `readyToPlay`: tarda un par de segundos en pasar a `true`. | Sonda diferida a los 3 s |
+| 5 | `NSAllowsArbitraryLoadsInMedia` cubre los streams en claro | Por sí sola no basta en el macOS actual: AVFoundation seguía rechazando `http://`. Hace falta también la clave general. | Log: *"the App Transport Security policy requires the use of a secure connection"* |
+
+Dos defectos propios, no de la plataforma:
+
+- **`start()` empieza limpiando el item**, así que volver a tocar el canal que ya
+  sonaba descargaba el vídeo justo después de quedar listo. Cuanto más se
+  insistía, más seguro era que no funcionara. Ahora se ignora si esa URL ya se
+  está reproduciendo de verdad.
+- **El traspaso desde `PlayerScreen` (§5, fila 2) no se implementó**, así que
+  elegir destino desde el reproductor dejaba `media_kit` y `AVPlayer` sonando a
+  la vez. El vídeo que se veía en el Mac era el local, y parecía que la emisión
+  no hacía nada. Rompía el invariante de que solo un reproductor tiene el stream.
+
+**Por qué el diagnóstico se dejó encendido.** Los `NSLog("[airplay] …")` se
+conservan a propósito. La capa Swift no pasa por CI (riesgo #1) y sin ellos esto
+se depuraba a ciegas: fueron los que distinguieron "macOS no descarga el vídeo"
+de "lo descarga y algo aguas abajo lo tumba". **Salen por stderr, no por el log
+unificado**, así que se leen en la salida de `flutter run` y **no** aparecen con
+`log stream`.
+
 ## 10. Lo que este diseño deliberadamente no hace
 
 - **No añade relay ni proxy de vídeo al gateway.** Con AirPlay el receptor
