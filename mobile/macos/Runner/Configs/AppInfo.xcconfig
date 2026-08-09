@@ -8,7 +8,7 @@
 PRODUCT_NAME = Korven Open TV
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.iptvEcosystem
+PRODUCT_BUNDLE_IDENTIFIER = dev.korven.opentv
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 Korven. Todos los derechos reservados.
