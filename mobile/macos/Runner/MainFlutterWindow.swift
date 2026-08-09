@@ -10,6 +10,9 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
+    AirPlayPlugin.register(
+      with: flutterViewController.registrar(forPlugin: "AirPlayPlugin"))
+
     super.awakeFromNib()
   }
 }
