@@ -21,12 +21,14 @@ class FakeRepo implements IChannelRepository {
   /// test llame a completarPendiente(). Sirve para reproducir la carrera entre
   /// una página en curso y un cambio de filtro.
   bool retenerSiguiente = false;
-  Completer<List<Channel>>? _pendiente;
+  Completer<ChannelPage>? _pendiente;
 
   void completarPendiente() {
     final p = _pendiente;
     _pendiente = null;
-    if (p != null && !p.isCompleted) p.complete(const []);
+    if (p != null && !p.isCompleted) {
+      p.complete(const ChannelPage(channels: [], total: 0));
+    }
   }
 
   // Salud rotativa: i%3==0 vivo (latencia 100·i), i%3==1 muerto, i%3==2 sin
@@ -47,7 +49,7 @@ class FakeRepo implements IChannelRepository {
   );
 
   @override
-  Future<List<Channel>> getChannels({
+  Future<ChannelPage> getChannels({
     ChannelFilter filter = const ChannelFilter(),
     int limit = 500,
     int offset = 0,
@@ -56,7 +58,7 @@ class FakeRepo implements IChannelRepository {
     lastFilter = filter;
     if (retenerSiguiente) {
       retenerSiguiente = false;
-      _pendiente = Completer<List<Channel>>();
+      _pendiente = Completer<ChannelPage>();
       return _pendiente!.future;
     }
     if (failNext) {
@@ -70,7 +72,10 @@ class FakeRepo implements IChannelRepository {
               c.name.toLowerCase().contains(filter.query.toLowerCase()))
           .toList();
     }
-    return hits.skip(offset).take(limit).toList();
+    return ChannelPage(
+      channels: hits.skip(offset).take(limit).toList(),
+      total: hits.length,
+    );
   }
 
   @override

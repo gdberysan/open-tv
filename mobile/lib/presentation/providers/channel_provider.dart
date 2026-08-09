@@ -43,6 +43,10 @@ class ChannelListState {
   final bool hasMore;
   final bool isLoadingMore;
 
+  /// Total de canales que casan con el filtro, según el gateway. No es
+  /// channels.length: eso son solo las páginas ya cargadas.
+  final int total;
+
   /// Mensaje legible del último fallo al cargar página, o null si no lo hubo.
   /// Antes el error se descartaba con un `catch (_)`, así que la lista se
   /// quedaba con un spinner girando sin que nadie supiera que había fallado.
@@ -53,6 +57,7 @@ class ChannelListState {
     required this.hasMore,
     this.isLoadingMore = false,
     this.loadMoreError,
+    this.total = 0,
   });
 
   /// [clearError] hace falta porque `null` en un parámetro opcional significa
@@ -62,6 +67,7 @@ class ChannelListState {
     bool? hasMore,
     bool? isLoadingMore,
     String? loadMoreError,
+    int? total,
     bool clearError = false,
   }) =>
       ChannelListState(
@@ -70,6 +76,7 @@ class ChannelListState {
         isLoadingMore: isLoadingMore ?? this.isLoadingMore,
         loadMoreError:
             clearError ? null : (loadMoreError ?? this.loadMoreError),
+        total: total ?? this.total,
       );
 }
 
@@ -108,8 +115,9 @@ class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
           const ChannelListState(channels: [], hasMore: false);
     }
     return ChannelListState(
-      channels: page,
-      hasMore: page.length == pageSize,
+      channels: page.channels,
+      hasMore: page.channels.length == pageSize,
+      total: page.total,
     );
   }
 
@@ -131,8 +139,9 @@ class ChannelListNotifier extends AsyncNotifier<ChannelListState> {
       );
       if (generacion != _generacion) return;
       state = AsyncData(ChannelListState(
-        channels: [...current.channels, ...page],
-        hasMore: page.length == pageSize,
+        channels: [...current.channels, ...page.channels],
+        hasMore: page.channels.length == pageSize,
+        total: page.total,
       ));
     } catch (e) {
       if (generacion != _generacion) return;
