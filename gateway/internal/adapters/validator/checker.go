@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/gdberysan/open-tv/gateway/internal/domain"
 )
 
 // HTTPChecker define la interfaz para realizar peticiones HTTP, útil para testing.
@@ -117,9 +119,16 @@ func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 			return result
 		}
 		defer respGet.Body.Close()
-		// Drenar un poco del cuerpo: sin leerlo, la conexión queda inutilizable
-		// y el servidor la ve abortada a media respuesta.
-		_, _ = io.Copy(io.Discard, io.LimitReader(respGet.Body, 64<<10))
+		// Drenar el cuerpo es obligatorio: sin leerlo, la conexión queda
+		// inutilizable y el servidor la ve abortada a media respuesta. Ya que
+		// hay que leerlo, se clasifica en vez de tirarlo — cero peticiones
+		// extra por un veredicto de compatibilidad AirPlay.
+		cuerpo, errLectura := io.ReadAll(io.LimitReader(respGet.Body, 64<<10))
+		if errLectura != nil {
+			result.Error = fmt.Errorf("leyendo cuerpo del GET: %w", errLectura)
+			return result
+		}
+		result.Airplay = domain.ClassifyManifest(url, string(cuerpo))
 
 		result.IsAlive = respGet.StatusCode >= 200 && respGet.StatusCode < 300
 	}
