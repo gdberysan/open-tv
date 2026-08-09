@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -23,7 +24,10 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	r.Use(middleware.Recover(logger))
 	r.Use(middleware.RateLimiter(100))
 
-	ch := handlers.NewChannelHandler(logger, repo, provider, streams)
+	// TTL de 12 h: los códecs de un canal no cambian en una tarde, y la caché
+	// se pierde igualmente al reiniciar el gateway.
+	prober := handlers.NewAirplayProber(nil, 12*time.Hour, 2000)
+	ch := handlers.NewChannelHandler(logger, repo, provider, streams, prober)
 
 	hh := handlers.NewHealthHandler(sqlDB, syncer)
 	r.Get("/health", hh.Get)
