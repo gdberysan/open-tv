@@ -128,8 +128,7 @@ E/S.
 |---|---|
 | `internal/adapters/validator/codecs.go` | Clasificador puro de manifiestos. Sin E/S. |
 | `internal/adapters/validator/checker.go` | Aprovecha el GET de fallback para clasificar gratis. |
-| `internal/adapters/validator/worker.go` | Relleno en segundo plano, acotado. |
-| `internal/adapters/db/` | Columna `airplay_ok`, migración y lectura. |
+| `internal/adapters/db/` | Columna `airplay_ok`, migración, lectura y escritura del veredicto. |
 | `internal/api/handlers/channel_handler.go` | Expone el veredicto. |
 
 ---
@@ -173,7 +172,7 @@ AAC-LC, justo lo que AVFoundation quiere. Conclusión: el sondeo merece la pena,
 pero **~42 % del catálogo quedará en `Unknown`**, y la UI no puede tratar
 `Unknown` como sospechoso.
 
-Tres fuentes, de más barata a más cara:
+Dos fuentes, ninguna de ellas de fondo:
 
 1. **Gratis.** El fallback GET de `checker.go:122` ya lee 64 KB y los tira.
    Se clasifican en vez de descartarse. Cero peticiones añadidas.
@@ -181,32 +180,51 @@ Tres fuentes, de más barata a más cara:
    `NULL`, el gateway hace un GET del manifiesto con presupuesto de ~1 s, lo
    clasifica, lo persiste y devuelve el veredicto en la misma respuesta. Se paga
    una vez por canal, y solo por canales que de verdad se emiten.
-3. **Relleno en segundo plano.** Pasada en el worker de salud que selecciona
-   solo `WHERE airplay_ok IS NULL AND is_alive = 1`, acotada por ciclo y
-   reutilizando `maxConnsPerHost = 4`. Variable nueva `AIRPLAY_PROBE_BATCH`
-   (default 200, `0` la desactiva). A 200/hora los 12 655 streams se drenan en
-   unos días sin picos sobre los orígenes.
 
-Las fuentes 1 y 2 bastan para que el comportamiento en el momento de emitir sea
-correcto. La 3 solo compra que la insignia esté visible **antes** de emitir un
-canal por primera vez, y es la única que añade tráfico de fondo. Es separable:
-`AIRPLAY_PROBE_BATCH=0` la apaga sin tocar nada más.
+**Se descartó una tercera fuente**, un relleno en segundo plano sobre
+`airplay_ok IS NULL`. Habría rellenado el catálogo entero en unos días, pero era
+la única pieza que añadía tráfico de fondo contra orígenes que el código ya
+protege a conciencia (`maxConnsPerHost = 4`, §2.4), y solo compraba que la
+insignia estuviese visible **antes** de emitir un canal por primera vez. Se
+puede añadir después sin tocar nada de lo demás: el clasificador es puro y la
+columna ya existe.
 
-### 4.3 Persistencia y contrato
+**Consecuencia para la interfaz.** Sin relleno, `airplay_ok` llega en `null`
+para casi todo el catálogo en `GET /channels`. La insignia de la rejilla, por
+tanto, se alimenta en la práctica de la memoria local de fallos (§7) y de los
+canales ya emitidos alguna vez, no del sondeo. El sondeo sigue siendo lo que
+protege el momento de emitir —que es donde importa— pero **la rejilla no debe
+construirse esperando datos del gateway que en su mayoría no llegarán.**
 
-- `ALTER TABLE streams ADD COLUMN airplay_ok INTEGER`, añadido a la lista de
-  `alters` existente en `db.go:104`, y a `schema.sql` para bases nuevas.
-  `NULL` desconocido / `0` no / `1` sí.
-- `domain.Stream` y `domain.Channel` ganan `AirplayOK *bool`.
-- Agregación a nivel de canal: `true` si algún stream es `OK`; `false` solo si
-  **todos** sus streams están clasificados como `No`; `null` en el resto.
+### 4.3 Dónde vive el veredicto — en memoria, no en SQLite
+
+Los handlers reciben un pool **de solo lectura** (`db.OpenReadOnly`,
+`main.go:62`, cableado en `main.go:129`), separado a propósito del pool de
+escritura. El sondeo bajo demanda vive en un handler, así que no puede persistir
+sin romper esa separación.
+
+Con el relleno de fondo descartado, persistir tampoco valdría gran cosa: la
+columna solo la escribiría la fuente 1, que cubre únicamente los streams cuyo
+HEAD falla. Por eso **no hay columna `airplay_ok`, ni campo en `domain.Channel`,
+ni migración**. El veredicto vive en:
+
+- Una **caché en memoria del handler**: `map[domain.ChannelID]AirplaySupport`
+  bajo `sync.RWMutex`, con TTL de 12 h y tope de entradas. Se pierde al
+  reiniciar el gateway, lo que cuesta un GET de ~1 s la primera vez que se
+  vuelve a emitir ese canal. Aceptable.
+- La **memoria local de la app** para los fallos de formato en tiempo real
+  (§7), que es la que de verdad alimenta la insignia de la rejilla.
+
+Contrato afectado, mínimo y aditivo:
+
 - `GET /channels/stream?id=` pasa a devolver
-  `{"url": ..., "airplay_ok": true|false|null}`. Es aditivo.
-- `domain/channel_test.go` sube a 15 claves con `"AirplayOK"` en la lista
-  congelada. Ese test existe precisamente para forzar esta decisión consciente
-  («añadir un campo al dominio lo filtra al cable»); romperlo aquí es lo
-  correcto, no un accidente.
-- `mobile/lib/domain/models/channel.dart` lo refleja como `bool? airplayOk`.
+  `{"url": ..., "airplay_ok": true|false|null}`.
+- `GET /channels` **no cambia**. `domain/channel_test.go` sigue en 14 claves y
+  no se toca. `mobile/lib/domain/models/channel.dart` tampoco.
+
+Si algún día se quiere el catálogo entero clasificado, se añade la columna y el
+relleno de fondo sin tocar nada de esto: el clasificador es puro y el contrato
+de `/channels/stream` ya transporta el veredicto.
 
 ---
 
@@ -280,10 +298,16 @@ Tipografía mono (`JetBrainsMono`) y `KorvenColors`, siguiendo el idioma de
 
 ### 6.3 Filas y tarjetas de canal
 
-Marca apagada `sin airplay` bajo exactamente dos condiciones: `airplayOk ==
-false` **y** sesión armada o activa. Nunca con `null`. Esa contención es la razón
-entera de que el sondeo tenga tres estados: el 42 % del catálogo caerá en
-`Unknown` (§4.2) y marcarlo convertiría la rejilla en ruido.
+Marca apagada `sin airplay` bajo exactamente dos condiciones: **el canal consta
+como incompatible en la memoria local** (§7) **y** hay sesión armada o activa.
+Nunca por ausencia de dato. Esa contención es la razón entera de que el
+clasificador tenga tres estados: el 42 % del catálogo caerá en `Unknown` (§4.2)
+y marcarlo convertiría la rejilla en ruido.
+
+La memoria local se puebla desde dos sitios: el veredicto `airplay_ok == false`
+que devuelve `GET /channels/stream?id=` al emitir, y los fallos de formato en
+tiempo real de AVFoundation. El modelo `Channel` **no** gana ningún campo: la
+rejilla no recibe compatibilidad del gateway (§4.3).
 
 El toque en un canal cambia de comportamiento según el estado: con ruta armada o
 emitiendo, casta y **se queda en la rejilla**, sin empujar `PlayerScreen`. Es la
@@ -335,14 +359,12 @@ demás hace traspaso en silencio.
 - `codecs_test.go` — tabla sobre ~10 fixtures de manifiesto: master soportado,
   MPEG-2 (`mp4v.20`), sin `CODECS`, playlist de medios, `SAMPLE-AES`, URL
   `.mpd`, `rtmp://`, cuerpo vacío, multivariante mixto.
-- `checker_test.go` — el aprovechamiento del GET de fallback rellena el
+- `checker_test.go` — el aprovechamiento del GET de fallback produce el
   veredicto.
-- `stream_repository_test.go` — ida y vuelta de `*bool` por `NULL` / `0` / `1`.
-- `channel_handler_test.go` — `airplay_ok` en `/channels/stream`, `AirplayOK` en
-  `/channels`.
-- `channel_test.go` — 15 claves.
-- `worker_test.go` — el relleno selecciona solo `NULL AND is_alive = 1` y
-  respeta el tope por ciclo.
+- `channel_handler_test.go` — `airplay_ok` en `/channels/stream`; la caché
+  responde sin repetir la petición; el sondeo que agota su presupuesto devuelve
+  `null` sin romper la respuesta ni retrasar la URL.
+- `channel_test.go` — **no se toca**: `/channels` sigue en 14 claves.
 
 ### 8.2 Dart — todo contra `FakeAirplayPlatform`
 
@@ -378,7 +400,7 @@ Ningún test toca un `MethodChannel` real, así que CI sigue verde en Ubuntu
 | 2 | AVFoundation rechaza canales que mpv reproduce | Alta | Aceptado y gestionado: sondeo (§4) + traspaso a local (§5) + memoria de fallo (§7). |
 | 3 | El nombre del dispositivo por CoreAudio es best-effort | Baja | Si no se resuelve, la barra muestra «AirPlay». No bloquea nada. |
 | 4 | Permiso de red local en macOS 15+ | Media | AVFoundation enruta vía demonio del sistema, así que probablemente no haya diálogo. **Verificar en el punto 1 de §8.3 antes de dar por buena la fase.** |
-| 5 | El relleno en segundo plano carga los orígenes | Media | Tope por ciclo, `maxConnsPerHost = 4` heredado, y `AIRPLAY_PROBE_BATCH=0` como interruptor. |
+| 5 | El sondeo bajo demanda añade latencia al primer casteo de cada canal | Baja | Presupuesto de ~1 s; si expira, devuelve `null` y la URL sale igual. Nunca bloquea la emisión. |
 | 6 | La ruta del sistema sigue activa tras ⏹ | Baja | Es comportamiento de Apple, no un bug. Se nombra en la UI (§5). |
 
 ---
@@ -392,5 +414,7 @@ Ningún test toca un `MethodChannel` real, así que CI sigue verde en Ubuntu
   afinado contra fallos reales de campo.
 - **No transcodifica ni remuxea.** Un canal que AVFoundation no acepta se
   reproduce en local, y ya.
+- **No añade tráfico de fondo ni toca el esquema de SQLite.** Sin relleno, sin
+  columna, sin migración y sin romper el contrato JSON de `/channels` (§4.3).
 - **No implementa el protocolo AirPlay a mano.** tvOS moderno exige el
   handshake de emparejamiento HAP; reimplementarlo sería frágil y sin soporte.
