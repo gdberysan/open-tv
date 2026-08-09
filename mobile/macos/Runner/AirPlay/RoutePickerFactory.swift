@@ -15,10 +15,32 @@ import Cocoa
 /// acciones de la barra— y aquí solo se abre el popover: se mantiene un
 /// AVRoutePickerView real en la jerarquía, oculto DEBAJO de la vista de Flutter,
 /// y se le pulsa su NSButton interno por código.
+/// Escucha el cierre del popover. Es la única señal pública que hay: el
+/// protocolo solo ofrece willBegin/didEndPresentingRoutes, sin ningún callback
+/// de "se eligió esta ruta" ni forma pública de consultar el estado del botón
+/// (`_setAirPlayActive:`, que sí lo sabe, es API privada).
+final class PickerDelegate: NSObject, AVRoutePickerViewDelegate {
+  var alCerrar: (() -> Void)?
+
+  func routePickerViewDidEndPresentingRoutes(_ routePickerView: AVRoutePickerView) {
+    NSLog("[airplay] popover cerrado → armando sesión")
+    alCerrar?()
+  }
+}
+
 enum RoutePicker {
   /// El selector vive entre llamadas: recrearlo en cada clic hace que el
   /// popover parpadee y pierda su anclaje.
   private static var picker: AVRoutePickerView?
+  private static let delegado = PickerDelegate()
+
+  /// Se llama al cerrarse el popover. Arma la sesión de forma optimista: no hay
+  /// manera pública de saber si el usuario eligió algo o solo miró. Si no eligió,
+  /// la reproducción no se desvía y AirplayGuard hace el traspaso a local.
+  static var alCerrarPopover: (() -> Void)? {
+    get { delegado.alCerrar }
+    set { delegado.alCerrar = newValue }
+  }
 
   /// Abre el popover anclado a (x, y), que llegan en píxeles lógicos y con el
   /// origen arriba a la izquierda, como los da Flutter.
@@ -49,6 +71,7 @@ enum RoutePicker {
     if let p = picker, p.superview === contentView { return p }
     let p = AVRoutePickerView()
     p.isRoutePickerButtonBordered = false
+    p.delegate = delegado
     // Debajo de la vista de Flutter: queda tapado, pero sigue siendo una vista
     // real y colocada, que es lo que el popover necesita para anclarse. Con
     // alphaValue = 0 AppKit puede saltarse su disposición.

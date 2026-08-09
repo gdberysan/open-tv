@@ -29,14 +29,21 @@ final class AirPlaySession: NSObject {
 
     player.allowsExternalPlayback = true
 
-    // Única fuente de verdad del estado de la ruta. CoreAudio no sirve: al
-    // elegir destino en el selector, macOS NO cambia la salida por defecto del
-    // sistema ni registra el receptor como dispositivo de audio — comprobado
-    // enumerando los dispositivos con el televisor ya conectado.
+    // Solo diagnóstico: NO emite eventos de ruta.
+    //
+    // isExternalPlaybackActive significa "hay vídeo reproduciéndose ahora mismo
+    // en el receptor", no "hay un destino elegido". Con el reproductor sin item
+    // es false aunque el televisor esté conectado, así que usarlo para armar la
+    // sesión reproducía la misma dependencia circular de siempre: no se armaba
+    // sin reproducir y no se reproducía sin armar. Y emitido como
+    // `route: false` tumbaba la sesión a idle cada vez que se paraba.
+    //
+    // El armado llega por el delegado del selector (RoutePicker). Que la
+    // reproducción llegue de verdad al televisor lo verifica AirplayGuard: si
+    // no arranca dentro del presupuesto, traspaso a local.
     observacionRuta = player.observe(\.isExternalPlaybackActive, options: [.new, .initial]) {
-      [weak self] p, _ in
-      NSLog("[airplay] ruta: externalPlaybackActive=%@", String(p.isExternalPlaybackActive))
-      self?.emitir(["type": "route", "active": p.isExternalPlaybackActive])
+      _, _ in
+      NSLog("[airplay] externalPlaybackActive cambia (solo diagnóstico)")
     }
   }
 

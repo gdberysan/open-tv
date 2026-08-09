@@ -68,9 +68,17 @@ final class AirPlayPlugin: NSObject, FlutterStreamHandler {
 
   func onListen(withArguments _: Any?, eventSink: @escaping FlutterEventSink) -> FlutterError? {
     sink = eventSink
-    // Crear ya la sesión: su AVPlayer es el que observa la ruta, y sin él no
-    // llegaría ningún evento hasta que alguien pulsara reproducir.
+    // Crear ya la sesión: su AVPlayer tiene que existir antes de que se abra el
+    // popover, porque es a él a quien apunta el selector.
     _ = sesionViva()
+
+    // Al cerrarse el popover se arma la sesión. Es la única señal pública que
+    // da AVKit; no hay callback de "se eligió esta ruta". Si el usuario no
+    // eligió nada, la reproducción no se desviará y AirplayGuard hará el
+    // traspaso a local dentro de su presupuesto.
+    RoutePicker.alCerrarPopover = { [weak self] in
+      self?.sink?(["type": "route", "active": true])
+    }
     return nil
   }
 
