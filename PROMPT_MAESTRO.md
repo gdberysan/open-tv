@@ -210,7 +210,7 @@ no por problemas técnicos. Texto completo y motivo en
 | Componente | Estado |
 |---|---|
 | iOS / Android targets | ✗ Solo macOS activo (`mobile/` no tiene `ios/` ni `android/`) |
-| Empaquetado del gateway | ✗ Se arranca a mano; sin launchd, Docker ni supervisor |
+| Empaquetado del gateway | ✗ Sin Docker ni binario distribuible. Para desarrollo local hay plantilla de LaunchAgent en `tools/` |
 | `/metrics` y `/health` enriquecido | ✗ Fase 10 |
 | Favoritos e historial | ✗ Fase 8; `sqflite` no está en `pubspec.yaml` |
 | Relleno de fondo de compatibilidad AirPlay | ✗ Descartado; el veredicto se sondea bajo demanda y se cachea en memoria |

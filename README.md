@@ -9,9 +9,10 @@ Sin canales premium, sin VPN, sin geo-bypass, sin credenciales de terceros.
 
 ## Arrancar el stack
 
-Hacen falta dos procesos. **El gateway no se arranca solo**: no hay launchd,
-ni docker-compose, ni supervisor. Si no está corriendo, la app falla con
-`Connection refused` en `127.0.0.1:8080`.
+Hacen falta dos procesos. **El gateway no se arranca solo** salvo que se
+instale el LaunchAgent de abajo: no hay docker-compose ni supervisor. Si no
+está corriendo, la app no enseña nada y avisa de que no ha podido contactar
+con el gateway en el puerto 8080.
 
 ### 1. Gateway
 
@@ -33,11 +34,22 @@ flutter run -d macos
 
 Apunta a `http://127.0.0.1:8080` por defecto.
 
+### Que el gateway se arranque solo (opcional, macOS)
+
+Para no repetir el paso 1 cada día hay una plantilla de LaunchAgent en
+`tools/dev.korven.opentv.gateway.plist`: arranca al iniciar sesión y se revive
+si se cae. Instalación, actualización y desinstalación en
+[`tools/README.md`](tools/README.md).
+
+Sirve un binario compilado, así que **tras tocar código Go hay que recompilar y
+reiniciarlo** o seguirá sirviendo la versión anterior.
+
 ### Comprobar que el gateway está vivo
 
 ```bash
 curl -s localhost:8080/health
 lsof -iTCP:8080 -sTCP:LISTEN -n -P
+launchctl print gui/$(id -u)/dev.korven.opentv.gateway   # si está bajo launchd
 ```
 
 ## Variables de entorno del gateway
