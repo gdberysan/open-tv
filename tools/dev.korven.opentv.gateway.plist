@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	Plantilla: launchd no expande ~ ni variables, así que __RUTA_AL_REPO__ hay
+	que sustituirlo por la ruta absoluta del repo antes de instalar. Ver
+	tools/README.md.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>dev.korven.opentv.gateway</string>
+
+	<!-- Binario compilado, no `go run`: go run deja colgado un proceso padre
+	     que solo sirve para confundir a launchd sobre qué debe revivir. -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>__RUTA_AL_REPO__/gateway/server</string>
+	</array>
+
+	<!-- DB_PATH es relativo al directorio de trabajo y launchd arranca en /.
+	     Sin esto el gateway crea una iptv.db vacía en la raíz: responde 200 y
+	     sirve cero canales, que es un fallo mucho peor de diagnosticar que un
+	     puerto cerrado. Va también explícito abajo, por si alguien toca esto. -->
+	<key>WorkingDirectory</key>
+	<string>__RUTA_AL_REPO__/gateway</string>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>DB_PATH</key>
+		<string>__RUTA_AL_REPO__/gateway/iptv.db</string>
+		<key>LISTEN_ADDR</key>
+		<string>127.0.0.1:8080</string>
+	</dict>
+
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+
+	<!-- El gateway loguea JSON por stdout; stderr recoge los pánicos. Fuera del
+	     repo, en el sitio de macOS para esto. -->
+	<key>StandardOutPath</key>
+	<string>__RUTA_HOME__/Library/Logs/korven-gateway.log</string>
+	<key>StandardErrorPath</key>
+	<string>__RUTA_HOME__/Library/Logs/korven-gateway.log</string>
+</dict>
+</plist>
