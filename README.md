@@ -119,3 +119,14 @@ CI corre exactamente eso en cada push (`.github/workflows/ci.yml`).
 - `PROMPT_MAESTRO.md` — contrato y roadmap del proyecto
 - `docs/adr/` — decisiones de arquitectura
 - `docs/superpowers/plans/` — planes de implementación
+
+## Bindings
+
+Dónde vive cada pieza. Los **IDs** son la identidad y sobreviven a cualquier renombre.
+
+| Superficie | Valor |
+|---|---|
+| GitHub | `gdberysan/open-tv` |
+| Vercel | ninguno — es una app de escritorio (gateway en Go + Flutter para macOS) |
+| Supabase | ninguno |
+| Dominio | ninguno; se distribuye como binario |
