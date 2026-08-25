@@ -46,15 +46,14 @@ func TestCheckerMandaUserAgentDeReproductor(t *testing.T) {
 	}
 }
 
+// HLS va directo a GET: el checker nunca manda un HEAD sobre esta URL, así
+// que el único camino posible es el que trae cuerpo que clasificar.
 func TestCheckClasificaAirplayEnElFallbackGET(t *testing.T) {
 	const master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000,CODECS=\"avc1.4d4028,mp4a.40.2\"\n720p.m3u8\n"
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// HEAD rechazado a propósito: es lo que fuerza el fallback a GET, que
-		// es el único camino donde hay cuerpo que clasificar.
 		if r.Method == http.MethodHead {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
+			t.Error("no debe haber HEAD sobre una URL HLS")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(master))
@@ -72,16 +71,24 @@ func TestCheckClasificaAirplayEnElFallbackGET(t *testing.T) {
 	}
 }
 
+// Lo no-HLS conserva HEAD→GET: si el HEAD ya basta (2xx), no se manda ningún
+// GET, y sin GET no hay cuerpo que clasificar — Airplay se queda en
+// Unknown en vez de inventar un veredicto.
 func TestCheckDejaAirplayDesconocidoSiElHEADBasta(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			t.Error("el HEAD ya basta: no debería haber ningún GET")
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	c := validator.NewChecker(nil, 5*time.Second)
-	res := c.Check(context.Background(), srv.URL+"/a.m3u8")
+	res := c.Check(context.Background(), srv.URL+"/a.ts")
 
-	// Sin GET no hay cuerpo, y sin cuerpo no se inventa un veredicto.
+	if !res.IsAlive {
+		t.Fatalf("IsAlive = false, quiero true")
+	}
 	if res.Airplay != domain.AirplayUnknown {
 		t.Errorf("Airplay = %v, quiero AirplayUnknown", res.Airplay)
 	}
