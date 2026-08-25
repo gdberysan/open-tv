@@ -6,8 +6,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -180,6 +182,29 @@ func TestRunEnfocaInstanciaExistenteEnVezDeArrancarSegunda(t *testing.T) {
 	// proceso ajeno va a servir por casualidad.
 	if InstanciaViva(context.Background(), "http://"+siguiente) {
 		t.Error("no debería haber un segundo Open TV escuchando en el puerto de fallback")
+	}
+}
+
+// Ruling R14: el early-return de "ya hay instancia" tiene que ocurrir ANTES
+// de abrir la DB. Si el orden se invierte, el 2º proceso crea/abre el SQLite
+// compartido y arranca un sync abortado antes de darse cuenta de que ya había
+// una instancia — este test comprueba que el fichero de DB ni se crea.
+func TestRunNoAbreLaDBSiYaHayInstancia(t *testing.T) {
+	viva := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","web_ui":true}`))
+	}))
+	defer viva.Close()
+	_, puerto, _ := net.SplitHostPort(strings.TrimPrefix(viva.URL, "http://"))
+
+	dbPath := filepath.Join(t.TempDir(), "no-debe-existir.db")
+	t.Setenv("DB_PATH", dbPath)
+	t.Setenv("LISTEN_ADDR", "127.0.0.1:"+puerto)
+
+	if err := run(context.Background(), slog.New(slog.DiscardHandler), true); err != nil {
+		t.Fatalf("run devolvió error: %v", err)
+	}
+	if _, err := os.Stat(dbPath); err == nil {
+		t.Error("la 2ª instancia abrió/creó el SQLite; debía enfocar sin tocar la DB")
 	}
 }
 

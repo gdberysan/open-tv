@@ -65,82 +65,17 @@ func main() {
 func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 	logger.Info("Iniciando Korven Open TV — gateway")
 
-	// 1. Base de datos SQLite. La ruta viene del directorio de datos del
-	// sistema salvo que DB_PATH diga otra cosa.
-	dbPath, err := datadir.RutaDB()
-	if err != nil {
-		return fmt.Errorf("resolviendo el directorio de datos: %w", err)
-	}
-	sqlDB, err := db.Open(dbPath)
-	if err != nil {
-		return fmt.Errorf("abriendo la base de datos: %w", err)
-	}
-	defer sqlDB.Close()
-
-	// Pool aparte de solo lectura para los handlers. El de escritura está
-	// limitado a una conexión (evita SQLITE_BUSY), así que compartirlo haría
-	// que cada request se encolara detrás del sync o del health-check en curso.
-	lecturaDB, err := db.OpenReadOnly(dbPath)
-	if err != nil {
-		return fmt.Errorf("abriendo el pool de lectura: %w", err)
-	}
-	defer lecturaDB.Close()
-	logger.Info("SQLite abierta", slog.String("path", dbPath))
-
-	// 2. Repositorios y proveedor IPTV-org.
-	// Escritura: los usan el syncer y el health-worker.
-	channelRepo := db.NewChannelRepository(sqlDB)
-	streamRepo := db.NewStreamRepository(sqlDB)
-
-	// Lectura: los usan los handlers HTTP.
-	channelRepoRO := db.NewChannelRepository(lecturaDB)
-	streamRepoRO := db.NewStreamRepository(lecturaDB)
-
-	iptvOrgURL := os.Getenv("IPTV_ORG_URL")
-	if iptvOrgURL == "" {
-		iptvOrgURL = "https://iptv-org.github.io/iptv/index.m3u"
-	}
-	provider := opensource.NewProvider("opensource", iptvOrgURL, nil)
-
-	// 3. Sync periódico en background: reintenta con backoff si el proveedor
-	// falla y persiste los streams para que /channels/stream sobreviva reinicios.
-	syncer := services.NewSyncer(logger, provider, channelRepo, streamRepo, services.Config{
-		Interval: durationEnv(logger, "SYNC_INTERVAL", 12*time.Hour),
-	})
-
-	syncCtx, stopSync := context.WithCancel(context.Background())
-	defer stopSync()
-
-	// Un WaitGroup por cada worker: el apagado tiene que esperarlos antes de
-	// que el defer de sqlDB.Close() se desenrolle, o la DB se cierra mientras
-	// alguno sigue dentro de un ExecContext.
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		syncer.Run(syncCtx)
-	}()
-
-	// 3b. Health-check de streams (Fase 7): valida las URLs con el pool
-	// HEAD→GET y marca is_alive/latency en DB. Espera al primer sync para
-	// tener el catálogo de streams. HEALTH_INTERVAL default 60m.
-	healthWorker := validator.NewWorker(streamRepo, validator.DefaultConfig(),
-		durationEnv(logger, "HEALTH_INTERVAL", 60*time.Minute), logger)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		select {
-		case <-syncCtx.Done():
-		case <-syncer.FirstSyncDone():
-			healthWorker.Start(syncCtx)
-		}
-	}()
-
-	// 4. Router y servidor HTTP
+	// 1. Puerto y detección de instancia viva. Esto va ANTES de tocar la DB
+	// (Ruling R14): si ya hay un Open TV escuchando, el 2º proceso tiene que
+	// enfocar esa ventana y volver SIN abrir el SQLite compartido ni
+	// arrancar un Syncer/health-worker contra él. Abrir la DB primero
+	// significaba que la 2ª instancia creaba/tocaba el fichero y disparaba
+	// un sync abortado antes de darse cuenta de que sobraba.
+	//
 	// Loopback por defecto: la API no tiene auth y solo la consume la app
 	// local. El gateway nunca proxya video (solo devuelve JSON con la URL),
-	// así que un WriteTimeout corto es seguro.
+	// así que un WriteTimeout corto es seguro (se fija más abajo, con el
+	// router).
 	listenAddr := os.Getenv("LISTEN_ADDR")
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:8080"
@@ -173,6 +108,84 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 		}
 	}
 
+	// 2. Base de datos SQLite. La ruta viene del directorio de datos del
+	// sistema salvo que DB_PATH diga otra cosa. A partir de aquí ya sabemos
+	// que somos la única instancia, así que cualquier error de aquí en
+	// adelante tiene que cerrar `ln` antes de volver.
+	dbPath, err := datadir.RutaDB()
+	if err != nil {
+		ln.Close()
+		return fmt.Errorf("resolviendo el directorio de datos: %w", err)
+	}
+	sqlDB, err := db.Open(dbPath)
+	if err != nil {
+		ln.Close()
+		return fmt.Errorf("abriendo la base de datos: %w", err)
+	}
+	defer sqlDB.Close()
+
+	// Pool aparte de solo lectura para los handlers. El de escritura está
+	// limitado a una conexión (evita SQLITE_BUSY), así que compartirlo haría
+	// que cada request se encolara detrás del sync o del health-check en curso.
+	lecturaDB, err := db.OpenReadOnly(dbPath)
+	if err != nil {
+		ln.Close()
+		return fmt.Errorf("abriendo el pool de lectura: %w", err)
+	}
+	defer lecturaDB.Close()
+	logger.Info("SQLite abierta", slog.String("path", dbPath))
+
+	// 3. Repositorios y proveedor IPTV-org.
+	// Escritura: los usan el syncer y el health-worker.
+	channelRepo := db.NewChannelRepository(sqlDB)
+	streamRepo := db.NewStreamRepository(sqlDB)
+
+	// Lectura: los usan los handlers HTTP.
+	channelRepoRO := db.NewChannelRepository(lecturaDB)
+	streamRepoRO := db.NewStreamRepository(lecturaDB)
+
+	iptvOrgURL := os.Getenv("IPTV_ORG_URL")
+	if iptvOrgURL == "" {
+		iptvOrgURL = "https://iptv-org.github.io/iptv/index.m3u"
+	}
+	provider := opensource.NewProvider("opensource", iptvOrgURL, nil)
+
+	// 4. Sync periódico en background: reintenta con backoff si el proveedor
+	// falla y persiste los streams para que /channels/stream sobreviva reinicios.
+	syncer := services.NewSyncer(logger, provider, channelRepo, streamRepo, services.Config{
+		Interval: durationEnv(logger, "SYNC_INTERVAL", 12*time.Hour),
+	})
+
+	syncCtx, stopSync := context.WithCancel(context.Background())
+	defer stopSync()
+
+	// Un WaitGroup por cada worker: el apagado tiene que esperarlos antes de
+	// que el defer de sqlDB.Close() se desenrolle, o la DB se cierra mientras
+	// alguno sigue dentro de un ExecContext.
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		syncer.Run(syncCtx)
+	}()
+
+	// 4b. Health-check de streams (Fase 7): valida las URLs con el pool
+	// HEAD→GET y marca is_alive/latency en DB. Espera al primer sync para
+	// tener el catálogo de streams. HEALTH_INTERVAL default 60m.
+	healthWorker := validator.NewWorker(streamRepo, validator.DefaultConfig(),
+		durationEnv(logger, "HEALTH_INTERVAL", 60*time.Minute), logger)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-syncCtx.Done():
+		case <-syncer.FirstSyncDone():
+			healthWorker.Start(syncCtx)
+		}
+	}()
+
+	// 5. Router y servidor HTTP, sobre el listener ya resuelto en el paso 1.
 	url := "http://" + ln.Addr().String()
 	srv := &http.Server{
 		Handler: api.NewRouter(logger, channelRepoRO, provider, streamRepoRO, lecturaDB, syncer, api.Options{
@@ -206,7 +219,7 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 	case <-ctx.Done():
 	}
 
-	// 5. Apagado ordenado
+	// 6. Apagado ordenado
 	logger.Info("Apagando servidor...")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
