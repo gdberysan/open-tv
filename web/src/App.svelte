@@ -3,7 +3,7 @@
   import { get } from 'svelte/store'
   import { idioma, t } from './i18n'
   import { crearHttpCatalog } from './datos/http'
-  import type { Canal, ConsultaCatalogo, Faceta, Frescura as InfoFrescura } from './datos/catalogo'
+  import type { CatalogSource, Canal, ConsultaCatalogo, Faceta, Frescura as InfoFrescura } from './datos/catalogo'
   import { filtros } from './estado/filtros'
   import { favoritos } from './estado/favoritos'
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
@@ -19,9 +19,11 @@
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
 
-  // Único punto del cliente que habla con CatalogSource: todos los demás
-  // componentes leen stores y emiten callbacks.
-  const catalogo = crearHttpCatalog()
+  // fuente es inyectable (Tarea 15): en producción cae en crearHttpCatalog,
+  // pero los tests de componente pueden pasar un CatalogSource falso sin
+  // tocar la red. Único punto del cliente que habla con CatalogSource: todos
+  // los demás componentes leen stores y emiten callbacks.
+  let { fuente = crearHttpCatalog('') }: { fuente?: CatalogSource } = $props()
 
   // Puerta de entrada: hasta que /health confirme que el catálogo ya se
   // sincronizó una vez, no tiene sentido pedir /channels — la primera
@@ -105,7 +107,7 @@
     }
     cargando = true
     try {
-      const pagina = await catalogo.canales(construirConsulta(true))
+      const pagina = await fuente.canales(construirConsulta(true))
       if (idPeticion !== peticionActual) return // ya hay una consulta más nueva en marcha
       canales = reiniciar ? pagina.canales : [...canales, ...pagina.canales]
       // El total sale de X-Total-Count (vía HttpCatalog), nunca de
@@ -154,7 +156,7 @@
 
   async function alAleatorio() {
     try {
-      abrirCanal(await catalogo.aleatorio(construirConsulta(false)))
+      abrirCanal(await fuente.aleatorio(construirConsulta(false)))
     } catch (e) {
       errorCatalogo = clasificarError(e)
     }
@@ -205,7 +207,7 @@
     comprobarSalud()
     ;(async () => {
       try {
-        const [p, c, f] = await Promise.all([catalogo.paises(), catalogo.categorias(), catalogo.frescura()])
+        const [p, c, f] = await Promise.all([fuente.paises(), fuente.categorias(), fuente.frescura()])
         paises = p
         categorias = c
         frescura = f
@@ -254,7 +256,7 @@
 {#if canalAbierto}
   <Reproductor
     canal={canalAbierto}
-    fuente={catalogo}
+    {fuente}
     alDesenlace={reportarDesenlace}
     alCerrar={cerrarReproductor}
     alAnterior={canalAnterior}
