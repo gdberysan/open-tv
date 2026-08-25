@@ -221,3 +221,13 @@ P0 es la fase grande (1–2 semanas). P1 puede solapar su cola. P3 depende de P0
 - **Registro de la marca Korven (IMPI)** — la marca pasa a ser pública; fuera de este proyecto.
 - **Páginas de korven.dev en inglés** — seguimiento del sitio, no de este proyecto.
 - **GitHub Sponsors** — enturbia "gratis, no se vende nada"; se puede añadir después.
+
+## Nota de enmienda (2026-08-25)
+
+Al ejecutar el plan de P0 (`docs/superpowers/plans/2026-08-25-p0-cliente-web-y-binario.md`), leer el código real reveló que dos afirmaciones de esta spec eran falsas. Se documentan aquí sin reescribir el cuerpo de arriba, que queda como registro histórico de lo que se diseñó antes de implementar.
+
+1. **§4.2 dice que `web_ok` es "hermano de `airplay_ok`" y da a entender que ambos se guardan en el stream. `airplay_ok` NO está persistido.** Se sondea bajo demanda en `/channels/stream` (`handlers.AirplayProber`, con caché en memoria y TTL de 12 h), y el health-worker calcula `res.Airplay` pero lo descarta — solo persiste `IsAlive`/`LatencyMs`. `web_ok` sí se persiste, porque la rejilla necesita pintarlo para 500 canales a la vez y un sondeo por canal no sirve para eso. Así que `web_ok` y `airplay_ok` son hermanos en **semántica** (tri-estado: `null` = sin comprobar, `true`/`false` según lista de permitidos) pero NO en almacenamiento: uno se guarda, el otro no.
+
+2. **§3.2 da a entender que `web_ok` cubre la reproducción en el navegador en general. `web_ok` es el veredicto ESTRICTO de hls.js (Chrome/Firefox), no el de Safari.** Safari reproduce HLS de forma nativa sin necesitar CORS, así que reproduce más de lo que `web_ok` admite — el censo lo confirma: 85 % en Safari frente a 67 % en Chrome/Firefox (que sí necesitan CORS además de HTTPS). Por eso el cliente decide la política de intento según el motor (`planDeReproduccion`, Tarea 13): en HLS nativo se intenta directo con solo comprobar HTTPS, aunque `web_ok` sea falso. `web_ok` no debe usarse para bloquear la reproducción en Safari.
+
+Ambos puntos ya estaban recogidos como desviaciones decididas en `docs/superpowers/sdd/2026-08-25-p0-cliente-web-y-binario/global-constraints.md` (desviaciones 1 y 3); esta nota los deja también en la spec original, que es donde alguien los buscaría primero.
