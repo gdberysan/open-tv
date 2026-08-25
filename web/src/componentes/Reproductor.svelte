@@ -4,6 +4,7 @@
   import { PlaybackGuard } from '../reproductor/guard'
   import { planDeReproduccion, motorDelNavegador, type Motor } from '../reproductor/plan'
   import { planDeFailover, type Intento, type DesenlaceReproduccion } from '../reproductor/failover'
+  import { clasificarError, type ClaseError } from '../estado/salud'
   import { t } from '../i18n'
 
   // alAnterior/alSiguiente son opcionales: App los da cuando hay una lista de
@@ -82,6 +83,15 @@
     return intento.viaProxy ? 'proxy' : 'directo'
   }
 
+  // Mismo reparto de tres estados que MensajeError.svelte usa para el
+  // catálogo: gateway caído / sin red / servidor no se pueden mezclar sin
+  // repetir el diagnóstico de una tarde entera del 2026-08-07. Se usa aquí
+  // para el fetch de mirrors()/destino()/proxyDisponible() — antes de tener
+  // siquiera una lista de intentos que probar, no es que "no arrancó".
+  function mensajeDeClase(clase: ClaseError): string {
+    return clase === 'gateway' ? t('estado.gatewayCaido') : clase === 'red' ? t('estado.sinRed') : t('estado.errorServidor')
+  }
+
   /** Un intento: arma el guard, ENTONCES asigna la fuente. Se resuelve al
    *  confirmar reproducción; se rechaza si el guard lo declara fatal antes de
    *  confirmar. Un fallo DESPUÉS de confirmar no rechaza: el canal ya se vio,
@@ -93,6 +103,15 @@
         return
       }
       let confirmado = false
+      // zanjado se cierra al resolver O rechazar. Existe porque guardActual
+      // NO alcanza para detectar un import('hls.js') tardío: cuando el guard
+      // declara fatal, reject() solo REANUDA el await del bucle en un
+      // microtask posterior — durante esa ventana guardActual todavía
+      // apunta a ESTE guard (el bucle aún no llegó a limpiarIntento() del
+      // siguiente intento). Sin zanjado, un import que resuelve justo en esa
+      // ventana pasaría el check de identidad y pisaría hlsActual con un
+      // stream que ya se decidió fatal.
+      let zanjado = false
       const inicio = performance.now()
 
       const guard = new PlaybackGuard({
@@ -110,10 +129,12 @@
             cargando = false
             return
           }
+          zanjado = true
           reject(new Error(mensaje))
         },
         alConfirmar: () => {
           confirmado = true
+          zanjado = true
           cargando = false
           alDesenlace({
             canalId: canal.id,
@@ -147,7 +168,12 @@
       // hls.js SOLO se importa aquí, dentro del camino hlsjs: Safari nunca
       // pasa por esta rama, así que Safari nunca lo descarga.
       import('hls.js').then(({ default: Hls }) => {
-        if (destruido || guardActual !== guard) return
+        // destruido: el componente se desmontó. zanjado: ESTE intento ya se
+        // resolvió o rechazó (aunque guardActual todavía no se haya
+        // reasignado al siguiente). guardActual !== guard: el failover ya
+        // avanzó a otro intento. Cualquiera de los tres significa que este
+        // import ya no puede tocar hlsActual ni el <video>.
+        if (destruido || zanjado || guardActual !== guard) return
         if (!Hls.isSupported()) {
           guard.alError('hls.js no soportado en este navegador')
           return
@@ -203,10 +229,13 @@
         }
         intentos = plan.intentos.map((url, i) => ({ url, viaProxy: i > 0, mirrorIndex: 0 }))
       }
-    } catch {
+    } catch (e) {
       if (destruido || miId !== intentoId) return
       cargando = false
-      mensajeError = t('reproductor.error.noArranco')
+      // Esto es un fallo al PEDIR los datos (mirrors/destino/proxyDisponible),
+      // no un fallo al reproducir: "no arrancó" se reserva para cuando SÍ
+      // hubo una lista de intentos y ninguno reprodujo (más abajo).
+      mensajeError = mensajeDeClase(clasificarError(e))
       return
     }
 

@@ -19,7 +19,26 @@ const hlsState = vi.hoisted(() => ({
   instancias: [] as Array<{ url: string; fallar: (motivo: string) => void }>,
 }))
 
-vi.mock('hls.js', () => {
+// Ronda 1 de revisión: un import('hls.js') que resuelve DESPUÉS de que su
+// intento ya se declaró fatal no puede pisar hlsActual. Para hacerlo
+// observable hace falta retener a propósito la resolución del módulo — sin
+// esto el hueco es de un solo microtask y ninguna espera basada en
+// temporizadores (vi.waitFor incluido) puede aterrizar dentro: los
+// microtasks siempre drenan del todo antes de que corra cualquier timer. La
+// fábrica del mock no resuelve hasta que se libera esta puerta a mano; una
+// vez liberada queda así para el resto de los tests del fichero (el módulo
+// se resuelve una sola vez y se cachea), así que el test de la carrera va
+// PRIMERO.
+const hlsGate = vi.hoisted(() => {
+  let liberar: () => void = () => {}
+  const promesa = new Promise<void>((resolver) => {
+    liberar = resolver
+  })
+  return { promesa, liberar: () => liberar() }
+})
+
+vi.mock('hls.js', async () => {
+  await hlsGate.promesa
   class FakeHls {
     static Events = { ERROR: 'error', MANIFEST_PARSED: 'manifest_parsed' } as const
     static isSupported() {
@@ -46,6 +65,55 @@ vi.mock('hls.js', () => {
 const canal = { id: 'c1', nombre: 'X', webOk: true } as Canal
 
 describe('Reproductor — failover entre mirrors', () => {
+  // Ver la nota de hlsGate arriba: este test tiene que ir primero.
+  it('un import de hls.js tardío de un mirror ya abandonado no pisa el intento vigente', async () => {
+    const mirrors: Mirror[] = [
+      { url: 'https://muerto/x.m3u8', vivo: true, latenciaMs: 100, webOk: true },
+      { url: 'https://vivo/x.m3u8', vivo: true, latenciaMs: 200, webOk: true },
+    ]
+    const fuente = {
+      mirrors: vi.fn(async () => mirrors),
+      proxyDisponible: vi.fn(async () => false),
+    }
+    const intentadas: string[] = []
+
+    const { container } = render(Reproductor, {
+      canal,
+      fuente: fuente as any,
+      alCerrar: () => {},
+      alIntentar: (url: string) => intentadas.push(url),
+    })
+
+    // El primer intento llega a registrar su listener de error del <video> y
+    // su import('hls.js') (todavía pendiente: la puerta sigue cerrada) antes
+    // de que el test pueda observar nada más — alIntentar() se llama justo
+    // antes, en el mismo tramo síncrono.
+    await vi.waitFor(() => expect(intentadas).toEqual(['https://muerto/x.m3u8']))
+
+    // Fatal ANTES de que su propio import('hls.js') resuelva: un evento de
+    // error real sobre el <video>, el mismo camino que un fallo de decode
+    // real dispararía (onVideoError → guard.alError → alFallar), sin esperar
+    // a que hls.js llegue a existir para este intento.
+    const video = container.querySelector('video')!
+    video.dispatchEvent(new Event('error'))
+
+    // Se libera la puerta: el import pendiente del primer intento resuelve
+    // DESPUÉS de que ese intento ya se rechazó.
+    hlsGate.liberar()
+
+    // El failover avanza solo: el segundo intento sí construye su hls.
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    expect(hlsState.instancias[0].url).toBe('https://vivo/x.m3u8')
+    expect(intentadas).toEqual(['https://muerto/x.m3u8', 'https://vivo/x.m3u8'])
+
+    // El import tardío del mirror muerto no añadió una segunda instancia ni
+    // reemplazó la del mirror vivo: sigue habiendo exactamente una, y es la
+    // correcta.
+    await new Promise((r) => setTimeout(r, 0))
+    expect(hlsState.instancias).toHaveLength(1)
+    expect(hlsState.instancias[0].url).toBe('https://vivo/x.m3u8')
+  })
+
   it('cae al siguiente mirror cuando el primero falla, y solo muestra error al agotar todos', async () => {
     hlsState.instancias.length = 0
     const mirrors: Mirror[] = [
@@ -103,5 +171,24 @@ describe('Reproductor — failover entre mirrors', () => {
 
     await vi.waitFor(() => expect(intentadas).toEqual(['https://unico/x.m3u8']))
     expect(fuente.destino).toHaveBeenCalledWith('c1')
+  })
+
+  // Ronda 1 de revisión: un fetch que falla (mirrors()/destino()/
+  // proxyDisponible()) no es "el canal no arrancó" — es exactamente el
+  // mismo problema de tres estados que MensajeError.svelte separa para el
+  // catálogo (gateway caído / sin red / servidor), y mezclarlos ya costó una
+  // tarde de diagnóstico una vez.
+  it('un fallo al pedir los mirrors se clasifica (gateway), no el genérico "no arrancó"', async () => {
+    const fuente = {
+      mirrors: vi.fn(async () => {
+        throw new Error('gateway inalcanzable')
+      }),
+      proxyDisponible: vi.fn(async () => false),
+    }
+
+    render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+
+    await vi.waitFor(() => expect(screen.queryByText(t('estado.gatewayCaido'))).not.toBeNull())
+    expect(screen.queryByText(t('reproductor.error.noArranco'))).toBeNull()
   })
 })
