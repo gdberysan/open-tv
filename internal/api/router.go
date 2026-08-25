@@ -50,6 +50,7 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 		Version:      opts.Version,
 		WebUI:        hayClienteWeb,
 		ProxyEnabled: opts.ProxyActivo,
+		ProxyRuta:    RutaProxy,
 	})
 	r.Get("/health", hh.Get)
 

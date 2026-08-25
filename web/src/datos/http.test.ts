@@ -94,6 +94,14 @@ describe('HttpCatalog', () => {
     expect(espia).not.toHaveBeenCalled()
   })
 
+  it('la consulta de favoritos manda un limit alto para no truncar', async () => {
+    const espia = vi.fn(async (..._args: unknown[]) => respuesta([]))
+    vi.stubGlobal('fetch', espia)
+    await crearHttpCatalog('').canales({ ids: ['a', 'b', 'c'] })
+    const url = String(espia.mock.calls[0][0])
+    expect(url).toContain('limit=')
+  })
+
   it('un fallo de red se distingue de un gateway caído', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
     await expect(crearHttpCatalog('').canales({})).rejects.toThrow(/red|gateway/i)

@@ -1,8 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { planDeReproduccion, urlProxy } from './plan'
+import { planDeReproduccion, RUTA_PROXY, urlProxy } from './plan'
 
 const URL_HTTPS = 'https://cdn.example/live.m3u8'
 const URL_HTTP = 'http://cdn.example/live.m3u8'
+
+// RUTA_PROXY vive por partida doble: en Go (router.RutaProxy) y aquí. El
+// gateway la publica en /health como proxy_ruta (ver
+// TestHealthPublicaLaRutaDelProxy en internal/api/handlers); este test fija
+// el mismo literal en el lado TS para que ambos no puedan divergir en
+// silencio. Ideal sería leerla de /health al arrancar; por ahora basta con
+// que coincidan.
+describe('RUTA_PROXY', () => {
+  it('coincide con la ruta que /health publica en proxy_ruta', () => {
+    expect(RUTA_PROXY).toBe('/proxy/hls?u=')
+  })
+})
 
 describe('planDeReproduccion', () => {
   // Safari reproduce HLS de forma nativa y NO necesita CORS. Por eso ve el

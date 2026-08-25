@@ -50,6 +50,11 @@ function query(c: ConsultaCatalogo): URLSearchParams {
   if (c.calidad) p.set('quality', c.calidad)
   if (c.mostrarOffline) p.set('alive', 'all')
   if (c.ids?.length) p.set('ids', c.ids.join(','))
+  // Sin limit explícito, el gateway aplica el suyo por defecto y puede
+  // truncar la lista de favoritos por debajo del nº de ids pedidos: la
+  // lista se recorta en silencio. 1000 favoritos ya no caben en ningún uso
+  // real.
+  if (c.ids?.length && c.limite == null) p.set('limit', '1000')
   if (c.limite != null) p.set('limit', String(c.limite))
   if (c.desplazamiento != null) p.set('offset', String(c.desplazamiento))
   return p

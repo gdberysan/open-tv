@@ -33,10 +33,16 @@ type HealthHandler struct {
 // proxy_enabled no son adorno: la página de primer arranque decide con ellos
 // qué mensaje enseñar, y `open-tv` los usa para reconocer que el puerto
 // ocupado es otro Open TV y no un servicio ajeno.
+//
+// ProxyRuta existe para que la constante RutaProxy del router (Go) y
+// RUTA_PROXY del cliente (TS) tengan una única fuente de verdad publicada:
+// un test en cada lado compara su cadena contra este valor, y así no pueden
+// divergir en silencio.
 type Info struct {
 	Version      string
 	WebUI        bool
 	ProxyEnabled bool
+	ProxyRuta    string
 }
 
 func NewHealthHandler(db *sql.DB, syncer SyncStatus, info Info) *HealthHandler {
@@ -56,6 +62,7 @@ func (h *HealthHandler) Get(w http.ResponseWriter, r *http.Request) {
 		"version":       h.info.Version,
 		"web_ui":        h.info.WebUI,
 		"proxy_enabled": h.info.ProxyEnabled,
+		"proxy_ruta":    h.info.ProxyRuta,
 	}
 	httpStatus := http.StatusOK
 

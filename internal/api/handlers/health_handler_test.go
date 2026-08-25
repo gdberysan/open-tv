@@ -113,7 +113,7 @@ func TestHealthPublicaLaInfoDelBinario(t *testing.T) {
 	defer sqlDB.Close()
 
 	h := NewHealthHandler(sqlDB, fakeSyncStatus{}, Info{
-		Version: "1.2.3", WebUI: true, ProxyEnabled: true,
+		Version: "1.2.3", WebUI: true, ProxyEnabled: true, ProxyRuta: "/proxy/hls?u=",
 	})
 	rec := httptest.NewRecorder()
 	h.Get(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
@@ -122,10 +122,35 @@ func TestHealthPublicaLaInfoDelBinario(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	for k, quiero := range map[string]any{"version": "1.2.3", "web_ui": true, "proxy_enabled": true} {
+	for k, quiero := range map[string]any{
+		"version": "1.2.3", "web_ui": true, "proxy_enabled": true, "proxy_ruta": "/proxy/hls?u=",
+	} {
 		if got[k] != quiero {
 			t.Errorf("%s = %v, quiero %v", k, got[k], quiero)
 		}
+	}
+}
+
+// RUTA_PROXY vive por partida doble, en Go (router.RutaProxy) y en TS
+// (plan.ts). Este test fija el valor que /health debe publicar; el lado TS
+// tiene su propio test que compara su constante contra este mismo literal.
+func TestHealthPublicaLaRutaDelProxy(t *testing.T) {
+	sqlDB, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	h := NewHealthHandler(sqlDB, fakeSyncStatus{}, Info{ProxyRuta: "/proxy/hls?u="})
+	rec := httptest.NewRecorder()
+	h.Get(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if got["proxy_ruta"] != "/proxy/hls?u=" {
+		t.Errorf("proxy_ruta = %v, quiero /proxy/hls?u=", got["proxy_ruta"])
 	}
 }
 
