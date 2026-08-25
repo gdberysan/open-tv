@@ -58,7 +58,23 @@ export function planDeReproduccion(e: EntradaPlan): Plan {
   return { intentos, aviso: 'ninguno' }
 }
 
-/** Safari y iOS reproducen HLS sin librería; el resto necesita hls.js. */
+/**
+ * Safari da soporte nativo DEFINITIVO ('probably') para HLS: se queda con el
+ * <video> nativo, que además es más eficiente y permite AirPlay. Chrome y
+ * Firefox devuelven 'maybe' (Chrome) o '' (Firefox) — un veredicto ambiguo
+ * que en la práctica esconde un HLS nativo poco fiable: el gate manual vio
+ * un <video src=proxiedM3U8>+.load() quedarse en readyState 0 en Chrome con
+ * un stream que el mismo proxy servía bien. Por eso, si hay MSE disponible
+ * (Media Source Extensions, lo que usa hls.js), se prefiere hls.js sobre
+ * cualquier soporte nativo que no sea definitivo. Sin MSE (p. ej. iOS, que
+ * bloquea MSE fuera de Safari) solo queda el nativo si lo soporta.
+ */
 export function motorDelNavegador(video: HTMLVideoElement): Motor {
-  return video.canPlayType('application/vnd.apple.mpegurl') !== '' ? 'nativo' : 'hlsjs'
+  const nativo = video.canPlayType('application/vnd.apple.mpegurl')
+  const mseDisponible =
+    typeof MediaSource !== 'undefined' || typeof (globalThis as any).ManagedMediaSource !== 'undefined'
+
+  if (nativo === 'probably') return 'nativo'
+  if (mseDisponible) return 'hlsjs'
+  return nativo !== '' ? 'nativo' : 'hlsjs'
 }

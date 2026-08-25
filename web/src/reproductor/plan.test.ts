@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { planDeReproduccion, RUTA_PROXY, urlProxy } from './plan'
+import { motorDelNavegador, planDeReproduccion, RUTA_PROXY, urlProxy } from './plan'
 
 const URL_HTTPS = 'https://cdn.example/live.m3u8'
 const URL_HTTP = 'http://cdn.example/live.m3u8'
@@ -61,5 +61,45 @@ describe('planDeReproduccion', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+})
+
+// canPlayType('application/vnd.apple.mpegurl') es 'maybe' en Chrome incluso
+// cuando su <video> nativo no decodifica el HLS de forma fiable (visto en el
+// gate manual: readyState se queda en 0 con un proxy que sí funciona). Solo
+// 'probably' (Safari) es un veredicto DEFINITIVO; con MSE disponible se
+// prefiere hls.js sobre cualquier 'maybe'/''  ambiguo.
+function video(canPlayType: string): HTMLVideoElement {
+  return { canPlayType: () => canPlayType } as unknown as HTMLVideoElement
+}
+
+describe('motorDelNavegador', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('Chrome: maybe + MediaSource → hlsjs (el nativo es poco fiable)', () => {
+    vi.stubGlobal('MediaSource', class {})
+    expect(motorDelNavegador(video('maybe'))).toBe('hlsjs')
+  })
+
+  it('Safari: probably → nativo aunque haya MediaSource (soporte definitivo)', () => {
+    vi.stubGlobal('MediaSource', class {})
+    expect(motorDelNavegador(video('probably'))).toBe('nativo')
+  })
+
+  it('Firefox: sin soporte nativo pero con MediaSource → hlsjs', () => {
+    vi.stubGlobal('MediaSource', class {})
+    expect(motorDelNavegador(video(''))).toBe('hlsjs')
+  })
+
+  it('sin MSE (tipo iOS) pero con soporte nativo maybe → nativo', () => {
+    vi.stubGlobal('MediaSource', undefined)
+    expect(motorDelNavegador(video('maybe'))).toBe('nativo')
+  })
+
+  it('sin MSE y sin soporte nativo → hlsjs como último recurso', () => {
+    vi.stubGlobal('MediaSource', undefined)
+    expect(motorDelNavegador(video(''))).toBe('hlsjs')
   })
 })
