@@ -1,5 +1,5 @@
 import type {
-  Canal, CatalogSource, ConsultaCatalogo, DestinoStream, Faceta, Frescura, PaginaCanales,
+  Canal, CatalogSource, ConsultaCatalogo, DestinoStream, Faceta, Frescura, Mirror, PaginaCanales,
 } from './catalogo'
 
 /**
@@ -33,6 +33,13 @@ function aCanal(c: CanalCable): Canal {
     latenciaMs: c.LatencyMs ?? 0,
     webOk: c.WebOK ?? null,
   }
+}
+
+interface MirrorCable {
+  url: string
+  is_alive?: boolean
+  latency_ms?: number
+  web_ok?: boolean | null
 }
 
 function query(c: ConsultaCatalogo): URLSearchParams {
@@ -102,6 +109,19 @@ export function crearHttpCatalog(base = ''): CatalogSource {
       const resp = await pedir(`${base}/channels/stream?id=${encodeURIComponent(id)}`)
       const cuerpo = (await resp.json()) as { url: string; airplay_ok?: boolean | null }
       return { url: cuerpo.url, airplayOk: cuerpo.airplay_ok ?? null }
+    },
+
+    async mirrors(id: string): Promise<Mirror[]> {
+      const resp = await pedir(`${base}/channels/streams?id=${encodeURIComponent(id)}`)
+      const crudos = (await resp.json()) as MirrorCable[] | null
+      return (crudos ?? []).map((m) => ({
+        url: m.url,
+        // ?? null y no ?? false: "sin comprobar" es un tercer estado, igual
+        // que en aCanal.
+        vivo: m.is_alive ?? null,
+        latenciaMs: m.latency_ms ?? 0,
+        webOk: m.web_ok ?? null,
+      }))
     },
 
     async frescura(): Promise<Frescura> {

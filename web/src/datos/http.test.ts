@@ -98,4 +98,19 @@ describe('HttpCatalog', () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
     await expect(crearHttpCatalog('').canales({})).rejects.toThrow(/red|gateway/i)
   })
+
+  it('mirrors traduce las claves del cable', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      respuesta([
+        { url: 'https://a/x.m3u8', is_alive: true, latency_ms: 100, web_ok: true },
+        { url: 'https://b/x.m3u8', is_alive: true, latency_ms: 300, web_ok: false },
+        { url: 'https://c/x.m3u8', is_alive: false, latency_ms: 0, web_ok: null },
+      ]),
+    ))
+    const mirrors = await crearHttpCatalog('').mirrors('c1')
+    expect(mirrors).toHaveLength(3)
+    expect(mirrors[0]).toEqual({ url: 'https://a/x.m3u8', vivo: true, latenciaMs: 100, webOk: true })
+    expect(mirrors[2].vivo).toBe(false)
+    expect(mirrors[2].webOk).toBeNull()
+  })
 })

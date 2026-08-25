@@ -46,6 +46,14 @@ export interface DestinoStream {
   airplayOk: boolean | null
 }
 
+/** Un mirror de un canal con su salud, para el failover. */
+export interface Mirror {
+  url: string
+  vivo: boolean | null
+  latenciaMs: number
+  webOk: boolean | null
+}
+
 /**
  * CatalogSource es la costura entre el gateway vivo y el snapshot estático.
  * El cliente no sabe en cuál está salvo por la línea de frescura.
@@ -56,6 +64,8 @@ export interface CatalogSource {
   categorias(): Promise<Faceta[]>
   aleatorio(c: ConsultaCatalogo): Promise<Canal>
   destino(id: string): Promise<DestinoStream>
+  /** Los mirrors del canal, ordenados por salud (vivo y menor latencia primero). */
+  mirrors(id: string): Promise<Mirror[]>
   frescura(): Promise<Frescura>
   /** El proxy solo existe en el binario local. */
   proxyDisponible(): Promise<boolean>
