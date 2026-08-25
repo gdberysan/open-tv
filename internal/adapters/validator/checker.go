@@ -61,11 +61,13 @@ func NewChecker(client HTTPChecker, timeout time.Duration) *Checker {
 // cliente desde fuera. Solo para tests.
 func (c *Checker) Transport() *http.Transport { return c.transport }
 
-// Check valida una URL usando una estrategia HTTP HEAD con fallback a HTTP GET.
+// Check valida una URL. Para HLS va directo al GET: el HEAD no trae el
+// manifiesto, y sin manifiesto no hay veredicto de compatibilidad. Es una
+// petición en lugar de dos, no una más. El resto conserva HEAD→GET.
 func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 	start := time.Now()
 
-	// 1. Contexto con timeout para evitar goroutine leaks (Riesgo #6 mitigado)
+	// Contexto con timeout para evitar goroutine leaks (Riesgo #6 mitigado)
 	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
@@ -74,44 +76,46 @@ func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 		Protocol: inferProtocol(url),
 	}
 
-	// Intento 1: HTTP HEAD
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodHead, url, nil)
-	if err != nil {
-		result.Error = fmt.Errorf("creando HEAD request: %w", err)
-		return result
-	}
+	needsGetFallback := result.Protocol == "HLS"
 
-	req.Header.Set("User-Agent", userAgent)
+	if !needsGetFallback {
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodHead, url, nil)
+		if err != nil {
+			result.Error = fmt.Errorf("creando HEAD request: %w", err)
+			return result
+		}
+		req.Header.Set("User-Agent", userAgent)
+		req.Header.Set("Origin", domain.OrigenWeb)
 
-	resp, err := c.client.Do(req)
-
-	needsGetFallback := false
-	if err != nil {
-		// Evaluamos si el error es de timeout u otra cosa
-		result.Error = fmt.Errorf("error en HEAD request: %w", err)
-		// En algunos casos, se prefiere fallback ante cualquier error que no sea timeout, pero
-		// para evitar ahogar servidores, limitamos el fallback a errores específicos de método si tenemos resp.
-	} else {
-		defer resp.Body.Close()
-		// Si el servidor responde 405 Method Not Allowed u otros errores, intentamos con GET
-		if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode >= 400 {
+		resp, err := c.client.Do(req)
+		if err != nil {
+			result.Error = fmt.Errorf("error en HEAD request: %w", err)
 			needsGetFallback = true
 		} else {
-			result.IsAlive = resp.StatusCode >= 200 && resp.StatusCode < 300
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode >= 400 {
+				needsGetFallback = true
+			} else {
+				result.IsAlive = resp.StatusCode >= 200 && resp.StatusCode < 300
+				// Sin cuerpo, pero con esquema final y CORS ya se decide todo lo
+				// que un .ts o un .mp4 necesitan.
+				result.Web = domain.ClassifyWeb(urlFinal(resp, url),
+					resp.Header.Get("Access-Control-Allow-Origin"), "")
+			}
 		}
 	}
 
-	// Intento 2: Fallback a HTTP GET si HEAD falla explícitamente o es rechazado
-	if err != nil || needsGetFallback {
-		// Limpiamos el error previo
+	if needsGetFallback {
 		result.Error = nil
 		reqGet, errGet := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
 		if errGet != nil {
 			result.Error = fmt.Errorf("creando GET request: %w", errGet)
 			return result
 		}
-
 		reqGet.Header.Set("User-Agent", userAgent)
+		// Origin va a propósito: los orígenes que reflejan el origen del
+		// solicitante solo contestan un ACAO si se les manda uno.
+		reqGet.Header.Set("Origin", domain.OrigenWeb)
 
 		respGet, errGet := c.client.Do(reqGet)
 		if errGet != nil {
@@ -119,22 +123,36 @@ func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 			return result
 		}
 		defer respGet.Body.Close()
+
 		// Drenar el cuerpo es obligatorio: sin leerlo, la conexión queda
 		// inutilizable y el servidor la ve abortada a media respuesta. Ya que
-		// hay que leerlo, se clasifica en vez de tirarlo — cero peticiones
-		// extra por un veredicto de compatibilidad AirPlay.
+		// hay que leerlo, se clasifica dos veces en vez de tirarlo — cero
+		// peticiones extra por dos veredictos de compatibilidad.
 		cuerpo, errLectura := io.ReadAll(io.LimitReader(respGet.Body, 64<<10))
 		if errLectura != nil {
 			result.Error = fmt.Errorf("leyendo cuerpo del GET: %w", errLectura)
 			return result
 		}
-		result.Airplay = domain.ClassifyManifest(url, string(cuerpo))
+		final := urlFinal(respGet, url)
+		result.Airplay = domain.ClassifyManifest(final, string(cuerpo))
+		result.Web = domain.ClassifyWeb(final,
+			respGet.Header.Get("Access-Control-Allow-Origin"), string(cuerpo))
 
 		result.IsAlive = respGet.StatusCode >= 200 && respGet.StatusCode < 300
 	}
 
 	result.LatencyMs = time.Since(start).Milliseconds()
 	return result
+}
+
+// urlFinal devuelve la URL tras las redirecciones. Importa: un http:// que
+// redirige a https:// SÍ es reproducible desde una página segura, y juzgarlo
+// por la URL de partida lo descartaría sin motivo.
+func urlFinal(resp *http.Response, porDefecto string) string {
+	if resp.Request != nil && resp.Request.URL != nil {
+		return resp.Request.URL.String()
+	}
+	return porDefecto
 }
 
 // inferProtocol adivina el protocolo según la extensión de la URL

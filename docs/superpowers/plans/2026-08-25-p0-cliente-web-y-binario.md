@@ -1538,7 +1538,7 @@ DB_PATH=$PWD/.devdata/iptv.db HEALTH_INTERVAL=5m ./open-tv --no-browser 2>&1 | g
 
 Anotar aquí el resultado (streams, urls_unicas, vivos, muertos) y el tiempo que tardó la pasada. Si la pasada pasa de ~10 minutos, el `MaxConnsPerHost=4` sigue siendo el cuello y no el cambio de método; no tocar nada sin medir cuál de los dos es.
 
-**Medición (rellenar al ejecutar):** _pendiente_
+**Medición (rellenar al ejecutar):** Ejecutado 2026-08-25 sobre el catálogo real de `.devdata/iptv.db` (LaunchAgent parado durante la medición, restaurado después). Sync: 12 837 canales / 12 837 streams. Primera pasada de salud: `streams=12225, urls_unicas=12225, vivos=8866, muertos=3359`, completada en **5 min 21 s** (worker iniciado 02:34:51.766, "Health-check completado" 02:40:12.849) — muy por debajo del umbral de ~10 min del Step 6, así que el GET directo para HLS no es el cuello; `MaxConnsPerHost=4` tampoco lo evidencia aquí. Tres pasadas posteriores (intervalo 5 min) dieron cifras estables: 8856/3369, 8862/3363, 8858/3367 vivos/muertos — la variación (~0,1 %) es ruido normal de orígenes intermitentes, no una regresión del cambio de método.
 
 - [ ] **Step 7: Commit**
 
