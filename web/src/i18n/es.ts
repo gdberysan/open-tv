@@ -44,6 +44,10 @@ export const es = {
   'reproductor.pantallaCompleta': 'Pantalla completa',
   'reproductor.error.noArranco': 'El canal no llegó a reproducir. Puede estar caído, geo-bloqueado o su dirección caducó.',
   'reproductor.error.corte': 'El canal dejó de emitir.',
+  'reproductor.error.caido': 'El canal está caído o su dirección caducó.',
+  'reproductor.error.geo': 'Puede estar geo-bloqueado en tu región o requerir acceso.',
+  'reproductor.error.formato': 'Tu navegador no puede reproducir este formato. Prueba en Safari o en la app instalada.',
+  'reproductor.error.caducado': 'La dirección del canal caducó.',
 
   'estado.sincronizando': 'Sincronizando el catálogo…',
   'estado.sincronizandoDetalle': 'La primera vez tarda unos segundos: se descargan unos 13 000 canales.',

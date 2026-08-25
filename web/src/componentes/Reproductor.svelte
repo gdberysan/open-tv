@@ -5,7 +5,9 @@
   import { planDeReproduccion, motorDelNavegador, type Motor } from '../reproductor/plan'
   import { planDeFailover, type Intento, type DesenlaceReproduccion } from '../reproductor/failover'
   import { clasificarError, type ClaseError } from '../estado/salud'
+  import { clasificarFallo, type ClaseFallo, type InfoFallo } from '../reproductor/diagnostico'
   import { t } from '../i18n'
+  import type { ClaveMensaje } from '../i18n/es'
 
   // alAnterior/alSiguiente son opcionales: App los da cuando hay una lista de
   // canales de la que moverse (flechas ← →). fuente es el CatalogSource: el
@@ -47,6 +49,13 @@
   let hlsActual: any
   let destruido = false
 
+  // Info del error MÁS reciente del intento en curso: la rellenan el handler
+  // de Hls.Events.ERROR (solo si data.fatal — un no-fatal no dice nada del
+  // desenlace) y onVideoError. Se reinicia al empezar cada intentar(); si
+  // este intento falla, clasificarFallo() la lee para dar un motivo granular
+  // en vez del "timeout-de-carga"/"tipo:detalles" crudo de antes.
+  let infoUltimoError: InfoFallo = {}
+
   // Se incrementa en cada llamada a reproducir(): si el canal cambia (o el
   // componente se destruye) mientras una petición de mirrors()/destino() aún
   // está en el aire, la respuesta tardía queda descartada en vez de pisar el
@@ -76,7 +85,26 @@
   }
 
   function onVideoError() {
-    guardActual?.alError(String(video?.error?.code ?? 'error-nativo'))
+    const codigo = video?.error?.code
+    if (codigo !== undefined) infoUltimoError = { mediaErrorCode: codigo }
+    guardActual?.alError(String(codigo ?? 'error-nativo'))
+  }
+
+  // 'desconocido' reutiliza el mensaje genérico de siempre (noArranco): sin
+  // señal específica, sigue siendo la triple-adivinanza honesta que ya había.
+  function claveDeClase(clase: ClaseFallo): ClaveMensaje {
+    switch (clase) {
+      case 'caido':
+        return 'reproductor.error.caido'
+      case 'geo':
+        return 'reproductor.error.geo'
+      case 'formato':
+        return 'reproductor.error.formato'
+      case 'caducado':
+        return 'reproductor.error.caducado'
+      default:
+        return 'reproductor.error.noArranco'
+    }
   }
 
   function via(intento: Intento): 'directo' | 'proxy' {
@@ -113,6 +141,9 @@
       // stream que ya se decidió fatal.
       let zanjado = false
       const inicio = performance.now()
+      // Info del intento ANTERIOR no vale para clasificar este: cada intentar()
+      // arranca en blanco.
+      infoUltimoError = {}
 
       const guard = new PlaybackGuard({
         alFallar: (mensaje) => {
@@ -190,6 +221,13 @@
         const hls = new Hls()
         hlsActual = hls
         hls.on(Hls.Events.ERROR, (_evt, data) => {
+          // Solo el fatal describe el DESENLACE del intento — hls.js emite
+          // errores no-fatales constantemente en directos que se ven
+          // perfectamente (bufferStalledError, fragParsingError…); guardarlos
+          // ensuciaría la clasificación con ruido que el guard ya ignora.
+          if (data.fatal) {
+            infoUltimoError = { tipoHls: data.type, detallesHls: data.details, httpStatus: data.response?.code }
+          }
           guard.alError(`${data.type}:${data.details}`)
         })
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -254,6 +292,12 @@
       return
     }
 
+    // La clase del ÚLTIMO intento agotado es la que se muestra: es el error
+    // más informativo, el más cercano a "por qué el canal no llegó a verse"
+    // (el failover ya cruzó los mirrors anteriores, así que sus fallos
+    // importan menos que el del intento final).
+    let ultimaClase: ClaseFallo = 'desconocido'
+
     for (const intento of intentos) {
       if (destruido || miId !== intentoId) return
       limpiarIntento()
@@ -261,11 +305,15 @@
       try {
         await intentar(intento, motor)
         return // confirmado
-      } catch (e) {
+      } catch {
+        // clasificarFallo lee la info que dejó ESTE intento (hls.js ERROR
+        // fatal o video.error nativo); "timeout-de-carga" sin más señal cae
+        // en 'desconocido', no en un motivo crudo que /stats no puede agrupar.
+        ultimaClase = clasificarFallo(infoUltimoError)
         alDesenlace({
           canalId: canal.id,
           resultado: 'fallo',
-          motivo: e instanceof Error ? e.message : String(e),
+          motivo: ultimaClase,
           motor,
           via: via(intento),
           mirrorIndex: intento.mirrorIndex,
@@ -282,7 +330,7 @@
     // alConfirmar() y pisaría el error que se muestra a continuación.
     limpiarIntento()
     cargando = false
-    mensajeError = t('reproductor.error.noArranco')
+    mensajeError = t(claveDeClase(ultimaClase))
   }
 
   // Reacciona a cambiar de canal (flechas ← →) igual que a la apertura

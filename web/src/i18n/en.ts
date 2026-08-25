@@ -41,6 +41,10 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.pantallaCompleta': 'Full screen',
   'reproductor.error.noArranco': 'The channel never started playing. It may be down, geo-blocked, or its address expired.',
   'reproductor.error.corte': 'The channel stopped broadcasting.',
+  'reproductor.error.caido': 'The channel is down or its address expired.',
+  'reproductor.error.geo': 'It may be geo-blocked in your region or require access.',
+  'reproductor.error.formato': 'Your browser cannot play this format. Try Safari or the installed app.',
+  'reproductor.error.caducado': "The channel's address expired.",
 
   'estado.sincronizando': 'Syncing the catalogue…',
   'estado.sincronizandoDetalle': 'The first run takes a few seconds: about 13,000 channels are downloaded.',
