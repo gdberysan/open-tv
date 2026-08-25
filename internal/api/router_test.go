@@ -67,6 +67,9 @@ func (streamsVacio) FindByChannelID(context.Context, domain.ChannelID) ([]domain
 func (streamsVacio) FindBestByChannelID(context.Context, domain.ChannelID) (domain.Stream, error) {
 	return domain.Stream{}, sql.ErrNoRows
 }
+func (streamsVacio) FindMirrorsByChannelID(context.Context, domain.ChannelID) ([]ports.MirrorHealth, error) {
+	return nil, nil
+}
 func (streamsVacio) MarkAlive(context.Context, string, int64) error        { return nil }
 func (streamsVacio) MarkDead(context.Context, string) error                { return nil }
 func (streamsVacio) MarkBatch(context.Context, []ports.StreamHealth) error { return nil }

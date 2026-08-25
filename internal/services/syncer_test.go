@@ -135,6 +135,9 @@ func (f *fakeStreamRepo) FindByChannelID(context.Context, domain.ChannelID) ([]d
 func (f *fakeStreamRepo) FindBestByChannelID(context.Context, domain.ChannelID) (domain.Stream, error) {
 	return domain.Stream{}, errors.New("sin streams")
 }
+func (f *fakeStreamRepo) FindMirrorsByChannelID(context.Context, domain.ChannelID) ([]ports.MirrorHealth, error) {
+	return nil, nil
+}
 func (f *fakeStreamRepo) MarkAlive(context.Context, string, int64) error { return nil }
 func (f *fakeStreamRepo) MarkDead(context.Context, string) error         { return nil }
 func (f *fakeStreamRepo) MarkBatch(context.Context, []ports.StreamHealth) error {

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -120,6 +121,28 @@ func (m *mockStreamRepo) FindBestByChannelID(ctx context.Context, id domain.Chan
 	}
 	return mejor, nil
 }
+
+// FindMirrorsByChannelID replica el orden del repo real (vivos primero, por
+// latencia ascendente) a partir de los mismos domain.Stream de m.streams.
+func (m *mockStreamRepo) FindMirrorsByChannelID(ctx context.Context, id domain.ChannelID) ([]ports.MirrorHealth, error) {
+	streams := append([]domain.Stream(nil), m.streams[id]...)
+	sort.SliceStable(streams, func(i, j int) bool {
+		if streams[i].IsAlive != streams[j].IsAlive {
+			return streams[i].IsAlive
+		}
+		return streams[i].LatencyMs < streams[j].LatencyMs
+	})
+	mirrors := make([]ports.MirrorHealth, 0, len(streams))
+	for _, s := range streams {
+		mirrors = append(mirrors, ports.MirrorHealth{
+			URL:       s.URL,
+			IsAlive:   s.IsAlive,
+			LatencyMs: s.LatencyMs,
+		})
+	}
+	return mirrors, nil
+}
+
 func (m *mockStreamRepo) MarkAlive(ctx context.Context, id string, latencyMs int64) error { return nil }
 func (m *mockStreamRepo) MarkDead(ctx context.Context, id string) error                   { return nil }
 func (m *mockStreamRepo) MarkBatch(context.Context, []ports.StreamHealth) error           { return nil }

@@ -145,6 +145,49 @@ func (r *SQLiteStreamRepository) FindBestByChannelID(ctx context.Context, channe
 	return s, nil
 }
 
+// FindMirrorsByChannelID devuelve todos los mirrors del canal ordenados: vivos
+// primero (ORDER BY is_alive DESC), dentro de vivos por latencia ascendente
+// (NULLS LAST para que un vivo sin latencia medida no encabece); los muertos
+// caen al final por el is_alive DESC.
+func (r *SQLiteStreamRepository) FindMirrorsByChannelID(ctx context.Context, channelID domain.ChannelID) ([]ports.MirrorHealth, error) {
+	const q = `SELECT url, is_alive, COALESCE(latency_ms, 0), web_ok
+	           FROM streams WHERE channel_id = ?
+	           ORDER BY is_alive DESC,
+	                    CASE WHEN latency_ms IS NULL THEN 1 ELSE 0 END,
+	                    latency_ms ASC`
+	rows, err := r.db.QueryContext(ctx, q, string(channelID))
+	if err != nil {
+		return nil, fmt.Errorf("db.Stream.FindMirrorsByChannelID (query %s): %w", channelID, err)
+	}
+	defer rows.Close()
+
+	var mirrors []ports.MirrorHealth
+	for rows.Next() {
+		var (
+			m       ports.MirrorHealth
+			aliveIn int
+			webOK   sql.NullInt64
+		)
+		if err := rows.Scan(&m.URL, &aliveIn, &m.LatencyMs, &webOK); err != nil {
+			return nil, fmt.Errorf("db.Stream.FindMirrorsByChannelID (scan): %w", err)
+		}
+		m.IsAlive = aliveIn == 1
+		switch {
+		case !webOK.Valid:
+			m.WebOK = domain.WebUnknown
+		case webOK.Int64 == 1:
+			m.WebOK = domain.WebOK
+		default:
+			m.WebOK = domain.WebNo
+		}
+		mirrors = append(mirrors, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("db.Stream.FindMirrorsByChannelID (rows.Err): %w", err)
+	}
+	return mirrors, nil
+}
+
 // DeadFailThreshold es el número de chequeos fallidos consecutivos necesarios
 // para dar un stream por muerto. Un solo HEAD fallido no basta: como el filtro
 // AliveOnly está activo por defecto, un blip de red ocultaría el canal hasta la

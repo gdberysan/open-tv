@@ -43,6 +43,9 @@ func (f *fakeStreamRepo) FindByChannelID(context.Context, domain.ChannelID) ([]d
 func (f *fakeStreamRepo) FindBestByChannelID(context.Context, domain.ChannelID) (domain.Stream, error) {
 	return domain.Stream{}, errors.New("no impl")
 }
+func (f *fakeStreamRepo) FindMirrorsByChannelID(context.Context, domain.ChannelID) ([]ports.MirrorHealth, error) {
+	return nil, errors.New("no impl")
+}
 func (f *fakeStreamRepo) MarkAlive(_ context.Context, id string, latencyMs int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

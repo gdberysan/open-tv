@@ -531,6 +531,51 @@ func TestMarkBatchPersisteWebOK(t *testing.T) {
 	}
 }
 
+// Los mirrors salen ORDENADOS: vivos primero, dentro de vivos por latencia
+// ascendente, muertos al final. El cliente los recorre en ese orden al hacer
+// failover, así que el orden es parte del contrato.
+func TestFindMirrorsByChannelIDOrdenaPorSalud(t *testing.T) {
+	repo, _ := repoConCanal(t) // ch-1 con streams s1, s2
+	ctx := context.Background()
+
+	// s3: tercer mirror, muerto tras agotar la histéresis.
+	if err := repo.Save(ctx, makeStream("s3", "ch-1", "http://c.example/1.m3u8")); err != nil {
+		t.Fatalf("Save s3: %v", err)
+	}
+	for i := int64(0); i < db.DeadFailThreshold; i++ {
+		if err := repo.MarkDead(ctx, "s3"); err != nil {
+			t.Fatalf("MarkDead s3 #%d: %v", i, err)
+		}
+	}
+
+	// s1: vivo 300ms webNo · s2: vivo 100ms webOK.
+	if err := repo.MarkBatch(ctx, []ports.StreamHealth{
+		{StreamID: "s1", IsAlive: true, LatencyMs: 300, Web: domain.WebNo},
+		{StreamID: "s2", IsAlive: true, LatencyMs: 100, Web: domain.WebOK},
+	}); err != nil {
+		t.Fatalf("MarkBatch: %v", err)
+	}
+
+	mirrors, err := repo.FindMirrorsByChannelID(ctx, "ch-1")
+	if err != nil {
+		t.Fatalf("FindMirrorsByChannelID: %v", err)
+	}
+	if len(mirrors) != 3 {
+		t.Fatalf("quiero 3 mirrors, tengo %d", len(mirrors))
+	}
+	// El de menor latencia va primero.
+	if mirrors[0].LatencyMs != 100 || mirrors[1].LatencyMs != 300 {
+		t.Errorf("orden por latencia mal: %d antes que %d", mirrors[0].LatencyMs, mirrors[1].LatencyMs)
+	}
+	if mirrors[0].WebOK != domain.WebOK {
+		t.Errorf("web_ok del primer mirror = %v, quiero WebOK", mirrors[0].WebOK)
+	}
+	// El muerto va al final.
+	if mirrors[2].IsAlive {
+		t.Errorf("el mirror muerto debe ir último; IsAlive = %v", mirrors[2].IsAlive)
+	}
+}
+
 // Un veredicto desconocido NO puede pisar uno bueno: si el origen no contestó
 // esta pasada, lo que sabíamos de la anterior sigue siendo lo mejor que hay.
 func TestMarkBatchUnknownNoPisaElVeredictoAnterior(t *testing.T) {
