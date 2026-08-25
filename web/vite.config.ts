@@ -27,5 +27,10 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.ts'],
+    // @testing-library/svelte engancha su limpieza automática a un
+    // beforeEach/afterEach GLOBAL: sin esto, cada test de componente deja su
+    // DOM montado y el siguiente test lee restos del anterior.
+    globals: true,
   },
+  resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
 })
