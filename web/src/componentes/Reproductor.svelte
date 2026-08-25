@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
+  import { onDestroy, onMount, tick } from 'svelte'
   import type { Canal, CatalogSource } from '../datos/catalogo'
   import { PlaybackGuard } from '../reproductor/guard'
   import { planDeReproduccion, motorDelNavegador, type Motor } from '../reproductor/plan'
@@ -36,6 +36,18 @@
   let cargando = $state(true)
   let mensajeError = $state<string | null>(null)
   let silenciado = $state(false)
+
+  // Foco del diálogo modal (Tarea 18, orden de foco): este componente se
+  // monta FUERA de <main> (ver App.svelte), como el único overlay de pantalla
+  // completa — App marca <main>/<footer> como inert mientras está abierto,
+  // así que aquí basta con (1) llevar el foco DENTRO al montar, y (2)
+  // devolverlo a quien lo abrió al desmontar. Sin esto, abrir el reproductor
+  // dejaba el foco donde estaba (la tarjeta de detrás, ahora inert) o lo
+  // perdía en <body> — ninguna de las dos deja a un usuario de teclado/lector
+  // de pantalla saber dónde está.
+  let contenedorDialogo: HTMLDivElement | undefined = $state()
+  let botonCerrar: HTMLButtonElement | undefined = $state()
+  let elementoPrevio: HTMLElement | null = null
 
   // AirPlay de Safari: es una llamada y un evento, sin capa nativa. Si el
   // navegador no lo expone, el botón no existe. La app de macOS es la que
@@ -358,6 +370,17 @@
     video?.webkitShowPlaybackTargetPicker()
   }
 
+  // Elementos focables DENTRO del diálogo, en orden de documento: con <main>/
+  // <footer> inert (App.svelte) son los ÚNICOS focables de toda la página,
+  // así que basta con ciclar entre ellos — no hace falta un centinela ni un
+  // "focus sentinel" aparte.
+  function elementosFocables(): HTMLElement[] {
+    if (!contenedorDialogo) return []
+    return Array.from(
+      contenedorDialogo.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'),
+    )
+  }
+
   function alTeclado(e: KeyboardEvent) {
     switch (e.key) {
       case ' ':
@@ -382,26 +405,61 @@
       case 'ArrowRight':
         alSiguiente?.()
         break
+      case 'Tab': {
+        // Atrapa el foco dentro del diálogo: sin esto, Tab desde el último
+        // control saldría del documento (con el resto de la página inert,
+        // ya no hay a dónde ir) en vez de volver al primero — un usuario de
+        // teclado se quedaría sin poder volver a los controles sin Shift+Tab
+        // de vuelta manualmente.
+        const focables = elementosFocables()
+        if (focables.length === 0) break
+        const primero = focables[0]
+        const ultimo = focables[focables.length - 1]
+        if (e.shiftKey && document.activeElement === primero) {
+          e.preventDefault()
+          ultimo.focus()
+        } else if (!e.shiftKey && document.activeElement === ultimo) {
+          e.preventDefault()
+          primero.focus()
+        }
+        break
+      }
     }
   }
+
+  onMount(() => {
+    // Recuerda qué tenía el foco antes de abrir el reproductor (normalmente,
+    // el botón "abrir" de la tarjeta pulsada) para devolvérselo al cerrar.
+    elementoPrevio = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    // tick(): botonCerrar ya está bind:this-eado tras el primer render, pero
+    // se espera igualmente por disciplina — no cuesta nada y evita depender
+    // de que Svelte enlace bind:this antes de que onMount corra en todas las
+    // versiones.
+    tick().then(() => botonCerrar?.focus())
+  })
 
   onDestroy(() => {
     destruido = true
     limpiarIntento()
+    // Restaura el foco a quien abrió el reproductor — pero solo si ese nodo
+    // sigue en el documento: la tarjeta que lo abrió pudo haber salido de la
+    // ventana virtualizada (Tarea 17) mientras el reproductor estaba abierto,
+    // y focus() sobre un nodo desconectado no hace nada ni avisa.
+    if (elementoPrevio && document.body.contains(elementoPrevio)) elementoPrevio.focus()
   })
 </script>
 
 <svelte:window onkeydown={alTeclado} />
 
-<div class="reproductor" role="dialog" aria-modal="true" aria-label={canal.nombre}>
+<div class="reproductor" role="dialog" aria-modal="true" aria-label={canal.nombre} bind:this={contenedorDialogo}>
   <div class="lienzo">
     <!-- svelte-ignore a11y_media_has_caption -->
     <video bind:this={video} {...{ 'x-webkit-airplay': 'allow' }} playsinline muted={silenciado}></video>
 
     {#if cargando}
-      <p class="estado">{t('reproductor.cargando')}</p>
+      <p class="estado" aria-live="polite">{t('reproductor.cargando')}</p>
     {:else if mensajeError}
-      <p class="estado error">{mensajeError}</p>
+      <p class="estado error" role="alert" aria-live="assertive">{mensajeError}</p>
     {/if}
   </div>
 
@@ -414,7 +472,7 @@
     {#if soportaAirplay}
       <button type="button" onclick={abrirSelectorAirplay} aria-label="AirPlay">📺</button>
     {/if}
-    <button type="button" class="cerrar" onclick={alCerrar} aria-label={t('reproductor.cerrar')}>✕</button>
+    <button type="button" class="cerrar" bind:this={botonCerrar} onclick={alCerrar} aria-label={t('reproductor.cerrar')}>✕</button>
   </div>
 </div>
 

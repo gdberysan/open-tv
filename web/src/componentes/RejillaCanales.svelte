@@ -38,9 +38,9 @@
 {:else if vista === 'rejilla'}
   <RejillaVirtual {canales} {alAbrir} {alPedirMas} />
 {:else}
-  <div class="canales lista">
+  <div class="canales lista" role="list" aria-label={t('rejilla.etiquetaLista')}>
     {#each canales as canal (canal.id)}
-      <article class="fila">
+      <article class="fila" role="listitem">
         <button class="abrir" onclick={() => alAbrir(canal)} aria-label={canal.nombre}>
           {#if canal.logoUrl}
             <img src={canal.logoUrl} alt="" loading="lazy" />
@@ -74,8 +74,11 @@
   .fila img, .fila .sinlogo { width: 32px; height: 32px; object-fit: contain; flex-shrink: 0; }
   .fila .sinlogo { display: grid; place-items: center; background: var(--surface-sunken); color: var(--text-muted); border-radius: 4px; }
   .fila .nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .fila .pais { font-size: 11px; color: var(--graphite-300); flex-shrink: 0; }
-  .fila .favorito { all: unset; cursor: pointer; color: var(--graphite-500); margin-left: auto; }
+  /* Contraste (Tarea 18): mismo arreglo que TarjetaCanal.svelte — se compone
+     con --text-muted en vez de --graphite-300/--graphite-500 (ver ahí el
+     cálculo). */
+  .fila .pais { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+  .fila .favorito { all: unset; cursor: pointer; color: var(--text-muted); margin-left: auto; }
   /* Ámbar = activo. Un favorito apagado es neutro. */
   .fila .favorito.activo { color: var(--amber-500); }
   .vacio, .cargando { text-align: center; color: var(--text-muted); padding: 24px 0; }

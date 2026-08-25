@@ -29,6 +29,10 @@ export const es = {
   'accion.rejilla': 'Ver en rejilla',
   'accion.lista': 'Ver en lista',
 
+  // Tarea 18 (auditoría de accesibilidad): nombre del rol de lista de la
+  // rejilla/lista de canales, para quien navega con lector de pantalla.
+  'rejilla.etiquetaLista': 'Lista de canales',
+
   'canal.favorito.anadir': 'Añadir a favoritos',
   'canal.favorito.quitar': 'Quitar de favoritos',
   'canal.geo': 'Puede estar bloqueado en tu región',

@@ -223,7 +223,15 @@
   }
 </script>
 
-<main>
+<!-- inert (Tarea 18, orden de foco): mientras el reproductor está abierto es
+     un diálogo modal (role="dialog" aria-modal, ver Reproductor.svelte) que
+     vive FUERA de <main> (mismo nivel que <footer>, ver más abajo). Sin
+     inert, Tab seguía alcanzando los botones de <main>/<footer> por detrás
+     del reproductor — un lector de pantalla o un usuario de teclado podía
+     "salirse" del modal sin cerrarlo. inert saca todo <main>/<footer> del
+     árbol de accesibilidad y del orden de tabulación de una sola vez, sin
+     tener que enumerar a mano cada control de fuera. -->
+<main inert={!!canalAbierto}>
   <header>
     <h1>{t('app.titulo')}</h1>
     <p class="lema">{t('app.lema')}</p>
@@ -264,7 +272,7 @@
   />
 {/if}
 
-<footer class="pie">
+<footer class="pie" inert={!!canalAbierto}>
   <p>{t('pie.fuente')}</p>
   <p>{t('pie.postura')}</p>
   {#if !vistaStats}
@@ -290,13 +298,17 @@
     max-width: 72rem;
     margin: 0 auto;
     padding: var(--space-4, 1rem) var(--space-6, 2rem) var(--space-6, 2rem);
-    color: var(--text-faint);
+    /* Contraste (Tarea 18): --text-faint sobre --surface-base da 4.16:1,
+       por debajo del 4.5:1 que exige AA para texto normal a 12px. Se
+       compone con --text-muted (7.27:1), ya definido en los tokens de
+       Korven — no se toca colors.css. */
+    color: var(--text-muted);
     font-size: 12px;
     display: flex;
     flex-direction: column;
     gap: 4px;
   }
-  .pie a.stats { color: var(--text-faint); text-decoration: underline; }
-  .pie a.stats:hover { color: var(--text-muted); }
+  .pie a.stats { color: var(--text-muted); text-decoration: underline; }
+  .pie a.stats:hover { color: var(--text-body); }
   .pie p { margin: 0; }
 </style>

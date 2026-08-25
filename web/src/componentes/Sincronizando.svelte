@@ -31,8 +31,12 @@
 </script>
 
 <!-- Deliberadamente sin barra de progreso: el gateway no publica ningún
-     porcentaje de avance y fingir uno sería mentir sobre lo que se sabe. -->
-<div class="sincronizando" role="status">
+     porcentaje de avance y fingir uno sería mentir sobre lo que se sabe.
+     aria-live="polite" explícito (Tarea 18): role="status" YA implica
+     aria-live="polite" según el espec ARIA, pero se deja explícito porque
+     es lo que la aserción automatizada puede comprobar sin adivinar cómo
+     interpreta cada lector de pantalla el rol implícito. -->
+<div class="sincronizando" role="status" aria-live="polite">
   <h2>{t('estado.sincronizando')}</h2>
   <p>{t('estado.sincronizandoDetalle')}</p>
 </div>

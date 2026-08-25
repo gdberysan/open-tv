@@ -2,6 +2,7 @@
   import { onDestroy, tick } from 'svelte'
   import type { Canal } from '../datos/catalogo'
   import TarjetaCanal from './TarjetaCanal.svelte'
+  import { t } from '../i18n'
 
   // Virtualización mínima a medida (Tarea 17): con 8871 canales, pintar una
   // <TarjetaCanal> por cada uno son miles de nodos DOM. Se descartó una
@@ -15,18 +16,34 @@
   // contra el viewport (getBoundingClientRect) y no contra un scrollTop
   // local.
   //
-  // Teclado (Tarea 18): esta rejilla NO tenía navegación por flechas antes
-  // de esta tarea (el único manejo de ArrowLeft/Right existente está en
-  // Reproductor.svelte y es "canal anterior/siguiente" con el reproductor
-  // abierto, sin relación con esto). El Tab nativo del navegador entre los
-  // <button> de las tarjetas sigue funcionando igual que antes: es
-  // estructuralmente imposible que el foco "salga" de la ventana visible
-  // solo con Tab, porque las tarjetas fuera de la ventana no existen en el
-  // DOM (son los espaciadores de abajo). Cuando la Tarea 18 añada
-  // navegación por flechas, moverla a un índice fuera de
-  // [filaInicio*columnas, filaFin*columnas) debe hacer scrollIntoView (o
-  // ajustar el scroll) ANTES de enfocar, para que el nodo ya exista en el
-  // DOM en el momento de pedirle el foco.
+  // Teclado — roving tabindex (Tarea 18): el estado de "qué tarjeta tiene el
+  // foco" NO puede vivir en el DOM (p.ej. "el <button> que tiene tabindex=0
+  // ahora mismo"), porque ese nodo se DESTRUYE en cuanto la fila que le
+  // corresponde sale de la ventana virtualizada — perdería el foco sin que
+  // nada lo reciba, y un usuario de teclado quedaría literalmente perdido en
+  // <body>. Por eso el estado real es `activeIndex`: un índice GLOBAL (no de
+  // la ventana visible) que vive en RejillaVirtual y sobrevive a que su
+  // tarjeta se monte o desmonte. Cada tarjeta visible recibe `indice` (su
+  // posición global) y `focoActivo` (si coincide con activeIndex): solo esa
+  // tarjeta tiene tabindex=0, el resto -1 — el patrón estándar de roving
+  // tabindex, adaptado para que la ÚNICA fuente de verdad sea un número, no
+  // una referencia a un nodo.
+  //
+  // Mover el índice activo (enfocarIndice) a una fila fuera de
+  // [filaInicio, filaFin) primero ABRE a mano una ventana nueva y acotada
+  // alrededor de esa fila (no todas las filas intermedias — ver el
+  // comentario de enfocarIndice) para que la fila destino exista en el DOM,
+  // y solo TRAS un tick() —cuando Svelte ya pintó esa tarjeta— se le pide el
+  // foco. Pedirlo antes del tick() no encontraría ningún nodo con ese
+  // [data-indice]; es la misma clase de bug que un desplazamiento de
+  // tabindex al vacío.
+  //
+  // El Tab nativo del navegador entre <button> sigue funcionando igual que
+  // siempre (no se toca): con roving tabindex, un Tab que ENTRA en la
+  // rejilla aterriza en la tarjeta activa (tabindex=0) y CONTINÚA hacia
+  // fuera de la rejilla en vez de recorrer tarjeta a tarjeta — ese es
+  // justamente el comportamiento esperado del patrón (las flechas son las
+  // que recorren la colección; Tab la atraviesa).
   let { canales, alAbrir, alPedirMas }: {
     canales: Canal[]
     alAbrir: (c: Canal) => void
@@ -154,6 +171,88 @@
   const altoArriba = $derived(Math.max(0, filaInicio * altoFila - GAP))
   const altoAbajo = $derived(Math.max(0, (filas - filaFin) * altoFila - GAP))
 
+  // Roving tabindex (Tarea 18): ver el comentario largo de más arriba sobre
+  // por qué el estado es un ÍNDICE GLOBAL y no una referencia a un nodo.
+  let activeIndex = $state(0)
+
+  // Si el catálogo se reduce (cambia un filtro, o soloFavoritos da menos
+  // resultados), activeIndex puede quedar apuntando fuera de rango. Se
+  // recorta al último índice válido — o a 0 si la lista quedó vacía —, en
+  // vez de dejarlo huérfano hasta el próximo enfocarIndice().
+  $effect(() => {
+    if (canales.length === 0) {
+      activeIndex = 0
+    } else if (activeIndex >= canales.length) {
+      activeIndex = canales.length - 1
+    }
+  })
+
+  function enfocarIndice(indiceDeseado: number) {
+    if (canales.length === 0) return
+    const objetivo = Math.max(0, Math.min(canales.length - 1, indiceDeseado))
+    activeIndex = objetivo
+    const filaObjetivo = Math.floor(objetivo / columnas)
+    if (filaObjetivo < filaInicio || filaObjetivo >= filaFin) {
+      // La fila objetivo cae fuera de la ventana actual: se abre una
+      // ventana NUEVA y acotada alrededor de ella, en vez de solo estirar
+      // el borde más cercano de la ventana vieja hasta alcanzarla. Estirar
+      // el borde montaría TODAS las filas intermedias — con Fin desde la
+      // primera fila de un catálogo de miles, eso sería montar el
+      // catálogo entero de una vez, justo lo que la virtualización existe
+      // para evitar.
+      filaInicio = Math.max(0, filaObjetivo - FILAS_BUFFER)
+      filaFin = Math.min(filas, filaObjetivo + 1 + FILAS_BUFFER)
+    }
+    tick().then(() => {
+      const nodo = contenedor?.querySelector<HTMLElement>(`[data-indice="${objetivo}"] .abrir`)
+      // scrollIntoView ANTES de focus(): deja la tarjeta dentro del
+      // viewport real, para que el próximo recalcularVentana() (el que
+      // dispara el propio evento 'scroll' de este scrollIntoView) la
+      // encuentre ya visible por derecho propio y no la vuelva a soltar de
+      // la ventana en el siguiente frame.
+      // scrollIntoView no existe en jsdom (no implementa layout real); se
+      // llama con encadenamiento opcional también en el propio método para
+      // no reventar los tests, sin dejar de llamarlo en un navegador real.
+      nodo?.scrollIntoView?.({ block: 'nearest' })
+      nodo?.focus()
+    })
+  }
+
+  // Flechas mueven activeIndex; Enter/Espacio abren el canal por la
+  // semántica nativa del <button> enfocado — no hace falta reimplementarla.
+  // Se filtra por `.abrir` para que las flechas no interfieran con el resto
+  // de controles de la tarjeta (p.ej. el botón de favorito, que no
+  // participa del roving tabindex).
+  function alTecladoRejilla(e: KeyboardEvent) {
+    if (!(e.target instanceof HTMLElement) || !e.target.classList.contains('abrir')) return
+    switch (e.key) {
+      case 'ArrowRight':
+        e.preventDefault()
+        enfocarIndice(activeIndex + 1)
+        break
+      case 'ArrowLeft':
+        e.preventDefault()
+        enfocarIndice(activeIndex - 1)
+        break
+      case 'ArrowDown':
+        e.preventDefault()
+        enfocarIndice(activeIndex + columnas)
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        enfocarIndice(activeIndex - columnas)
+        break
+      case 'Home':
+        e.preventDefault()
+        enfocarIndice(0)
+        break
+      case 'End':
+        e.preventDefault()
+        enfocarIndice(canales.length - 1)
+        break
+    }
+  }
+
   // Mismo centinela que en modo lista (ver RejillaCanales): al entrar en el
   // viewport pide la página siguiente. Vive fuera del contenedor
   // virtualizado, después del espaciador inferior, para quedar en la
@@ -172,15 +271,31 @@
 
 <svelte:window bind:innerHeight bind:innerWidth />
 
-<div class="rejilla-virtual" bind:this={contenedor}>
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<!-- El keydown aquí NO convierte la lista en un widget interactivo propio:
+     es delegación de evento para el roving tabindex de sus <button> hijos
+     (que SÍ son interactivos y llevan el tabindex real). El propio
+     contenedor no recibe foco ni tabindex. -->
+<div
+  class="rejilla-virtual"
+  bind:this={contenedor}
+  role="list"
+  aria-label={t('rejilla.etiquetaLista')}
+  onkeydown={alTecladoRejilla}
+>
   {#if altoArriba > 0}
-    <div class="espaciador" style:height="{altoArriba}px"></div>
+    <div class="espaciador" style:height="{altoArriba}px" aria-hidden="true"></div>
   {/if}
-  {#each visibles as canal (canal.id)}
-    <TarjetaCanal {canal} {alAbrir} />
+  {#each visibles as canal, i (canal.id)}
+    <TarjetaCanal
+      {canal}
+      {alAbrir}
+      indice={indiceInicio + i}
+      focoActivo={indiceInicio + i === activeIndex}
+    />
   {/each}
   {#if altoAbajo > 0}
-    <div class="espaciador" style:height="{altoAbajo}px"></div>
+    <div class="espaciador" style:height="{altoAbajo}px" aria-hidden="true"></div>
   {/if}
 </div>
 <div class="centinela" bind:this={centinela} aria-hidden="true"></div>
