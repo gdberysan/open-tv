@@ -60,3 +60,62 @@ jobs:
 
       - name: flutter test
         run: flutter test
+
+  web:
+    name: Cliente web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # ffmpeg genera el fixture HLS del e2e. Ya viene en la imagen de
+      # ubuntu-latest, pero fijarlo evita que un cambio de imagen rompa el
+      # e2e con un error que no dice nada.
+      - name: ffmpeg
+        run: ffmpeg -version | head -1
+
+      - name: npm ci
+        working-directory: web
+        run: npm ci
+
+      - name: svelte-check
+        working-directory: web
+        run: npm run check
+
+      - name: vitest
+        working-directory: web
+        run: npm test
+
+      - name: build del cliente
+        working-directory: web
+        run: npm run build
+
+      # El embed es lo que convierte cliente y binario en un solo artefacto:
+      # si el build del cliente no aterriza donde Go lo espera, falla aquí.
+      - name: go build con el cliente embebido
+        run: go build ./... && go test ./internal/ui/...
+
+      - name: navegadores de Playwright
+        working-directory: web
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: e2e
+        working-directory: web
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 7
