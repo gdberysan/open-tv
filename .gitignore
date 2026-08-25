@@ -16,6 +16,12 @@ iptv.db
 /internal/ui/dist/*
 !/internal/ui/dist/.gitkeep
 
+# Cliente web
+/web/node_modules/
+/web/test-results/
+/web/playwright-report/
+/web/tests/fixtures/hls/
+
 # Flutter / Dart
 mobile/build/
 mobile/.dart_tool/

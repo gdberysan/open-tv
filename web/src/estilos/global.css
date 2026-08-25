@@ -1,0 +1,22 @@
+@import './tokens/base.css';
+@import './tokens/colors.css';
+@import './tokens/fonts.css';
+@import './tokens/spacing.css';
+@import './tokens/typography.css';
+@import './tokens/effects.css';
+
+/* El ámbar es SEÑAL VIVA: canal en directo, filtro activo, foco. Un botón
+   neutro no lleva ámbar. Esta regla gobierna todo el tema; ver la memoria del
+   proyecto y el sistema de diseño de Korven. */
+
+html, body {
+  margin: 0;
+  background: var(--surface-base);
+  color: var(--text-body);
+  font-family: var(--font-body, system-ui, sans-serif);
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber-500);
+  outline-offset: 2px;
+}

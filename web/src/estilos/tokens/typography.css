@@ -1,0 +1,62 @@
+/* ============================================================
+   KORVEN · TYPOGRAPHY TOKENS
+   Space Grotesk (display) · Inter (text) · JetBrains Mono (code)
+   The faceted, engineered voice — geometric display over a calm
+   reading sans, with mono for the things that are literally code.
+   ============================================================ */
+
+:root {
+  /* ---- Families ---- */
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-text:    "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono:    "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
+
+  /* ---- Weights ---- */
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  /* ---- Type scale (1.250 major-third, 16px base) ---- */
+  --text-2xs:  11px;
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   25px;
+  --text-2xl:  31px;
+  --text-3xl:  39px;
+  --text-4xl:  49px;
+  --text-5xl:  61px;
+  --text-6xl:  76px;
+
+  /* ---- Line heights ---- */
+  --leading-tight:   1.05; /* display headlines      */
+  --leading-snug:    1.2;
+  --leading-normal:  1.5;  /* body reading           */
+  --leading-relaxed: 1.7;
+
+  /* ---- Letter spacing ---- */
+  --tracking-tight:  -0.02em; /* large display        */
+  --tracking-snug:   -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide:   0.04em;
+  --tracking-label:  0.18em;  /* uppercase eyebrows   */
+  --tracking-mono:   0.02em;
+
+  /* ============================================================
+     SEMANTIC ROLES
+     ============================================================ */
+  --type-display:      var(--weight-bold)    var(--text-6xl)/var(--leading-tight)  var(--font-display);
+  --type-h1:           var(--weight-semibold) var(--text-4xl)/var(--leading-tight) var(--font-display);
+  --type-h2:           var(--weight-semibold) var(--text-3xl)/var(--leading-snug)  var(--font-display);
+  --type-h3:           var(--weight-medium)   var(--text-2xl)/var(--leading-snug)  var(--font-display);
+  --type-h4:           var(--weight-medium)   var(--text-xl)/var(--leading-snug)   var(--font-display);
+  --type-body-lg:      var(--weight-regular)  var(--text-md)/var(--leading-normal) var(--font-text);
+  --type-body:         var(--weight-regular)  var(--text-base)/var(--leading-normal) var(--font-text);
+  --type-body-sm:      var(--weight-regular)  var(--text-sm)/var(--leading-normal) var(--font-text);
+  --type-label:        var(--weight-medium)   var(--text-sm)/var(--leading-snug)   var(--font-text);
+  --type-mono:         var(--weight-regular)  var(--text-sm)/var(--leading-normal) var(--font-mono);
+  --type-mono-label:   var(--weight-medium)   var(--text-xs)/var(--leading-snug)   var(--font-mono);
+}

@@ -1,0 +1,84 @@
+/* ============================================================
+   KORVEN · COLOR TOKENS
+   "Del núcleo a la obra." A dark, graphite canvas punctuated by
+   a single point of amber light — the raven's eye, the focus.
+   ============================================================ */
+
+:root {
+  /* ---- Brand core (from brand board) ---- */
+  --korven-grafito:    #0E131B; /* graphite — deepest canvas */
+  --korven-carbon:     #171E29; /* carbon — raised surface   */
+  --korven-ambar:      #FF8A2B; /* amber · signal — the eye  */
+  --korven-acero:      #97A3B2; /* steel — muted text/lines  */
+  --korven-hueso:      #EFF3F8; /* bone — light surface/text */
+
+  /* ---- Graphite ramp (cool blue-black neutrals) ---- */
+  --graphite-900: #0A0E15;
+  --graphite-850: #0E131B; /* = grafito */
+  --graphite-800: #121826;
+  --graphite-750: #171E29; /* = carbon  */
+  --graphite-700: #1D2533;
+  --graphite-600: #283142;
+  --graphite-500: #3A4456;
+  --graphite-400: #525E72;
+  --graphite-300: #6B788C;
+  --graphite-200: #97A3B2; /* = acero   */
+  --graphite-100: #C3CCD7;
+  --graphite-050: #EFF3F8; /* = hueso   */
+  --white:        #FFFFFF;
+
+  /* ---- Amber ramp (the single accent) ---- */
+  --amber-700: #B85A12;
+  --amber-600: #E06E1C;
+  --amber-500: #FF8A2B; /* = ámbar · señal */
+  --amber-400: #FFA255;
+  --amber-300: #FFBE85;
+  --amber-200: #FFD7B3;
+  --amber-100: #FFE9D6;
+  --amber-glow: rgba(255, 138, 43, 0.16); /* halo / focus ring */
+
+  /* ---- Support semantics (kept minimal, on-brand cool) ---- */
+  --signal-ok:    #4FB286; /* pine — passing build  */
+  --signal-warn:  #FF8A2B; /* reuse amber           */
+  --signal-error: #E5604D; /* oxide red — failure   */
+  --signal-info:  #5E9BD6; /* steel blue            */
+
+  /* ============================================================
+     SEMANTIC ALIASES  (use these in components)
+     ============================================================ */
+
+  /* Surfaces */
+  --surface-base:      var(--graphite-850); /* page background        */
+  --surface-sunken:    var(--graphite-900); /* wells, code blocks     */
+  --surface-card:      var(--graphite-750); /* raised card            */
+  --surface-raised:    var(--graphite-700); /* hover / popover        */
+  --surface-inset:     var(--graphite-800);
+  --surface-inverse:   var(--graphite-050); /* light sections         */
+
+  /* Text */
+  --text-strong:       var(--graphite-050); /* headings (bone)        */
+  --text-body:         var(--graphite-100); /* paragraph              */
+  --text-muted:        var(--graphite-200); /* steel — secondary      */
+  --text-faint:        var(--graphite-300); /* meta / disabled        */
+  --text-on-amber:     var(--graphite-900); /* text over amber fill   */
+  --text-on-light:     var(--graphite-850); /* text on bone surfaces  */
+  --text-accent:       var(--amber-500);
+
+  /* Lines & borders */
+  --border-subtle:     rgba(151, 163, 178, 0.12); /* hairline        */
+  --border-default:    rgba(151, 163, 178, 0.20);
+  --border-strong:     rgba(151, 163, 178, 0.36);
+  --border-amber:      var(--amber-500);
+
+  /* Interactive */
+  --accent:            var(--amber-500);
+  --accent-hover:      var(--amber-400);
+  --accent-press:      var(--amber-600);
+  --focus-ring:        var(--amber-glow);
+
+  /* Code / terminal */
+  --code-bg:           var(--graphite-900);
+  --code-text:         var(--graphite-100);
+  --code-comment:      var(--graphite-300);
+  --code-accent:       var(--amber-400);
+}
