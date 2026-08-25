@@ -161,6 +161,13 @@
       }
     }
     if (destruido) return
+    // El último intento del bucle NO se limpió al entrar en él (limpiarIntento
+    // se llama al EMPEZAR cada intento, no al fallar el último): sin esto, su
+    // guard queda vivo con arrancado===false, hls sigue reintentando fetches
+    // en segundo plano, y timeupdate/error del <video> siguen atados a un
+    // guard muerto. Si ese intento residual llegara a avanzar, dispararía
+    // alConfirmar() y pisaría el error que se muestra a continuación.
+    limpiarIntento()
     cargando = false
     mensajeError = t('reproductor.error.noArranco')
   }
