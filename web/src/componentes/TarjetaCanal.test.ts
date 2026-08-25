@@ -38,25 +38,27 @@ describe('TarjetaCanal', () => {
   })
 
   it('resetea logoRoto al cambiar de canal (reutilización en virtualización)', async () => {
-    // Renderizar con un canal que tiene logo roto
-    const canalRoto = { id: 'x', nombre: 'BBC One', logoUrl: 'http://muerto/logo.png', categoriaId: '', idioma: '', pais: 'GB', vivo: true, latenciaMs: 100, webOk: true } as const
+    // Misma instancia, prop canal cambia → $effect dispara y logoRoto se resetea a false
+    const canalConLogoRoto = { id: 'x', nombre: 'BBC One', logoUrl: 'http://muerto/logo.png', categoriaId: '', idioma: '', pais: 'GB', vivo: true, latenciaMs: 100, webOk: true } as const
     const canalBueno = { id: 'y', nombre: 'Sky News', logoUrl: 'http://bueno/logo.png', categoriaId: '', idioma: '', pais: 'GB', vivo: true, latenciaMs: 100, webOk: true } as const
 
-    // Renderizar instancia 1: canalRoto con error
-    const instance1 = render(TarjetaCanal, { canal: canalRoto, alAbrir: () => {} })
-    let img = instance1.container.querySelector('img')
-    if (!img) throw new Error('no hay img en canalRoto')
+    const { container, rerender } = render(TarjetaCanal, { canal: canalConLogoRoto, alAbrir: () => {} })
+
+    // Simular error en la imagen: logoRoto → true
+    const img = container.querySelector('img')
+    if (!img) throw new Error('no hay img')
     await fireEvent.error(img)
-    expect(instance1.container.querySelector('img')).toBeNull()
-    expect(instance1.container.querySelector('.sinlogo')?.textContent).toContain('BB')
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('.sinlogo')?.textContent).toContain('BB')
 
-    // Renderizar instancia 2: canalBueno (simula reutilización en virtualización con $effect)
-    const instance2 = render(TarjetaCanal, { canal: canalBueno, alAbrir: () => {} })
-    await new Promise(resolve => setTimeout(resolve, 0)) // Dejar que el efecto se ejecute
+    // Cambiar prop canal en la MISMA instancia (virtualización: reutilización de tarjeta)
+    // El $effect observa canal.id, ve el cambio, y resetea logoRoto = false
+    rerender({ canal: canalBueno, alAbrir: () => {} })
+    await new Promise(resolve => setTimeout(resolve, 0))
 
-    // La img debe estar visible porque logoRoto arranca en false cuando el componente se crea
-    const img2 = instance2.container.querySelector('img')
-    expect(img2).not.toBeNull()
-    expect(img2?.getAttribute('src')).toBe('http://bueno/logo.png')
+    // La img debe reaparecer porque logoRoto se reseteó
+    expect(container.querySelector('img')).not.toBeNull()
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('http://bueno/logo.png')
+    expect(container.querySelector('.sinlogo')).toBeNull()
   })
 })
