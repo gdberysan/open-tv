@@ -48,6 +48,7 @@ export const es = {
   'estado.sincronizandoDetalle': 'La primera vez tarda unos segundos: se descargan unos 13 000 canales.',
   'estado.gatewayCaido': 'No se pudo contactar con Open TV. ¿Sigue abierto?',
   'estado.sinRed': 'Sin conexión a internet.',
+  'estado.errorServidor': 'Open TV respondió con un error. Vuelve a intentarlo en un momento.',
 
   'frescura.comprobado': 'Comprobado hace {horas} h',
   'frescura.envivo': 'Comprobado en vivo',

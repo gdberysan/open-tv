@@ -45,6 +45,7 @@ export const en: Record<ClaveMensaje, string> = {
   'estado.sincronizandoDetalle': 'The first run takes a few seconds: about 13,000 channels are downloaded.',
   'estado.gatewayCaido': 'Could not reach Open TV. Is it still running?',
   'estado.sinRed': 'No internet connection.',
+  'estado.errorServidor': 'Open TV replied with an error. Please try again in a moment.',
 
   'frescura.comprobado': 'Checked {horas} h ago',
   'frescura.envivo': 'Checked live',
