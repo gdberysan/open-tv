@@ -2,11 +2,19 @@
 .DS_Store
 
 # Go
-gateway/server
-gateway/iptv.db
+/open-tv
+/server
+iptv.db
 *.db-journal
 *.db-wal
 *.db-shm
+.devdata/
+
+# Cliente web construido: lo produce `npm run build` en web/ y lo embebe Go.
+# El .gitkeep se versiona a propósito: go:embed falla al compilar si el
+# directorio no existe.
+/internal/ui/dist/*
+!/internal/ui/dist/.gitkeep
 
 # Flutter / Dart
 mobile/build/

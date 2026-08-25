@@ -17,8 +17,7 @@ con el gateway en el puerto 8080.
 ### 1. Gateway
 
 ```bash
-cd gateway
-go run ./cmd/server
+go run ./cmd/open-tv
 ```
 
 Escucha en `127.0.0.1:8080`. En el primer arranque descarga ~13 000 canales
@@ -108,7 +107,7 @@ sale `false`, tarda un par de segundos en cambiar.
 ## Desarrollo
 
 ```bash
-cd gateway && go test -race ./... && go vet ./... && gofmt -l .
+go test -race ./... && go vet ./... && gofmt -l .
 cd mobile  && flutter test && flutter analyze
 ```
 
