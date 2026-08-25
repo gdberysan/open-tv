@@ -42,7 +42,9 @@ export class PlaybackGuard {
   constructor(o: OpcionesGuard) {
     this.alFallar = o.alFallar
     this.alConfirmar = o.alConfirmar
-    this.timeoutCarga = o.timeoutCarga ?? 15_000
+    // Con failover cada mirror muerto cuesta este tiempo: 7s es holgado para
+    // un manifiesto vivo y rápido para cruzar al siguiente intento.
+    this.timeoutCarga = o.timeoutCarga ?? 7_000
     this.timeoutAtasco = o.timeoutAtasco ?? 8_000
   }
 
@@ -98,6 +100,14 @@ export class PlaybackGuard {
   }
 
   destruir(): void {
+    this.destruido = true
+    if (this.tCarga) clearTimeout(this.tCarga)
+    if (this.tAtasco) clearTimeout(this.tAtasco)
+  }
+
+  /** abortar cancela la vigilancia sin declarar fatal: lo usa el failover al
+   *  saltar al siguiente mirror por decisión propia, no por fallo del guard. */
+  abortar(): void {
     this.destruido = true
     if (this.tCarga) clearTimeout(this.tCarga)
     if (this.tAtasco) clearTimeout(this.tAtasco)

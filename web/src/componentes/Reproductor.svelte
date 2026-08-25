@@ -1,27 +1,32 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import type { Canal, DestinoStream } from '../datos/catalogo'
+  import type { Canal, CatalogSource } from '../datos/catalogo'
   import { PlaybackGuard } from '../reproductor/guard'
   import { planDeReproduccion, motorDelNavegador, type Motor } from '../reproductor/plan'
+  import { planDeFailover, type Intento, type DesenlaceReproduccion } from '../reproductor/failover'
   import { t } from '../i18n'
 
   // alAnterior/alSiguiente son opcionales: App los da cuando hay una lista de
-  // canales de la que moverse (flechas ← →). El resto del contrato es el de
-  // la Tarea 13: canal, destino, proxyDisponible, alCerrar.
+  // canales de la que moverse (flechas ← →). fuente es el CatalogSource: el
+  // Reproductor ya no recibe una URL resuelta, pide sus propios mirrors
+  // (Tarea 5) para poder recorrer planDeFailover. alDesenlace y alIntentar son
+  // opcionales — no-op en producción salvo que la Tarea 12/el test los den.
   let {
     canal,
-    destino,
-    proxyDisponible,
+    fuente,
     alCerrar,
     alAnterior,
     alSiguiente,
+    alDesenlace = () => {},
+    alIntentar = () => {},
   }: {
     canal: Canal
-    destino: DestinoStream
-    proxyDisponible: boolean
+    fuente: CatalogSource
     alCerrar: () => void
     alAnterior?: () => void
     alSiguiente?: () => void
+    alDesenlace?: (o: DesenlaceReproduccion) => void
+    alIntentar?: (url: string) => void
   } = $props()
 
   let video: HTMLVideoElement | undefined = $state()
@@ -41,8 +46,17 @@
   let hlsActual: any
   let destruido = false
 
+  // Se incrementa en cada llamada a reproducir(): si el canal cambia (o el
+  // componente se destruye) mientras una petición de mirrors()/destino() aún
+  // está en el aire, la respuesta tardía queda descartada en vez de pisar el
+  // intento del canal nuevo. Mismo patrón que peticionActual en App.svelte.
+  let intentoId = 0
+
   function limpiarIntento() {
-    guardActual?.destruir()
+    // abortar(), no destruir(): este guard no falló, es el failover
+    // decidiendo por su cuenta pasar al siguiente mirror (o el componente
+    // cerrándose). destruir() queda para el vocabulario del guard en sí.
+    guardActual?.abortar()
     guardActual = undefined
     if (hlsActual) {
       hlsActual.destroy()
@@ -64,21 +78,34 @@
     guardActual?.alError(String(video?.error?.code ?? 'error-nativo'))
   }
 
+  function via(intento: Intento): 'directo' | 'proxy' {
+    return intento.viaProxy ? 'proxy' : 'directo'
+  }
+
   /** Un intento: arma el guard, ENTONCES asigna la fuente. Se resuelve al
    *  confirmar reproducción; se rechaza si el guard lo declara fatal antes de
    *  confirmar. Un fallo DESPUÉS de confirmar no rechaza: el canal ya se vio,
-   *  así que es un corte, no un intento fallido. */
-  function intentar(url: string, motor: Motor): Promise<void> {
+   *  así que es un corte, no un intento fallido — y se reporta como tal. */
+  function intentar(intento: Intento, motor: Motor): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       if (!video) {
         reject(new Error('sin elemento de vídeo'))
         return
       }
       let confirmado = false
+      const inicio = performance.now()
 
       const guard = new PlaybackGuard({
         alFallar: (mensaje) => {
           if (confirmado) {
+            alDesenlace({
+              canalId: canal.id,
+              resultado: 'cortado',
+              motivo: mensaje,
+              motor,
+              via: via(intento),
+              mirrorIndex: intento.mirrorIndex,
+            })
             mensajeError = t('reproductor.error.corte')
             cargando = false
             return
@@ -88,6 +115,14 @@
         alConfirmar: () => {
           confirmado = true
           cargando = false
+          alDesenlace({
+            canalId: canal.id,
+            resultado: 'iniciado',
+            motor,
+            via: via(intento),
+            mirrorIndex: intento.mirrorIndex,
+            msPrimerFrame: performance.now() - inicio,
+          })
           resolve()
         },
       })
@@ -101,7 +136,7 @@
       video.addEventListener('error', onVideoError)
 
       if (motor === 'nativo') {
-        video.src = url
+        video.src = intento.url
         video.play().catch(() => {
           // Un rechazo de play() no es necesariamente fatal (autoplay
           // bloqueado sin gesto); el guard decide con la posición real.
@@ -125,7 +160,7 @@
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           video?.play().catch(() => {})
         })
-        hls.loadSource(url)
+        hls.loadSource(intento.url)
         hls.attachMedia(video!)
       })
     })
@@ -133,34 +168,74 @@
 
   async function reproducir() {
     if (!video) return
+    const miId = ++intentoId
     cargando = true
     mensajeError = null
 
     const motor = motorDelNavegador(video)
-    const plan = planDeReproduccion({
-      motor,
-      url: destino.url,
-      webOk: canal.webOk,
-      proxyDisponible,
-    })
+    let intentos: Intento[]
 
-    if (plan.aviso === 'solo-app-o-safari') {
+    try {
+      const mirrors = await fuente.mirrors(canal.id)
+      if (destruido || miId !== intentoId) return
+
+      if (mirrors.length > 0) {
+        const proxyDisp = await fuente.proxyDisponible()
+        if (destruido || miId !== intentoId) return
+        intentos = planDeFailover(mirrors, motor, proxyDisp)
+      } else {
+        // Sin mirrors (fuente vieja o canal sin entrada en /channels/streams):
+        // compatibilidad con el destino único de siempre, como un solo mirror.
+        const destinoUnico = await fuente.destino(canal.id)
+        if (destruido || miId !== intentoId) return
+        const proxyDisp = await fuente.proxyDisponible()
+        if (destruido || miId !== intentoId) return
+        const plan = planDeReproduccion({
+          motor,
+          url: destinoUnico.url,
+          webOk: canal.webOk,
+          proxyDisponible: proxyDisp,
+        })
+        if (plan.aviso === 'solo-app-o-safari') {
+          cargando = false
+          mensajeError = t('canal.soloApp')
+          return
+        }
+        intentos = plan.intentos.map((url, i) => ({ url, viaProxy: i > 0, mirrorIndex: 0 }))
+      }
+    } catch {
+      if (destruido || miId !== intentoId) return
+      cargando = false
+      mensajeError = t('reproductor.error.noArranco')
+      return
+    }
+
+    if (intentos.length === 0) {
       cargando = false
       mensajeError = t('canal.soloApp')
       return
     }
 
-    for (const url of plan.intentos) {
-      if (destruido) return
+    for (const intento of intentos) {
+      if (destruido || miId !== intentoId) return
       limpiarIntento()
+      alIntentar(intento.url)
       try {
-        await intentar(url, motor)
+        await intentar(intento, motor)
         return // confirmado
-      } catch {
-        // se agota este intento; se prueba el siguiente
+      } catch (e) {
+        alDesenlace({
+          canalId: canal.id,
+          resultado: 'fallo',
+          motivo: e instanceof Error ? e.message : String(e),
+          motor,
+          via: via(intento),
+          mirrorIndex: intento.mirrorIndex,
+        })
+        // se agota este intento; se prueba el siguiente mirror
       }
     }
-    if (destruido) return
+    if (destruido || miId !== intentoId) return
     // El último intento del bucle NO se limpió al entrar en él (limpiarIntento
     // se llama al EMPEZAR cada intento, no al fallar el último): sin esto, su
     // guard queda vivo con arrancado===false, hls sigue reintentando fetches
@@ -173,10 +248,10 @@
   }
 
   // Reacciona a cambiar de canal (flechas ← →) igual que a la apertura
-  // inicial: canal.id y destino.url son la clave de "hay que reconectar".
+  // inicial: canal.id es la clave de "hay que reconectar" (el destino/los
+  // mirrors los pide el propio Reproductor, ya no llegan por prop).
   $effect(() => {
     void canal.id
-    void destino.url
     if (!video) return
     limpiarIntento()
     reproducir()

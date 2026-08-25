@@ -3,7 +3,8 @@
   import { get } from 'svelte/store'
   import { idioma, t } from './i18n'
   import { crearHttpCatalog } from './datos/http'
-  import type { Canal, ConsultaCatalogo, DestinoStream, Faceta, Frescura as InfoFrescura } from './datos/catalogo'
+  import type { Canal, ConsultaCatalogo, Faceta, Frescura as InfoFrescura } from './datos/catalogo'
+  import type { DesenlaceReproduccion } from './reproductor/failover'
   import { filtros } from './estado/filtros'
   import { favoritos } from './estado/favoritos'
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
@@ -43,12 +44,14 @@
   // primera si llega después que la de la segunda.
   let peticionActual = 0
 
-  // Estado del reproductor. destinoAbierto null = aún resolviendo destino()
-  // (o no hay canal abierto): el componente Reproductor no se monta hasta
-  // tener los dos, porque necesita destino.url desde el primer render.
+  // Estado del reproductor. Desde la Tarea 5 el propio Reproductor pide sus
+  // mirrors y su destino de compatibilidad (vía CatalogSource): App solo
+  // necesita saber QUÉ canal está abierto, no resolverle antes una URL.
   let canalAbierto = $state<Canal | null>(null)
-  let destinoAbierto = $state<DestinoStream | null>(null)
-  let proxyDisp = $state(false)
+
+  // Reporte de desenlaces de reproducción: no-op hasta que la Tarea 12
+  // conecte las estadísticas locales.
+  function alDesenlace(_o: DesenlaceReproduccion) {}
 
   function construirConsulta(paginar: boolean): ConsultaCatalogo {
     const f = get(filtros)
@@ -109,26 +112,12 @@
     cargarPagina(false)
   }
 
-  async function abrirCanal(canal: Canal) {
+  function abrirCanal(canal: Canal) {
     canalAbierto = canal
-    destinoAbierto = null
-    try {
-      const [destino, proxy] = await Promise.all([catalogo.destino(canal.id), catalogo.proxyDisponible()])
-      // Si mientras tanto se cerró el reproductor o se abrió otro canal, esta
-      // respuesta ya no es la que hay que pintar.
-      if (canalAbierto?.id !== canal.id) return
-      destinoAbierto = destino
-      proxyDisp = proxy
-    } catch (e) {
-      if (canalAbierto?.id !== canal.id) return
-      errorCatalogo = clasificarError(e)
-      canalAbierto = null
-    }
   }
 
   function cerrarReproductor() {
     canalAbierto = null
-    destinoAbierto = null
   }
 
   // ←/→ del reproductor se mueven dentro de la lista ya cargada en pantalla,
@@ -244,11 +233,11 @@
   {/if}
 </main>
 
-{#if canalAbierto && destinoAbierto}
+{#if canalAbierto}
   <Reproductor
     canal={canalAbierto}
-    destino={destinoAbierto}
-    proxyDisponible={proxyDisp}
+    fuente={catalogo}
+    {alDesenlace}
     alCerrar={cerrarReproductor}
     alAnterior={canalAnterior}
     alSiguiente={canalSiguiente}

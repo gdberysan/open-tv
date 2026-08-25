@@ -110,4 +110,15 @@ describe('PlaybackGuard', () => {
     vi.advanceTimersByTime(60_000)
     expect(fatal).not.toHaveBeenCalled()
   })
+
+  it('abortar() cancela sin declarar fatal y libera los timers', () => {
+    vi.useFakeTimers()
+    const fatal = vi.fn()
+    const g = new PlaybackGuard({ alFallar: fatal, timeoutCarga: 6_000 })
+    g.armarTimeoutDeCarga()
+    g.abortar()
+    vi.advanceTimersByTime(60_000)
+    expect(fatal).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
 })
