@@ -15,6 +15,7 @@ import (
 	"github.com/gdberysan/open-tv/internal/api"
 	"github.com/gdberysan/open-tv/internal/domain"
 	"github.com/gdberysan/open-tv/internal/ports"
+	"github.com/gdberysan/open-tv/internal/ui"
 )
 
 type repoVacio struct{}
@@ -132,16 +133,20 @@ func TestRouterNoAnunciaCORS(t *testing.T) {
 
 // La regla estructural: sin loopback no hay proxy. Si alguien la relaja, este
 // test es el que lo dice.
+//
+// El caso proxyActivo=false exige un 404 EXPLÍCITO de /proxy/hls, no el que
+// caiga en el fallback SPA del cliente web (Tarea 9). Antes de la Tarea 17
+// este caso esperaba 200 (el índice del SPA) porque nada distinguía
+// /proxy/hls de cualquier otra ruta desconocida del cliente: confuso, aunque
+// no inseguro (nunca se sirve el relay). Ver TestProxyApagadoNoRompeFallbackSPA
+// para la prueba de que el fallback SPA del resto de rutas sigue intacto.
 func TestProxySoloExisteEnLoopback(t *testing.T) {
 	for _, c := range []struct {
 		activo bool
 		quiero int
 	}{
 		{true, http.StatusBadRequest}, // montado: se queja de que falta u
-		// no montado: la ruta no existe como API, pero el cliente web (Tarea 9)
-		// se monta como NotFound del router, así que cae al fallback SPA (200
-		// con el index) en vez de un 404 de API.
-		{false, http.StatusOK},
+		{false, http.StatusNotFound},  // apagado: 404 explícito, no el índice del SPA
 	} {
 		r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, api.Options{ProxyActivo: c.activo})
 		rec := httptest.NewRecorder()
@@ -149,5 +154,35 @@ func TestProxySoloExisteEnLoopback(t *testing.T) {
 		if rec.Code != c.quiero {
 			t.Errorf("proxyActivo=%v → %d, quiero %d", c.activo, rec.Code, c.quiero)
 		}
+	}
+}
+
+// Con el cliente web REAL montado (el caso realista: un binario con web/
+// construido), el 404 de /proxy/hls tiene que ser específico de esa ruta:
+// cualquier otra ruta desconocida del cliente (p.ej. /canal/x) sigue cayendo
+// en el fallback SPA con 200. Si el fix se hiciera desmontando el fallback
+// SPA entero cuando el proxy está apagado, este test lo detectaría.
+//
+// Si el binario de test no tiene web/ construido en internal/ui/dist (dist
+// vacío salvo .gitkeep), ui.Handler() devuelve ok=false y este test se salta:
+// ese caso no distingue nada porque tampoco hay fallback SPA que proteger. El
+// gate manual/e2e de la Tarea 17 cubre ese escenario con el binario real.
+func TestProxyApagadoNoRompeFallbackSPA(t *testing.T) {
+	if _, ok := ui.Handler(); !ok {
+		t.Skip("sin cliente web construido en internal/ui/dist: nada que distinguir")
+	}
+
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, api.Options{ProxyActivo: false})
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy/hls?u=x", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("/proxy/hls con proxy apagado = %d, quiero %d", rec.Code, http.StatusNotFound)
+	}
+
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/canal/x", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("/canal/x (ruta del cliente, no de la API) = %d, quiero %d (fallback SPA)", rec.Code, http.StatusOK)
 	}
 }

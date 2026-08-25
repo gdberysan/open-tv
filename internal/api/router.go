@@ -69,6 +69,15 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	if opts.ProxyActivo {
 		ph := proxy.NewHandler(RutaProxy, false)
 		r.Get("/proxy/hls", ph.ServeHTTP)
+	} else {
+		// Sin proxy, /proxy/hls tiene que devolver un 404 explícito y no
+		// caer en el fallback SPA de más abajo: una URL de proxy que
+		// responde HTML con 200 es confusa aunque no insegura (nunca hay
+		// relay de vídeo). Se registra ANTES del NotFound para que chi la
+		// resuelva como ruta propia, no como comodín.
+		r.Get("/proxy/hls", func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		})
 	}
 
 	// La UI va la ÚLTIMA: NotFound solo se aplica a lo que ninguna ruta de API
