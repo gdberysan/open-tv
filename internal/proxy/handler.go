@@ -24,7 +24,10 @@ const MaxSegmentoBytes int64 = 50 << 20
 var redesExtraPrivadas = func() []*net.IPNet {
 	var nets []*net.IPNet
 	for _, cidr := range []string{"100.64.0.0/10", "198.18.0.0/15"} {
-		_, n, _ := net.ParseCIDR(cidr)
+		_, n, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(fmt.Sprintf("CIDR inválido %q: %v", cidr, err))
+		}
 		nets = append(nets, n)
 	}
 	return nets
