@@ -2,6 +2,7 @@
   import type { Canal } from '../datos/catalogo'
   import BarrasSenal from './BarrasSenal.svelte'
   import MarcaWeb from './MarcaWeb.svelte'
+  import { pareceGeoBloqueado } from '../lib/geo'
   import { favoritos } from '../estado/favoritos'
   import { t } from '../i18n'
 
@@ -22,6 +23,9 @@
   <footer>
     <BarrasSenal vivo={canal.vivo} latenciaMs={canal.latenciaMs} />
     {#if canal.pais}<span class="pais">{canal.pais}</span>{/if}
+    {#if pareceGeoBloqueado(canal)}
+      <span class="geo" title={t('canal.geo')} aria-label={t('canal.geo')}>GEO</span>
+    {/if}
     <MarcaWeb webOk={canal.webOk} />
     <button
       class="favorito"
@@ -41,6 +45,7 @@
   .nombre { font-size: 13px; text-align: center; }
   footer { display: flex; align-items: center; gap: 6px; }
   .pais { font-size: 11px; color: var(--graphite-300); }
+  .geo { font-size: 10px; letter-spacing: .05em; padding: 1px 4px; border-radius: 3px; background: var(--graphite-600); color: var(--text-muted, var(--graphite-300)); }
   .favorito { all: unset; cursor: pointer; margin-left: auto; color: var(--graphite-500); }
   /* Ámbar = activo. Un favorito apagado es neutro. */
   .favorito.activo { color: var(--amber-500); }

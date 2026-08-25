@@ -31,6 +31,7 @@ export const es = {
 
   'canal.favorito.anadir': 'Añadir a favoritos',
   'canal.favorito.quitar': 'Quitar de favoritos',
+  'canal.geo': 'Puede estar bloqueado en tu región',
   'canal.soloApp': 'Este canal se ve en la app instalada o en Safari',
 
   'senal.viva': 'Señal viva',

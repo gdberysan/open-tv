@@ -28,6 +28,7 @@ export const en: Record<ClaveMensaje, string> = {
 
   'canal.favorito.anadir': 'Add to favourites',
   'canal.favorito.quitar': 'Remove from favourites',
+  'canal.geo': 'May be geo-blocked in your region',
   'canal.soloApp': 'This channel plays in the installed app or in Safari',
 
   'senal.viva': 'Live signal',
