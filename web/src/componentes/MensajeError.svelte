@@ -14,11 +14,14 @@
   )
 </script>
 
-<!-- aria-live="assertive" explícito (Tarea 18): role="alert" ya implica
-     assertive, pero se deja explícito por la misma razón que en
-     Sincronizando.svelte — comprobable sin depender de la interpretación
-     implícita de cada lector de pantalla. -->
-<p class="error" role="alert" aria-live="assertive">{mensaje}</p>
+<!-- SIN role="alert"/aria-live (fix round 2, Tarea 18): este componente solo
+     se monta desde App.svelte, que YA tiene su propia región
+     aria-live="assertive" PERSISTENTE para este mismo texto (ver
+     App.svelte). role="alert" se anuncia de forma muy fiable al insertarse
+     — con esta semántica AQUÍ TAMBIÉN, un lector de pantalla hablaría el
+     error dos veces seguidas. El texto sigue siendo visible; solo se
+     retira quién lo anuncia. -->
+<p class="error">{mensaje}</p>
 
 <style>
   .error { color: var(--signal-error); }

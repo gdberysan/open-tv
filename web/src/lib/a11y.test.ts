@@ -93,22 +93,78 @@ beforeEach(() => {
   favoritos.set(new Set())
 })
 
-describe('a11y — estados con aria-live', () => {
-  it('Sincronizando anuncia con aria-live="polite" (role=status no basta para la aserción)', () => {
-    const { container } = render(Sincronizando, { alListo: () => {} })
-    const region = container.querySelector('[role="status"]')
-    expect(region).not.toBeNull()
-    // Antes del arreglo, role="status" estaba solo (sin el atributo
-    // aria-live explícito): esta aserción fallaba porque getAttribute
-    // devolvía null, no 'polite'.
-    expect(region?.getAttribute('aria-live')).toBe('polite')
+describe('a11y — estados: un único anunciador, sin doble anuncio (fix round 2)', () => {
+  // Fix round 1 añadió en App.svelte regiones aria-live PERSISTENTES para
+  // sincronizando/error, pero dejó a Sincronizando.svelte/MensajeError.svelte
+  // con SU PROPIA semántica live (role="status"/"alert" + aria-live) — ambos
+  // se montan a la vez que la región persistente de App, así que un lector
+  // de pantalla anunciaba el mismo texto DOS VECES seguidas. El arreglo
+  // retira la semántica live de los componentes visuales: App.svelte queda
+  // como la única dueña de la región que anuncia (Sincronizando/MensajeError
+  // solo se montan desde App — verificado antes de tocar nada).
+
+  // Mismo motivo que en el describe de "regiones aria-live PERSISTENTES" de
+  // más abajo: consultarSalud es un mock singleton por módulo, y una
+  // respuesta "Once" sin consumir se filtraría al siguiente test/describe.
+  afterEach(() => {
+    vi.mocked(consultarSalud).mockReset()
+    vi.mocked(consultarSalud).mockImplementation(async () => ({
+      sincronizando: false,
+      proxyDisponible: false,
+      ultimoSync: new Date('2026-01-01T00:00:00Z'),
+      version: 'test',
+    }))
   })
 
-  it('MensajeError anuncia con aria-live="assertive"', () => {
-    const { container } = render(MensajeError, { clase: 'gateway' })
-    const region = container.querySelector('[role="alert"]')
-    expect(region).not.toBeNull()
-    expect(region?.getAttribute('aria-live')).toBe('assertive')
+  it('Sincronizando/MensajeError ya NO llevan su propia semántica live (el texto sigue visible)', () => {
+    const { container: cSync } = render(Sincronizando, { alListo: () => {} })
+    // Antes de este arreglo, [role="status"] existía aquí y esta aserción
+    // habría fallado en la primera línea.
+    expect(cSync.querySelector('[role="status"]')).toBeNull()
+    expect(cSync.querySelector('[aria-live]')).toBeNull()
+    expect(cSync.textContent).toContain(t('estado.sincronizando')) // el texto sigue ahí
+
+    const { container: cError } = render(MensajeError, { clase: 'gateway' })
+    expect(cError.querySelector('[role="alert"]')).toBeNull()
+    expect(cError.querySelector('[aria-live]')).toBeNull()
+    expect(cError.textContent).toContain(t('estado.gatewayCaido'))
+  })
+
+  it('App en fase "sincronizando": existe EXACTAMENTE UNA región aria-live con ese texto (no dos)', async () => {
+    const respuestaSincronizando = {
+      sincronizando: true, proxyDisponible: false, ultimoSync: null, version: 'test',
+    }
+    // Dos respuestas encoladas: ver la nota de la suite de abajo sobre por
+    // qué Sincronizando.svelte hace su propia llamada a consultarSalud().
+    vi.mocked(consultarSalud).mockResolvedValueOnce(respuestaSincronizando)
+    vi.mocked(consultarSalud).mockResolvedValueOnce(respuestaSincronizando)
+    const { container } = render(App, { fuente: fuenteFalsa() })
+
+    // Contra el código pre-fix-round-2 (Sincronizando con su propio
+    // role="status" aria-live="polite" MONTADO A LA VEZ que la región
+    // persistente de App, ambos con el mismo texto), este recuento daría 2,
+    // no 1 — es la aserción que habría fallado con el bug del doble anuncio.
+    await vi.waitFor(() => {
+      const conElTexto = [...container.querySelectorAll('[aria-live]')].filter(
+        (el) => el.textContent === t('estado.sincronizando'),
+      )
+      expect(conElTexto.length).toBe(1)
+    })
+  })
+
+  it('App en fase "error": existe EXACTAMENTE UNA región aria-live="assertive" con ese texto (no dos)', async () => {
+    vi.mocked(consultarSalud).mockRejectedValueOnce(new Error('gateway inalcanzable'))
+    const { container } = render(App, { fuente: fuenteFalsa() })
+
+    // Mismo razonamiento que arriba, con MensajeError y role="alert": sin
+    // este arreglo el recuento daría 2 (el <p role="alert"> visual + la
+    // región persistente), no 1.
+    await vi.waitFor(() => {
+      const conElTexto = [...container.querySelectorAll('[aria-live="assertive"]')].filter(
+        (el) => el.textContent === t('estado.gatewayCaido'),
+      )
+      expect(conElTexto.length).toBe(1)
+    })
   })
 })
 

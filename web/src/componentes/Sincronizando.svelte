@@ -32,11 +32,15 @@
 
 <!-- Deliberadamente sin barra de progreso: el gateway no publica ningún
      porcentaje de avance y fingir uno sería mentir sobre lo que se sabe.
-     aria-live="polite" explícito (Tarea 18): role="status" YA implica
-     aria-live="polite" según el espec ARIA, pero se deja explícito porque
-     es lo que la aserción automatizada puede comprobar sin adivinar cómo
-     interpreta cada lector de pantalla el rol implícito. -->
-<div class="sincronizando" role="status" aria-live="polite">
+     SIN role="status"/aria-live (fix round 2, Tarea 18): este componente
+     solo se monta desde App.svelte, que YA tiene su propia región
+     aria-live="polite" PERSISTENTE para este mismo texto (ver App.svelte).
+     Si este <div> tuviera también semántica live, un lector de pantalla
+     anunciaría "Sincronizando el catálogo…" DOS VECES seguidas al mismo
+     tiempo — la regresión que el fix round 1 evitó en Reproductor.svelte
+     pero no aquí. El texto sigue siendo visible para quien ve la pantalla;
+     solo se retira quién lo anuncia. -->
+<div class="sincronizando">
   <h2>{t('estado.sincronizando')}</h2>
   <p>{t('estado.sincronizandoDetalle')}</p>
 </div>
