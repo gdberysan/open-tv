@@ -154,3 +154,36 @@ func TestProxyNoAnunciaCORS(t *testing.T) {
 		t.Errorf("el proxy copió el ACAO del origen (%q); la UI es del mismo origen y no lo necesita", v)
 	}
 }
+
+// SSRF por redirección: un origen puede responder 302 hacia un destino
+// privado (la LAN, el enlace-local de metadatos de una nube) y el
+// http.Client por defecto lo sigue sin preguntar. Aquí origen e interno viven
+// los dos en 127.0.0.1 —es lo único que un test puede montar sin red real—
+// así que privadasOK=false ya bloquea la petición al origen antes incluso de
+// llegar a la redirección; TestCheckRedirectRechazaDestinoPrivado, en
+// handler_internal_test.go, fuerza el camino de checkRedirect en concreto,
+// sin depender de que un origen "público" viva fuera de loopback.
+func TestProxyNoSigueRedireccionesHaciaDestinosPrivados(t *testing.T) {
+	interno := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("el proxy llegó a contactar al servidor interno: la redirección no se bloqueó")
+		_, _ = w.Write([]byte("SECRETO-INTERNO"))
+	}))
+	defer interno.Close()
+
+	origen := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, interno.URL+"/secreto", http.StatusFound)
+	}))
+	defer origen.Close()
+
+	h := proxy.NewHandler("/proxy/hls?u=", false)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+		"/proxy/hls?u="+url.QueryEscape(origen.URL+"/live.m3u8"), nil))
+
+	if rec.Code == http.StatusOK {
+		t.Errorf("código %d: relayó algo cuando debía bloquear", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "SECRETO-INTERNO") {
+		t.Errorf("el cuerpo del servidor interno se filtró: %s", rec.Body.String())
+	}
+}

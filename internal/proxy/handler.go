@@ -2,11 +2,14 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -28,6 +31,11 @@ const tiempoPeticion = 30 * time.Second
 // al health-checker.
 const userAgent = "VLC/3.0.20 LibVLC/3.0.20"
 
+// maxRedirecciones: un manifiesto o un segmento no necesitan más de un par de
+// saltos. Un origen que redirige en bucle, o que encadena saltos para llegar a
+// donde el filtro de destinos no le deja, se corta aquí.
+const maxRedirecciones = 5
+
 // Handler relaya HLS al navegador de la misma máquina.
 type Handler struct {
 	client     *http.Client
@@ -42,18 +50,38 @@ type Handler struct {
 // viven en 127.0.0.1, que en producción es exactamente lo que hay que
 // bloquear. En el router se monta siempre con false.
 func NewHandler(prefijo string, permitirDestinosPrivados bool) *Handler {
-	return &Handler{
+	h := &Handler{
 		prefijo:    prefijo,
 		privadasOK: permitirDestinosPrivados,
-		client: &http.Client{
-			// Sin timeout de cliente: lo pone el contexto por petición, que
-			// además cancela la copia en curso si el navegador cierra.
-			Transport: &http.Transport{
-				MaxConnsPerHost:   4,
-				DisableKeepAlives: true,
-			},
-		},
 	}
+
+	dialer := &net.Dialer{
+		Timeout: tiempoPeticion,
+		// Control se ejecuta con la IP YA resuelta, justo antes de que el
+		// kernel abra la conexión — no la que destinoPrivado comprobó antes
+		// de que el propio Transport volviera a resolver el hostname por su
+		// cuenta. Sin esto, un DNS que cambie de respuesta entre esa
+		// comprobación y la conexión real (rebinding) esquiva el filtro por
+		// hostname sin que el proxy se entere.
+		Control: h.controlConexion,
+	}
+
+	h.client = &http.Client{
+		// Sin timeout de cliente: lo pone el contexto por petición, que
+		// además cancela la copia en curso si el navegador cierra.
+		Transport: &http.Transport{
+			MaxConnsPerHost:   4,
+			DisableKeepAlives: true,
+			DialContext:       dialer.DialContext,
+		},
+		// El http.Client por defecto sigue redirecciones (hasta 10) sin
+		// preguntar. Un origen que en principio pasó el filtro puede
+		// responder 302 hacia 127.0.0.1 o hacia el enlace-local de metadatos
+		// de una nube, y sin esto el proxy lo seguiría y relayaría la
+		// respuesta interna al navegador.
+		CheckRedirect: h.checkRedirect,
+	}
+	return h
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -100,24 +128,69 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	if esManifiesto(destino, resp.Header.Get("Content-Type")) {
-		h.relayarManifiesto(w, resp, destino)
+	// La URL FINAL: si hubo redirección, las relativas del manifiesto se
+	// resuelven contra el sitio al que se llegó, no contra el que se pidió,
+	// y la extensión que decide si esto es un manifiesto se mira ahí también.
+	urlFinal := destino
+	if resp.Request != nil && resp.Request.URL != nil {
+		urlFinal = resp.Request.URL
+	}
+
+	if esManifiesto(urlFinal, resp.Header.Get("Content-Type")) {
+		h.relayarManifiesto(w, resp, urlFinal)
 		return
 	}
-	h.relayarBytes(w, resp)
+	h.relayarBytes(w, resp, urlFinal)
 }
 
-func (h *Handler) relayarManifiesto(w http.ResponseWriter, resp *http.Response, destino *url.URL) {
+// checkRedirect se ejecuta en cada salto de una redirección 3xx, ANTES de que
+// el cliente la siga.
+func (h *Handler) checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= maxRedirecciones {
+		return fmt.Errorf("demasiadas redirecciones (%d)", len(via))
+	}
+	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+		return fmt.Errorf("esquema no permitido en redirección: %s", req.URL.Scheme)
+	}
+	if !h.privadasOK && destinoPrivado(req.Context(), req.URL.Hostname()) {
+		return fmt.Errorf("redirección a destino no permitido: %s", req.URL.Hostname())
+	}
+	return nil
+}
+
+// controlConexion se ejecuta justo antes de que el sistema operativo abra la
+// conexión TCP, con la dirección YA resuelta. Es la única comprobación que
+// mira la IP con la que el kernel conecta de verdad, así que es la que de
+// verdad cierra el DNS-rebinding: destinoPrivado (arriba) y checkRedirect
+// comprueban el hostname en un instante anterior, y nada les garantiza que el
+// Transport resuelva ese mismo hostname a la misma IP al conectar.
+func (h *Handler) controlConexion(_, address string, _ syscall.RawConn) error {
+	if h.privadasOK {
+		return nil
+	}
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("dirección de conexión inválida: %w", err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("dirección de conexión no es una IP: %s", host)
+	}
+	if ipPrivada(ip) {
+		return fmt.Errorf("conexión bloqueada a destino privado: %s", ip)
+	}
+	return nil
+}
+
+func (h *Handler) relayarManifiesto(w http.ResponseWriter, resp *http.Response, base *url.URL) {
 	cuerpo, err := io.ReadAll(io.LimitReader(resp.Body, maxManifiestoBytes))
 	if err != nil {
 		http.Error(w, "manifiesto ilegible", http.StatusBadGateway)
 		return
 	}
-	// La base es la URL FINAL: si hubo redirección, las relativas se resuelven
-	// contra el sitio al que se llegó, no contra el que se pidió.
-	base := destino
-	if resp.Request != nil && resp.Request.URL != nil {
-		base = resp.Request.URL
+	if int64(len(cuerpo)) == maxManifiestoBytes {
+		slog.Warn("proxy: manifiesto truncado al alcanzar el tope",
+			"url", base.String(), "tope_bytes", maxManifiestoBytes)
 	}
 	salida := ReescribirManifiesto(base, string(cuerpo), h.prefijo)
 
@@ -127,7 +200,7 @@ func (h *Handler) relayarManifiesto(w http.ResponseWriter, resp *http.Response, 
 	_, _ = io.WriteString(w, salida)
 }
 
-func (h *Handler) relayarBytes(w http.ResponseWriter, resp *http.Response) {
+func (h *Handler) relayarBytes(w http.ResponseWriter, resp *http.Response, destino *url.URL) {
 	// Solo las cabeceras que el reproductor necesita. Nada de copiar el juego
 	// entero: ahí viajan Set-Cookie y el ACAO del origen, y la UI es del mismo
 	// origen y no quiere ninguno de los dos.
@@ -139,7 +212,11 @@ func (h *Handler) relayarBytes(w http.ResponseWriter, resp *http.Response) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(resp.StatusCode)
 	// El contexto de la petición cancela esta copia si el navegador se va.
-	_, _ = io.Copy(w, io.LimitReader(resp.Body, MaxSegmentoBytes))
+	n, _ := io.Copy(w, io.LimitReader(resp.Body, MaxSegmentoBytes))
+	if n == MaxSegmentoBytes {
+		slog.Warn("proxy: segmento truncado al alcanzar el tope",
+			"url", destino.String(), "tope_bytes", MaxSegmentoBytes)
+	}
 }
 
 // esManifiesto mira el tipo de contenido y, si el origen no lo declara bien
