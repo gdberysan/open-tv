@@ -19,7 +19,7 @@ export const en: Record<ClaveMensaje, string> = {
   'filtro.calidad.4k': '4K',
   'filtro.todos': 'All',
   'filtro.limpiar': 'Clear filters',
-  'filtro.ocultarOffline': 'Hide the ones not responding',
+  'filtro.mostrarOffline': 'Show the ones not responding',
 
   'accion.aleatorio': 'Random channel',
   'accion.favoritos': 'Favourites only',

@@ -17,7 +17,12 @@ export const es = {
   'filtro.calidad.4k': '4K',
   'filtro.todos': 'Todos',
   'filtro.limpiar': 'Limpiar filtros',
-  'filtro.ocultarOffline': 'Ocultar los que no responden',
+  // El nombre de la clave y la etiqueta siguen la semántica de mostrarOffline
+  // (http.ts: true → ?alive=all). El gateway YA oculta los muertos por
+  // defecto; esta casilla los REVELA, no los oculta — de ahí "Mostrar", no
+  // "Ocultar". Coherente con el toggle "Mostrar canales offline" de la app
+  // de macOS (mobile/lib/presentation/widgets/console_bar.dart).
+  'filtro.mostrarOffline': 'Mostrar los que no responden',
 
   'accion.aleatorio': 'Canal al azar',
   'accion.favoritos': 'Solo favoritos',

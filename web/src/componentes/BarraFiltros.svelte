@@ -62,7 +62,7 @@
 
   <label class="offline">
     <input type="checkbox" bind:checked={$filtros.mostrarOffline} />
-    {t('filtro.ocultarOffline')}
+    {t('filtro.mostrarOffline')}
   </label>
 
   <button
