@@ -22,6 +22,7 @@ import (
 	"github.com/gdberysan/open-tv/internal/datadir"
 	"github.com/gdberysan/open-tv/internal/netx"
 	"github.com/gdberysan/open-tv/internal/services"
+	"github.com/gdberysan/open-tv/internal/stats"
 )
 
 // version la inyecta el linker en las releases (-ldflags "-X main.version=…").
@@ -185,6 +186,13 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 		}
 	}()
 
+	// 4c. Agregador de estadísticas de reproducción (Tarea 13): uno por
+	// proceso, en memoria, nunca a disco. Lo que el cliente reporta en
+	// /stats/playback vive aquí y solo aquí — se pierde al reiniciar, que es
+	// exactamente lo que le corresponde a observabilidad que no rastrea a
+	// nadie.
+	agregador := stats.NuevoAgregador()
+
 	// 5. Router y servidor HTTP, sobre el listener ya resuelto en el paso 1.
 	url := "http://" + ln.Addr().String()
 	srv := &http.Server{
@@ -192,6 +200,7 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 			ProxyActivo:     esLoopback(ln),
 			Version:         version,
 			HostsPermitidos: hostsPermitidos(ln),
+			Agregador:       agregador,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,

@@ -13,6 +13,7 @@ import (
 	"github.com/gdberysan/open-tv/internal/api/middleware"
 	"github.com/gdberysan/open-tv/internal/ports"
 	"github.com/gdberysan/open-tv/internal/proxy"
+	"github.com/gdberysan/open-tv/internal/stats"
 	"github.com/gdberysan/open-tv/internal/ui"
 )
 
@@ -32,6 +33,11 @@ type Options struct {
 	// solo se sirven peticiones cuyo Host esté en la lista. Vacía = middleware
 	// deshabilitado, que es lo que usan los tests con Host arbitrario.
 	HostsPermitidos []string
+	// Agregador acumula los desenlaces de reproducción que reporta /stats/
+	// playback. Uno por proceso, creado en cmd/open-tv/main.go. nil (el caso
+	// de los tests de router existentes, que no lo necesitan) se resuelve a
+	// un agregador nuevo y vacío: /stats nunca debe nil-pointer-panicar.
+	Agregador *stats.Agregador
 }
 
 func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer handlers.SyncStatus, opts Options) http.Handler {
@@ -60,6 +66,19 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 		ProxyRuta:    RutaProxy,
 	})
 	r.Get("/health", hh.Get)
+
+	// El agregado del catálogo se calcula contra el mismo pool de solo
+	// lectura que ya usa /health (sqlDB): no hay un query de este agregado en
+	// ningún repositorio existente, así que reutilizar el pool y hacer la
+	// consulta en el propio handler es más simple que ensanchar
+	// ports.StreamRepository por un único endpoint de observabilidad.
+	agregador := opts.Agregador
+	if agregador == nil {
+		agregador = stats.NuevoAgregador()
+	}
+	sh := handlers.NewStatsHandler(agregador, handlers.NewDBCatalogoStats(sqlDB))
+	r.Post("/stats/playback", sh.PostPlayback)
+	r.Get("/stats", sh.GetStats)
 
 	r.Route("/channels", func(r chi.Router) {
 		r.Get("/", ch.GetChannels)
