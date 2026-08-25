@@ -1,10 +1,33 @@
 /* ============================================================
    KORVEN · FONTS
-   Space Grotesk · Inter · JetBrains Mono — all from the brand
-   board, all available on Google Fonts at the specified weights.
-   Served via Google Fonts CDN. To fully self-host, drop woff2
-   files in assets/fonts/ and replace this @import with local
-   @font-face rules (see readme.md › Visual Foundations).
+   Space Grotesk · Inter · JetBrains Mono — de la brand board,
+   auto-hospedadas como variable fonts (un solo fichero .woff2
+   por familia cubre todos los pesos usados). Subset "latin"
+   (U+0000-00FF y símbolos comunes): cubre ES/EN, incluida la ñ.
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
+/* Fuentes auto-hospedadas: un solo binario, sin red, sin CDN externa. */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/space-grotesk-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-latin-wght-normal.woff2') format('woff2-variations');
+}

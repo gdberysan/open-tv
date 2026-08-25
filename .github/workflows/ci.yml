@@ -100,6 +100,16 @@ jobs:
         working-directory: web
         run: npm run build
 
+      - name: presupuesto de bundle (<= 80 KB gzip de JS propio)
+        working-directory: web
+        run: |
+          # El JS propio es el/los chunk(s) de entrada, NO el de hls.js (perezoso).
+          total=$(find ../internal/ui/dist/assets -name 'index-*.js' -exec gzip -c {} \; | wc -c)
+          echo "JS propio inicial: ${total} bytes gzip"
+          if [ "$total" -gt 81920 ]; then
+            echo "::error::el bundle propio supera 80 KB gzip (${total} B)"; exit 1
+          fi
+
       # El embed es lo que convierte cliente y binario en un solo artefacto:
       # si el build del cliente no aterriza donde Go lo espera, falla aquí.
       - name: go build con el cliente embebido
