@@ -4,16 +4,17 @@
   import { idioma, t } from './i18n'
   import { crearHttpCatalog } from './datos/http'
   import type { Canal, ConsultaCatalogo, Faceta, Frescura as InfoFrescura } from './datos/catalogo'
-  import type { DesenlaceReproduccion } from './reproductor/failover'
   import { filtros } from './estado/filtros'
   import { favoritos } from './estado/favoritos'
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
+  import { reportarDesenlace } from './estado/estadisticas'
   import BarraFiltros from './componentes/BarraFiltros.svelte'
   import RejillaCanales from './componentes/RejillaCanales.svelte'
   import Reproductor from './componentes/Reproductor.svelte'
   import Sincronizando from './componentes/Sincronizando.svelte'
   import MensajeError from './componentes/MensajeError.svelte'
   import Frescura from './componentes/Frescura.svelte'
+  import PanelStats from './componentes/PanelStats.svelte'
 
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
@@ -49,9 +50,24 @@
   // necesita saber QUÉ canal está abierto, no resolverle antes una URL.
   let canalAbierto = $state<Canal | null>(null)
 
-  // Reporte de desenlaces de reproducción: no-op hasta que la Tarea 12
-  // conecte las estadísticas locales.
-  function alDesenlace(_o: DesenlaceReproduccion) {}
+  // vistaStats: vista de depuración local, sin ruta de servidor propia. NO se
+  // puede usar el PATH /stats para esto: el router (Tarea 13) ya registra
+  // GET /stats como el endpoint JSON de verdad, ANTES del fallback SPA — un
+  // F5 en ese path serviría el JSON crudo, no la app. Se usa el hash
+  // (#stats), que el navegador nunca manda al servidor, así que no puede
+  // chocar con ninguna ruta de la API.
+  let vistaStats = $state(typeof window !== 'undefined' && window.location.hash === '#stats')
+
+  function abrirStats(e: MouseEvent) {
+    e.preventDefault()
+    vistaStats = true
+    location.hash = 'stats'
+  }
+
+  function volverDelPanel() {
+    vistaStats = false
+    history.pushState('', document.title, window.location.pathname + window.location.search)
+  }
 
   function construirConsulta(paginar: boolean): ConsultaCatalogo {
     const f = get(filtros)
@@ -214,7 +230,9 @@
     </button>
   </header>
 
-  {#if fase.tipo === 'sincronizando'}
+  {#if vistaStats}
+    <PanelStats alVolver={volverDelPanel} />
+  {:else if fase.tipo === 'sincronizando'}
     <Sincronizando alListo={alSincronizado} />
   {:else if fase.tipo === 'error'}
     <MensajeError clase={fase.clase} />
@@ -237,7 +255,7 @@
   <Reproductor
     canal={canalAbierto}
     fuente={catalogo}
-    {alDesenlace}
+    alDesenlace={reportarDesenlace}
     alCerrar={cerrarReproductor}
     alAnterior={canalAnterior}
     alSiguiente={canalSiguiente}
@@ -247,6 +265,9 @@
 <footer class="pie">
   <p>{t('pie.fuente')}</p>
   <p>{t('pie.postura')}</p>
+  {#if !vistaStats}
+    <p><a class="stats" href="#stats" onclick={abrirStats}>{t('pie.stats')}</a></p>
+  {/if}
 </footer>
 
 <style>
@@ -273,5 +294,7 @@
     flex-direction: column;
     gap: 4px;
   }
+  .pie a.stats { color: var(--text-faint); text-decoration: underline; }
+  .pie a.stats:hover { color: var(--text-muted); }
   .pie p { margin: 0; }
 </style>

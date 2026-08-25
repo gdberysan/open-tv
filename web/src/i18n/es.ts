@@ -57,9 +57,32 @@ export const es = {
   'pie.fuente': 'La fuente es la lista pública de televisión abierta de iptv-org. Korven no retransmite nada.',
   'pie.postura': 'Sin canales premium, sin VPN, sin elusión de geobloqueo.',
   'pie.codigo': 'Ver el código',
+  'pie.stats': 'Estadísticas locales',
 
   'idioma.es': 'Español',
   'idioma.en': 'English',
+
+  'stats.titulo': 'Estadísticas locales',
+  'stats.volver': '← Volver',
+  'stats.cargando': 'Cargando…',
+  'stats.error': 'No se pudieron leer las estadísticas.',
+  'stats.reproduccion': 'Reproducción',
+  'stats.intentos': 'Intentos',
+  'stats.iniciados': 'Iniciados',
+  'stats.fallos': 'Fallos',
+  'stats.cortados': 'Cortados',
+  'stats.tasaExito': 'Tasa de éxito',
+  'stats.porMotivo': 'Fallos por motivo',
+  'stats.porVia': 'Directo vs proxy',
+  'stats.porMotor': 'Por motor',
+  'stats.catalogo': 'Catálogo',
+  'stats.streamsTotales': 'Streams totales',
+  'stats.vivos': 'Vivos',
+  'stats.muertos': 'Muertos',
+  'stats.webOk': 'web_ok',
+  'stats.webNo': 'web_no',
+  'stats.webDesconocido': 'Sin comprobar',
+  'stats.sinDatos': 'Sin datos todavía.',
 } as const
 
 export type ClaveMensaje = keyof typeof es
