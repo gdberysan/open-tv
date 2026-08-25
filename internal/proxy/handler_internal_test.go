@@ -8,6 +8,7 @@ package proxy
 // lógica en sí, sin esa limitación.
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -102,5 +103,16 @@ func TestControlConexionExigeDireccionResoluble(t *testing.T) {
 	h := &Handler{privadasOK: false}
 	if err := h.controlConexion("tcp", "no-es-host-puerto", nil); err == nil {
 		t.Error("debería rechazar una dirección sin host:puerto")
+	}
+}
+
+func TestIpPrivadaBloqueaCGNATyBenchmark(t *testing.T) {
+	for _, ip := range []string{"100.64.0.1", "100.127.255.254", "198.18.0.1", "198.19.255.254"} {
+		if !ipPrivada(net.ParseIP(ip)) {
+			t.Errorf("ipPrivada(%s) = false, quiero true", ip)
+		}
+	}
+	if ipPrivada(net.ParseIP("1.1.1.1")) {
+		t.Error("ipPrivada(1.1.1.1) = true, quiero false")
 	}
 }

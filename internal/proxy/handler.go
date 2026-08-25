@@ -19,6 +19,17 @@ import (
 // proxy como descargador infinito.
 const MaxSegmentoBytes int64 = 50 << 20
 
+// Redes que net.IP.IsPrivate() no cubre pero que tampoco deben alcanzarse por
+// el relay: CGNAT (Tailscale y muchos ISP) y el rango de benchmark.
+var redesExtraPrivadas = func() []*net.IPNet {
+	var nets []*net.IPNet
+	for _, cidr := range []string{"100.64.0.0/10", "198.18.0.0/15"} {
+		_, n, _ := net.ParseCIDR(cidr)
+		nets = append(nets, n)
+	}
+	return nets
+}()
+
 // maxManifiestoBytes: un manifiesto de miles de segmentos ronda los cientos de
 // KB. Se lee entero porque hay que reescribirlo.
 const maxManifiestoBytes int64 = 5 << 20
@@ -263,6 +274,14 @@ func destinoPrivado(ctx context.Context, host string) bool {
 }
 
 func ipPrivada(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	for _, n := range redesExtraPrivadas {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
