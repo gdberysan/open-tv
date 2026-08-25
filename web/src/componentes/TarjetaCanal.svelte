@@ -11,6 +11,12 @@
   // La logoUrl del catálogo suele estar muerta/404/bloqueada; si la imagen no
   // carga, caemos a las iniciales en vez de dejar el icono de imagen rota.
   let logoRoto = $state(false)
+  // En virtualización (Tarea 17), la instancia se reutiliza con otro canal.
+  // Resetear logoRoto al cambiar para que el logo nuevo intente cargar.
+  $effect(() => {
+    void canal.id
+    logoRoto = false
+  })
 </script>
 
 <article class="tarjeta">
