@@ -87,6 +87,7 @@ func (w *Worker) checkOnce(ctx context.Context) {
 				StreamID:  id,
 				IsAlive:   res.IsAlive,
 				LatencyMs: res.LatencyMs,
+				Web:       res.Web,
 			})
 			if res.IsAlive {
 				alive++

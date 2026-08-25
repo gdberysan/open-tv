@@ -637,3 +637,58 @@ func TestFindFilteredPorIDs(t *testing.T) {
 		t.Fatalf("quiero 2 canales, tengo %d", len(got))
 	}
 }
+
+// reposConDosCanales prepara "c1" con dos streams ("c1-a", "c1-b") y "c2" con
+// uno solo ("c2-a"), todos sin chequear todavía.
+func reposConDosCanales(t *testing.T) (*db.SQLiteChannelRepository, *db.SQLiteStreamRepository) {
+	t.Helper()
+	chRepo, stRepo := openStreamTestRepos(t)
+	ctx := context.Background()
+
+	seedChannel(t, chRepo, "c1")
+	seedChannel(t, chRepo, "c2")
+	if err := stRepo.SaveBatch(ctx, []domain.Stream{
+		makeStream("c1-a", "c1", "http://a.example/1.m3u8"),
+		makeStream("c1-b", "c1", "http://b.example/1.m3u8"),
+		makeStream("c2-a", "c2", "http://c.example/1.m3u8"),
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+	return chRepo, stRepo
+}
+
+// El canal se ve en la web si ALGUNO de sus streams se ve. Sin comprobar
+// sigue siendo null, igual que Alive: la app no puede distinguir "no" de
+// "todavía no lo sé" si los colapsamos.
+func TestFindFilteredAgregaWebOK(t *testing.T) {
+	// Preparar: canal "c1" con un stream WebNo y otro WebOK; canal "c2" con
+	// un único stream sin comprobar.
+	repo, streams := reposConDosCanales(t)
+	ctx := context.Background()
+
+	if err := streams.MarkBatch(ctx, []ports.StreamHealth{
+		{StreamID: "c1-a", IsAlive: true, LatencyMs: 100, Web: domain.WebNo},
+		{StreamID: "c1-b", IsAlive: true, LatencyMs: 200, Web: domain.WebOK},
+	}); err != nil {
+		t.Fatalf("MarkBatch: %v", err)
+	}
+
+	canales, err := repo.FindFiltered(ctx, ports.ChannelFilter{})
+	if err != nil {
+		t.Fatalf("FindFiltered: %v", err)
+	}
+
+	porID := map[domain.ChannelID]domain.Channel{}
+	for _, c := range canales {
+		porID[c.ID] = c
+	}
+
+	c1 := porID["c1"]
+	if c1.WebOK == nil || !*c1.WebOK {
+		t.Errorf("c1.WebOK = %v, quiero true (uno de sus streams se ve)", c1.WebOK)
+	}
+	c2 := porID["c2"]
+	if c2.WebOK != nil {
+		t.Errorf("c2.WebOK = %v, quiero nil (sin comprobar)", c2.WebOK)
+	}
+}

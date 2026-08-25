@@ -221,7 +221,8 @@ func (r *SQLiteStreamRepository) MarkBatch(ctx context.Context, resultados []por
 
 	stmtVivo, err := tx.PrepareContext(ctx,
 		`UPDATE streams
-		 SET is_alive = 1, fail_count = 0, latency_ms = ?, last_checked = ?, updated_at = ?
+		 SET is_alive = 1, fail_count = 0, latency_ms = ?, last_checked = ?, updated_at = ?,
+		     web_ok = COALESCE(?, web_ok)
 		 WHERE id = ?`)
 	if err != nil {
 		return fmt.Errorf("db.Stream.MarkBatch (Prepare vivo): %w", err)
@@ -233,7 +234,8 @@ func (r *SQLiteStreamRepository) MarkBatch(ctx context.Context, resultados []por
 		 SET fail_count   = fail_count + 1,
 		     is_alive     = CASE WHEN fail_count + 1 >= ? THEN 0 ELSE is_alive END,
 		     last_checked = ?,
-		     updated_at   = ?
+		     updated_at   = ?,
+		     web_ok       = COALESCE(?, web_ok)
 		 WHERE id = ?`)
 	if err != nil {
 		return fmt.Errorf("db.Stream.MarkBatch (Prepare muerto): %w", err)
@@ -243,9 +245,9 @@ func (r *SQLiteStreamRepository) MarkBatch(ctx context.Context, resultados []por
 	now := time.Now().Unix()
 	for _, res := range resultados {
 		if res.IsAlive {
-			_, err = stmtVivo.ExecContext(ctx, res.LatencyMs, now, now, res.StreamID)
+			_, err = stmtVivo.ExecContext(ctx, res.LatencyMs, now, now, argWebOK(res.Web), res.StreamID)
 		} else {
-			_, err = stmtMuerto.ExecContext(ctx, DeadFailThreshold, now, now, res.StreamID)
+			_, err = stmtMuerto.ExecContext(ctx, DeadFailThreshold, now, now, argWebOK(res.Web), res.StreamID)
 		}
 		if err != nil {
 			return fmt.Errorf("db.Stream.MarkBatch (Exec id=%s): %w", res.StreamID, err)
@@ -253,4 +255,17 @@ func (r *SQLiteStreamRepository) MarkBatch(ctx context.Context, resultados []por
 	}
 
 	return tx.Commit()
+}
+
+// argWebOK traduce el veredicto al argumento del COALESCE: nil para
+// "no se sabe", que deja intacto lo que ya hubiera en la columna.
+func argWebOK(v domain.WebSupport) any {
+	switch v {
+	case domain.WebOK:
+		return int64(1)
+	case domain.WebNo:
+		return int64(0)
+	default:
+		return nil
+	}
 }

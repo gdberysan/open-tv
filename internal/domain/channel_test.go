@@ -42,15 +42,34 @@ func TestChannelJSONCongelaElContratoConLaApp(t *testing.T) {
 
 	for _, k := range []string{
 		"ID", "TvgID", "Name", "LogoURL", "CategoryID", "LanguageCode",
-		"CountryCode", "ProviderID", "Alive", "LatencyMs", "ProviderType",
+		"CountryCode", "ProviderID", "Alive", "LatencyMs", "WebOK", "ProviderType",
 		"IsAdult", "CreatedAt", "UpdatedAt",
 	} {
 		if _, ok := got[k]; !ok {
 			t.Errorf("falta la clave %q en el JSON; la app Flutter la lee", k)
 		}
 	}
-	if len(got) != 14 {
-		t.Errorf("el JSON tiene %d claves, quiero 14: añadir un campo al dominio lo filtra al cable", len(got))
+	if len(got) != 15 {
+		t.Errorf("el JSON tiene %d claves, quiero 15: añadir un campo al dominio lo filtra al cable", len(got))
+	}
+}
+
+// El campo nuevo es ADITIVO. La app Flutter (mobile/lib/domain/models/
+// channel.dart) construye Channel leyendo claves por nombre con
+// `json['X'] as T?`, así que una clave de más la ignora. Lo que la rompería es
+// quitar o renombrar una de las 14 originales — de eso se encarga la lista de
+// arriba.
+func TestWebOKEsNullCuandoNoSeHaComprobado(t *testing.T) {
+	raw, err := json.Marshal(domain.Channel{ID: "x", Name: "X", ProviderType: domain.ProviderOpenSource})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if v, ok := got["WebOK"]; !ok || v != nil {
+		t.Errorf("WebOK = %v (presente=%v), quiero null", v, ok)
 	}
 }
 

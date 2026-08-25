@@ -34,8 +34,13 @@ type Channel struct {
 	// Salud agregada de los streams del canal, rellenada por FindFiltered
 	// para que la lista pinte el indicador sin N+1 a /channels/{id}/health.
 	// Alive nil = ningún stream chequeado aún.
-	Alive        *bool        `json:"Alive"`
-	LatencyMs    int64        `json:"LatencyMs"` // mejor latencia entre streams vivos; 0 si no aplica
+	Alive     *bool `json:"Alive"`
+	LatencyMs int64 `json:"LatencyMs"` // mejor latencia entre streams vivos; 0 si no aplica
+	// WebOK dice si el canal se reproduce DIRECTAMENTE en un navegador
+	// (veredicto estricto: HTTPS + CORS + códecs de navegador). nil = ningún
+	// stream comprobado aún. Campo ADITIVO: la app Flutter lo ignora, porque
+	// Channel.fromJson lee claves por nombre.
+	WebOK        *bool        `json:"WebOK"`
 	ProviderType ProviderType `json:"ProviderType"`
 	IsAdult      bool         `json:"IsAdult"`
 	CreatedAt    time.Time    `json:"CreatedAt"`

@@ -11,6 +11,10 @@ type StreamHealth struct {
 	StreamID  string
 	IsAlive   bool
 	LatencyMs int64
+	// Web es el veredicto de reproducibilidad en navegador. WebUnknown
+	// (el cero valor) significa "no se pudo preguntar" y NO pisa lo que ya
+	// hubiera guardado.
+	Web domain.WebSupport
 }
 
 type StreamRepository interface {

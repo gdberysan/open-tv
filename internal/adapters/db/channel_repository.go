@@ -261,7 +261,8 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 	q := "SELECT" + channelColumns + `,
 		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.last_checked IS NOT NULL) AS any_checked,
 		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS any_alive,
-		(SELECT MIN(s.latency_ms) FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS best_latency
+		(SELECT MIN(s.latency_ms) FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS best_latency,
+		(SELECT MAX(s.web_ok) FROM streams s WHERE s.channel_id = channels.id AND s.web_ok IS NOT NULL) AS web_ok
 		FROM channels WHERE ` + whereSQL +
 		// Desempate por id: sin él, SQLite no garantiza un orden estable entre
 		// nombres iguales, y sobre 12k canales con nombres repetidos una fila
@@ -396,8 +397,9 @@ func scanChannels(rows *sql.Rows) ([]domain.Channel, error) {
 	return channels, nil
 }
 
-// scanChannelsWithHealth escanea filas de FindFiltered, que añaden las tres
-// columnas de salud agregada (any_checked, any_alive, best_latency).
+// scanChannelsWithHealth escanea filas de FindFiltered y Random, que añaden
+// las cuatro columnas de salud agregada (any_checked, any_alive,
+// best_latency, web_ok).
 func scanChannelsWithHealth(rows *sql.Rows) ([]domain.Channel, error) {
 	var channels []domain.Channel
 	for rows.Next() {
@@ -409,13 +411,14 @@ func scanChannelsWithHealth(rows *sql.Rows) ([]domain.Channel, error) {
 			createdAt, updatedAt                                  int64
 			anyChecked, anyAlive                                  int
 			bestLatency                                           sql.NullInt64
+			webOK                                                 sql.NullInt64
 		)
 		if err := rows.Scan(
 			(*string)(&ch.ID), &tvgID, &ch.Name, &logoURL, &categoryID,
 			&languageCode, &countryCode,
 			&providerID, (*string)(&ch.ProviderType),
 			&isAdult, &createdAt, &updatedAt,
-			&anyChecked, &anyAlive, &bestLatency,
+			&anyChecked, &anyAlive, &bestLatency, &webOK,
 		); err != nil {
 			return nil, fmt.Errorf("db.scanChannelsWithHealth: %w", err)
 		}
@@ -432,6 +435,10 @@ func scanChannelsWithHealth(rows *sql.Rows) ([]domain.Channel, error) {
 			alive := anyAlive == 1
 			ch.Alive = &alive
 			ch.LatencyMs = bestLatency.Int64
+		}
+		if webOK.Valid {
+			v := webOK.Int64 == 1
+			ch.WebOK = &v
 		}
 		channels = append(channels, ch)
 	}
@@ -528,7 +535,8 @@ func (r *SQLiteChannelRepository) Random(ctx context.Context, f ports.ChannelFil
 	q := "SELECT" + channelColumns + `,
 		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.last_checked IS NOT NULL) AS any_checked,
 		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS any_alive,
-		(SELECT MIN(s.latency_ms) FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS best_latency
+		(SELECT MIN(s.latency_ms) FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS best_latency,
+		(SELECT MAX(s.web_ok) FROM streams s WHERE s.channel_id = channels.id AND s.web_ok IS NOT NULL) AS web_ok
 		FROM channels WHERE ` + whereSQL + " ORDER BY RANDOM() LIMIT 1"
 
 	rows, err := r.db.QueryContext(ctx, q, args...)

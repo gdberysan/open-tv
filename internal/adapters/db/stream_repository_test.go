@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -474,5 +475,84 @@ func TestMarkBatchVacioNoFalla(t *testing.T) {
 	_, stRepo := openStreamTestRepos(t)
 	if err := stRepo.MarkBatch(context.Background(), nil); err != nil {
 		t.Errorf("MarkBatch(nil) = %v, quiero nil", err)
+	}
+}
+
+// repoConCanal abre una DB de test con un canal ("ch-1") y dos streams
+// ("s1", "s2") ya guardados, y devuelve además el *sql.DB crudo para que los
+// tests puedan leer columnas (como web_ok) que el dominio no expone tal cual.
+func repoConCanal(t *testing.T) (*db.SQLiteStreamRepository, *sql.DB) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.db")
+	sqlDB, err := db.Open(path)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { sqlDB.Close() })
+
+	chRepo := db.NewChannelRepository(sqlDB)
+	stRepo := db.NewStreamRepository(sqlDB)
+	seedChannel(t, chRepo, "ch-1")
+
+	if err := stRepo.SaveBatch(context.Background(), []domain.Stream{
+		makeStream("s1", "ch-1", "http://a.example/1.m3u8"),
+		makeStream("s2", "ch-1", "http://b.example/1.m3u8"),
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+	return stRepo, sqlDB
+}
+
+// El veredicto web se guarda junto al de salud, en la misma transacción.
+func TestMarkBatchPersisteWebOK(t *testing.T) {
+	repo, sqlDB := repoConCanal(t)
+
+	if err := repo.MarkBatch(context.Background(), []ports.StreamHealth{
+		{StreamID: "s1", IsAlive: true, LatencyMs: 120, Web: domain.WebOK},
+		{StreamID: "s2", IsAlive: true, LatencyMs: 300, Web: domain.WebNo},
+	}); err != nil {
+		t.Fatalf("MarkBatch: %v", err)
+	}
+
+	for _, c := range []struct {
+		id     string
+		quiero sql.NullInt64
+	}{
+		{"s1", sql.NullInt64{Int64: 1, Valid: true}},
+		{"s2", sql.NullInt64{Int64: 0, Valid: true}},
+	} {
+		var got sql.NullInt64
+		if err := sqlDB.QueryRow(`SELECT web_ok FROM streams WHERE id = ?`, c.id).Scan(&got); err != nil {
+			t.Fatalf("leyendo web_ok de %s: %v", c.id, err)
+		}
+		if got != c.quiero {
+			t.Errorf("web_ok de %s = %+v, quiero %+v", c.id, got, c.quiero)
+		}
+	}
+}
+
+// Un veredicto desconocido NO puede pisar uno bueno: si el origen no contestó
+// esta pasada, lo que sabíamos de la anterior sigue siendo lo mejor que hay.
+func TestMarkBatchUnknownNoPisaElVeredictoAnterior(t *testing.T) {
+	repo, sqlDB := repoConCanal(t)
+	ctx := context.Background()
+
+	if err := repo.MarkBatch(ctx, []ports.StreamHealth{
+		{StreamID: "s1", IsAlive: true, LatencyMs: 100, Web: domain.WebOK},
+	}); err != nil {
+		t.Fatalf("MarkBatch (1): %v", err)
+	}
+	if err := repo.MarkBatch(ctx, []ports.StreamHealth{
+		{StreamID: "s1", IsAlive: false, Web: domain.WebUnknown},
+	}); err != nil {
+		t.Fatalf("MarkBatch (2): %v", err)
+	}
+
+	var got sql.NullInt64
+	if err := sqlDB.QueryRow(`SELECT web_ok FROM streams WHERE id = 's1'`).Scan(&got); err != nil {
+		t.Fatalf("leyendo web_ok: %v", err)
+	}
+	if !got.Valid || got.Int64 != 1 {
+		t.Errorf("web_ok = %+v, quiero que conserve 1", got)
 	}
 }

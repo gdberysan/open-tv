@@ -73,6 +73,10 @@ CREATE TABLE IF NOT EXISTS streams (
     -- Fallos consecutivos del health-check. Solo al llegar a DeadFailThreshold
     -- se apaga is_alive: un blip de red no puede ocultar el canal una hora.
     fail_count   INTEGER NOT NULL DEFAULT 0,
+    -- Reproducibilidad directa en navegador (veredicto estricto de hls.js).
+    -- NULL = sin comprobar, y hay que distinguirlo de 0: la tarjeta pinta
+    -- cosas distintas para "no se ve" y "todavía no lo sé".
+    web_ok       INTEGER CHECK (web_ok IN (0,1)),
     last_checked INTEGER,
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL
