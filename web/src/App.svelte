@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { get } from 'svelte/store'
   import { idioma, t } from './i18n'
   import { crearHttpCatalog } from './datos/http'
@@ -64,7 +64,18 @@
       calidad: f.calidad,
       mostrarOffline: f.mostrarOffline,
     }
-    return paginar ? { ...base, limite: PAGINA, desplazamiento } : base
+    // untrack: desplazamiento se lee aquí pero adrede NO forma parte de "qué
+    // cambia el resultado del catálogo" (ver claveConsulta más abajo, que lo
+    // excluye a propósito). Sin untrack, el efecto de claveConsulta —que
+    // llama a esta función a través de cargarPagina(true)— se suscribe de
+    // rebote a desplazamiento por leerlo en su misma pasada síncrona; como
+    // cargarPagina ESCRIBE desplazamiento al terminar con éxito, el efecto se
+    // disparaba a sí mismo sin fin: reset→consulta→éxito→reset→… sin que la
+    // rejilla llegara nunca a pintar nada. Bug real que este mismo e2e
+    // (Tarea 15) fue el primero en poder ver, porque los tests de componente
+    // con mocks nunca dejan correr el ciclo de efectos lo bastante para que
+    // ocurra.
+    return paginar ? { ...base, limite: PAGINA, desplazamiento: untrack(() => desplazamiento) } : base
   }
 
   async function cargarPagina(reiniciar: boolean) {
@@ -201,7 +212,7 @@
   })
 
   function alternarIdioma() {
-    idioma.update((v) => (v === 'es' ? 'en' : 'es'))
+    idioma.actual = idioma.actual === 'es' ? 'en' : 'es'
   }
 </script>
 
@@ -210,7 +221,7 @@
     <h1>{t('app.titulo')}</h1>
     <p class="lema">{t('app.lema')}</p>
     <button type="button" class="idioma" onclick={alternarIdioma}>
-      {$idioma === 'es' ? t('idioma.en') : t('idioma.es')}
+      {idioma.actual === 'es' ? t('idioma.en') : t('idioma.es')}
     </button>
   </header>
 

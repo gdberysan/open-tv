@@ -18,14 +18,14 @@ describe('diccionario', () => {
   })
 
   it('interpola parámetros', () => {
-    idioma.set('es')
+    idioma.actual = 'es'
     expect(t('catalogo.total', { n: '12639' })).toContain('12639')
   })
 
   it('cambia de idioma', () => {
-    idioma.set('en')
+    idioma.actual = 'en'
     const ingles = t('accion.aleatorio')
-    idioma.set('es')
+    idioma.actual = 'es'
     expect(t('accion.aleatorio')).not.toBe(ingles)
   })
 })

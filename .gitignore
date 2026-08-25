@@ -20,7 +20,12 @@ iptv.db
 /web/node_modules/
 /web/test-results/
 /web/playwright-report/
-/web/tests/fixtures/hls/
+
+# Fixtures del e2e: catalogo.m3u y hls/ los genera global-setup.ts en cada
+# corrida (Tarea 15). El HLS de ffmpeg y el .m3u que lo referencia son
+# artefactos, no fuente — los specs que sí son fuente viven en web/tests/e2e/,
+# no aquí, así que ignorar el directorio entero es seguro.
+/web/tests/fixtures/
 
 # Flutter / Dart
 mobile/build/
