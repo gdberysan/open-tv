@@ -85,7 +85,7 @@ func TestTablaDeRutas(t *testing.T) {
 	defer sqlDB.Close()
 
 	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{},
-		streamsVacio{}, sqlDB, syncVacio{}, false)
+		streamsVacio{}, sqlDB, syncVacio{}, api.Options{})
 
 	casos := []struct {
 		ruta   string
@@ -99,8 +99,11 @@ func TestTablaDeRutas(t *testing.T) {
 		{"/channels/categories", http.StatusOK},
 		{"/channels/stream?id=x", http.StatusNotFound},
 		{"/channels/loquesea/health", http.StatusNotFound},
-		// La guía se retiró.
-		{"/epg/now", http.StatusNotFound},
+		// La guía se retiró. Ya no es 404 de API: el cliente web (Tarea 9) se
+		// monta como NotFound del router, así que cualquier ruta que ninguna
+		// API reclame cae al fallback SPA (200 con el index). El 404 de
+		// verdad para un fichero inexistente lo prueba internal/ui.
+		{"/epg/now", http.StatusOK},
 	}
 	for _, c := range casos {
 		rr := httptest.NewRecorder()
@@ -115,7 +118,7 @@ func TestTablaDeRutas(t *testing.T) {
 // alguien reintroduce el middleware "porque el navegador se quejaba" y la
 // regresión no se ve: todo sigue funcionando, solo que para todos.
 func TestRouterNoAnunciaCORS(t *testing.T) {
-	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, false)
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, api.Options{})
 
 	req := httptest.NewRequest(http.MethodGet, "/channels", nil)
 	req.Header.Set("Origin", "https://evil.example")
@@ -135,9 +138,12 @@ func TestProxySoloExisteEnLoopback(t *testing.T) {
 		quiero int
 	}{
 		{true, http.StatusBadRequest}, // montado: se queja de que falta u
-		{false, http.StatusNotFound},  // no montado: la ruta no existe
+		// no montado: la ruta no existe como API, pero el cliente web (Tarea 9)
+		// se monta como NotFound del router, así que cae al fallback SPA (200
+		// con el index) en vez de un 404 de API.
+		{false, http.StatusOK},
 	} {
-		r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, c.activo)
+		r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, api.Options{ProxyActivo: c.activo})
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy/hls", nil))
 		if rec.Code != c.quiero {

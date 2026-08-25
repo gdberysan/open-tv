@@ -24,6 +24,10 @@ import (
 	"github.com/gdberysan/open-tv/internal/services"
 )
 
+// version la inyecta el linker en las releases (-ldflags "-X main.version=…").
+// En desarrollo se queda en "dev", que es exactamente lo que es.
+var version = "dev"
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
@@ -161,7 +165,10 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 
 	url := "http://" + ln.Addr().String()
 	srv := &http.Server{
-		Handler:           api.NewRouter(logger, channelRepoRO, provider, streamRepoRO, lecturaDB, syncer, esLoopback(ln)),
+		Handler: api.NewRouter(logger, channelRepoRO, provider, streamRepoRO, lecturaDB, syncer, api.Options{
+			ProxyActivo: esLoopback(ln),
+			Version:     version,
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,

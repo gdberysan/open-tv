@@ -13,6 +13,7 @@ import (
 	"github.com/gdberysan/open-tv/internal/api/middleware"
 	"github.com/gdberysan/open-tv/internal/ports"
 	"github.com/gdberysan/open-tv/internal/proxy"
+	"github.com/gdberysan/open-tv/internal/ui"
 )
 
 // RutaProxy es el prefijo con el que se reescriben las URIs del manifiesto y
@@ -20,9 +21,16 @@ import (
 // no puedan divergir.
 const RutaProxy = "/proxy/hls?u="
 
-func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer handlers.SyncStatus, proxyActivo bool) http.Handler {
-	// proxyActivo lo decide el listener real (loopback o no) y lo consumen el
-	// proxy HLS (montaje) y /health (proxy_enabled).
+// Options son los datos que el router necesita del proceso: qué puede montar
+// y qué versión anunciar.
+type Options struct {
+	// ProxyActivo lo decide el listener real (loopback o no), nunca la
+	// configuración: LISTEN_ADDR puede decir "localhost" y resolver a otra cosa.
+	ProxyActivo bool
+	Version     string
+}
+
+func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer handlers.SyncStatus, opts Options) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
@@ -36,7 +44,13 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	prober := handlers.NewAirplayProber(nil, 12*time.Hour, 2000)
 	ch := handlers.NewChannelHandler(logger, repo, provider, streams, prober)
 
-	hh := handlers.NewHealthHandler(sqlDB, syncer)
+	clienteWeb, hayClienteWeb := ui.Handler()
+
+	hh := handlers.NewHealthHandler(sqlDB, syncer, handlers.Info{
+		Version:      opts.Version,
+		WebUI:        hayClienteWeb,
+		ProxyEnabled: opts.ProxyActivo,
+	})
 	r.Get("/health", hh.Get)
 
 	r.Route("/channels", func(r chi.Router) {
@@ -52,9 +66,16 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	// forzarlo: un proxy abierto a la red es un relay de vídeo de terceros con
 	// la IP de quien lo levante, y eso no se ofrece ni por accidente. Los
 	// builds del snapshot tampoco lo incluyen porque nunca son loopback.
-	if proxyActivo {
+	if opts.ProxyActivo {
 		ph := proxy.NewHandler(RutaProxy, false)
 		r.Get("/proxy/hls", ph.ServeHTTP)
+	}
+
+	// La UI va la ÚLTIMA: NotFound solo se aplica a lo que ninguna ruta de API
+	// haya reclamado, y así /channels/loquesea sigue siendo un 404 de API y no
+	// devuelve el index.
+	if hayClienteWeb {
+		r.NotFound(clienteWeb.ServeHTTP)
 	}
 
 	return r

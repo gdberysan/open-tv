@@ -26,17 +26,37 @@ type SyncStatus interface {
 type HealthHandler struct {
 	db     *sql.DB
 	syncer SyncStatus
+	info   Info
 }
 
-func NewHealthHandler(db *sql.DB, syncer SyncStatus) *HealthHandler {
-	return &HealthHandler{db: db, syncer: syncer}
+// Info son los datos del binario que /health publica. version_ui y
+// proxy_enabled no son adorno: la página de primer arranque decide con ellos
+// qué mensaje enseñar, y `open-tv` los usa para reconocer que el puerto
+// ocupado es otro Open TV y no un servicio ajeno.
+type Info struct {
+	Version      string
+	WebUI        bool
+	ProxyEnabled bool
+}
+
+func NewHealthHandler(db *sql.DB, syncer SyncStatus, info Info) *HealthHandler {
+	if info.Version == "" {
+		info.Version = "dev"
+	}
+	return &HealthHandler{db: db, syncer: syncer, info: info}
 }
 
 func (h *HealthHandler) Get(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	res := map[string]any{"status": "ok", "db": "ok"}
+	res := map[string]any{
+		"status":        "ok",
+		"db":            "ok",
+		"version":       h.info.Version,
+		"web_ui":        h.info.WebUI,
+		"proxy_enabled": h.info.ProxyEnabled,
+	}
 	httpStatus := http.StatusOK
 
 	if err := h.db.PingContext(ctx); err != nil {

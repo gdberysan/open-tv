@@ -22,7 +22,7 @@ func TestHealthReportaEdadDelSync(t *testing.T) {
 	}
 	defer sqlDB.Close()
 
-	h := NewHealthHandler(sqlDB, fakeSyncStatus{last: time.Now().Add(-2 * time.Hour)})
+	h := NewHealthHandler(sqlDB, fakeSyncStatus{last: time.Now().Add(-2 * time.Hour)}, Info{})
 	rec := httptest.NewRecorder()
 	h.Get(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 
@@ -53,7 +53,7 @@ func TestHealthDegradadoSiElSyncEsMuyViejo(t *testing.T) {
 	}
 	defer sqlDB.Close()
 
-	h := NewHealthHandler(sqlDB, fakeSyncStatus{last: time.Now().Add(-72 * time.Hour)})
+	h := NewHealthHandler(sqlDB, fakeSyncStatus{last: time.Now().Add(-72 * time.Hour)}, Info{})
 	rec := httptest.NewRecorder()
 	h.Get(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 
@@ -74,7 +74,7 @@ func TestHealthDetectaDBCaida(t *testing.T) {
 	}
 	sqlDB.Close()
 
-	h := NewHealthHandler(sqlDB, fakeSyncStatus{last: time.Now()})
+	h := NewHealthHandler(sqlDB, fakeSyncStatus{last: time.Now()}, Info{})
 	rec := httptest.NewRecorder()
 	h.Get(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 
@@ -91,7 +91,7 @@ func TestHealthSinSyncPrevio(t *testing.T) {
 	}
 	defer sqlDB.Close()
 
-	h := NewHealthHandler(sqlDB, fakeSyncStatus{})
+	h := NewHealthHandler(sqlDB, fakeSyncStatus{}, Info{})
 	rec := httptest.NewRecorder()
 	h.Get(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 
@@ -102,5 +102,51 @@ func TestHealthSinSyncPrevio(t *testing.T) {
 	}
 	if got["last_sync"] != nil {
 		t.Errorf("last_sync = %v, quiero null", got["last_sync"])
+	}
+}
+
+func TestHealthPublicaLaInfoDelBinario(t *testing.T) {
+	sqlDB, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	h := NewHealthHandler(sqlDB, fakeSyncStatus{}, Info{
+		Version: "1.2.3", WebUI: true, ProxyEnabled: true,
+	})
+	rec := httptest.NewRecorder()
+	h.Get(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	for k, quiero := range map[string]any{"version": "1.2.3", "web_ui": true, "proxy_enabled": true} {
+		if got[k] != quiero {
+			t.Errorf("%s = %v, quiero %v", k, got[k], quiero)
+		}
+	}
+}
+
+// Sin versión inyectada por el linker (go run, go test) la respuesta dice
+// "dev" y no una cadena vacía que parezca un bug.
+func TestHealthVersionPorDefecto(t *testing.T) {
+	sqlDB, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	h := NewHealthHandler(sqlDB, fakeSyncStatus{}, Info{})
+	rec := httptest.NewRecorder()
+	h.Get(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if got["version"] != "dev" {
+		t.Errorf("version = %v, quiero \"dev\"", got["version"])
 	}
 }
