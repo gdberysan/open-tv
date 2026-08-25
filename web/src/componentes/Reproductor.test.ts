@@ -191,4 +191,59 @@ describe('Reproductor — failover entre mirrors', () => {
     await vi.waitFor(() => expect(screen.queryByText(t('estado.gatewayCaido'))).not.toBeNull())
     expect(screen.queryByText(t('reproductor.error.noArranco'))).toBeNull()
   })
+
+  // Ronda 2 de revisión (gate manual en Chrome real): el <video> de la app se
+  // quedaba en readyState 0 para siempre en motor nativo — un <video> suelto
+  // con la MISMA url y un load() explícito sí cargaba. jsdom no decodifica
+  // (canPlayType siempre '' y play() no devuelve Promise), así que aquí se
+  // fuerza el motor nativo con spies y se comprueba el CONTRATO de llamadas
+  // (load() y play() por intento, con el src ya puesto), no la decodificación
+  // — eso es exactamente lo que el gate manual verifica de verdad.
+  it('el camino nativo llama a load() y play() por cada intento del failover', async () => {
+    const canPlayTypeSpy = vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('maybe')
+    // limpiarIntento() TAMBIÉN llama a video.load() (al limpiar, con el src ya
+    // vacío) antes de que el intento nativo asigne el nuevo src y llame a SU
+    // propio load(). Para no confundir esas dos llamadas, la del fix se
+    // distingue registrando qué src tenía el <video> en cada llamada a
+    // load(): la de limpiarIntento() ocurre con el src vacío; la del camino
+    // nativo ocurre con el src YA puesto al del intento.
+    const srcAlLlamarLoad: string[] = []
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(function (this: HTMLVideoElement) {
+      srcAlLlamarLoad.push(this.src)
+    })
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+
+    try {
+      const mirrors: Mirror[] = [
+        { url: 'https://muerto/x.m3u8', vivo: true, latenciaMs: 100, webOk: true },
+        { url: 'https://vivo/x.m3u8', vivo: true, latenciaMs: 200, webOk: true },
+      ]
+      const fuente = {
+        mirrors: vi.fn(async () => mirrors),
+        proxyDisponible: vi.fn(async () => false),
+      }
+
+      const { container } = render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+      const video = container.querySelector('video')! as HTMLVideoElement
+
+      // Primer intento: play() confirma que se llegó al final del camino
+      // nativo; el ÚLTIMO load() registrado hasta ahora tiene que haber
+      // ocurrido con el src YA puesto al mirror muerto (la llamada del fix,
+      // no la de limpiarIntento()).
+      await vi.waitFor(() => expect(playSpy).toHaveBeenCalledTimes(1))
+      expect(video.src).toContain('muerto')
+      expect(srcAlLlamarLoad.at(-1)).toContain('muerto')
+
+      // Fatal el primero (mismo camino que un fallo de decode real): el
+      // failover repite load()/play() para el segundo intento.
+      video.dispatchEvent(new Event('error'))
+      await vi.waitFor(() => expect(playSpy).toHaveBeenCalledTimes(2))
+      expect(video.src).toContain('vivo')
+      expect(srcAlLlamarLoad.at(-1)).toContain('vivo')
+    } finally {
+      canPlayTypeSpy.mockRestore()
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
 })

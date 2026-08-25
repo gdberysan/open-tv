@@ -158,6 +158,15 @@
 
       if (motor === 'nativo') {
         video.src = intento.url
+        // load() explícito: asignar .src debería bastar por espec (dispara el
+        // algoritmo de selección de recurso solo), pero verificado a mano en
+        // Chrome (Ronda 2 de revisión) el <video> del reproductor se quedaba
+        // en readyState 0 para SIEMPRE — ni error ni datos — mientras que un
+        // <video> suelto con la MISMA url y un load() explícito sí llegaba a
+        // readyState 4 en segundos. Forzar el algoritmo de selección de
+        // recurso a mano, en vez de confiar en que la asignación implícita lo
+        // dispare, es lo que de verdad hace arrancar la carga en este camino.
+        video.load()
         video.play().catch(() => {
           // Un rechazo de play() no es necesariamente fatal (autoplay
           // bloqueado sin gesto); el guard decide con la posición real.
