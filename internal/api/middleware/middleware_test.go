@@ -115,25 +115,3 @@ func TestLoggerRegistraMetodoRutaYStatus(t *testing.T) {
 		}
 	}
 }
-
-// El preflight OPTIONS debe cortarse en el middleware: si llegase al handler,
-// respondería 405 y el navegador bloquearía la petición real.
-func TestCORSCortaElPreflight(t *testing.T) {
-	llamado := false
-	h := middleware.CORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		llamado = true
-	}))
-
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodOptions, "/channels", nil))
-
-	if rec.Code != http.StatusNoContent {
-		t.Errorf("status = %d, quiero 204", rec.Code)
-	}
-	if llamado {
-		t.Error("el preflight no debe llegar al handler")
-	}
-	if rec.Header().Get("Access-Control-Allow-Origin") == "" {
-		t.Error("falta la cabecera Access-Control-Allow-Origin")
-	}
-}

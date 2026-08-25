@@ -14,10 +14,13 @@ import (
 	"github.com/gdberysan/open-tv/internal/ports"
 )
 
-func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer handlers.SyncStatus) http.Handler {
+func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer handlers.SyncStatus, proxyActivo bool) http.Handler {
+	// proxyActivo lo decide el listener real (loopback o no) y lo consumen el
+	// proxy HLS (montaje) y /health (proxy_enabled).
+	_ = proxyActivo
+
 	r := chi.NewRouter()
 
-	r.Use(middleware.CORS)
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(middleware.Logger(logger))

@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -20,7 +22,7 @@ func TestRunArrancaYApagaLimpio(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
-	go func() { errc <- run(ctx, slog.New(slog.DiscardHandler)) }()
+	go func() { errc <- run(ctx, slog.New(slog.DiscardHandler), true) }()
 
 	var resp *http.Response
 	var err error
@@ -51,23 +53,75 @@ func TestRunArrancaYApagaLimpio(t *testing.T) {
 	}
 }
 
-// Un puerto ocupado debe devolver error en vez de matar el proceso con
-// os.Exit(1) desde dentro de una goroutine, que se saltaba todos los defers.
-func TestRunDevuelveErrorSiElPuertoEstaOcupado(t *testing.T) {
-	srv := &http.Server{Addr: "127.0.0.1:18081", Handler: http.NotFoundHandler()}
-	go func() { _ = srv.ListenAndServe() }()
-	defer srv.Close()
-	time.Sleep(300 * time.Millisecond)
+// Con el fallback de puerto (Tarea 2), un único puerto ocupado ya no basta
+// para que run() falle: salta al siguiente. Solo devuelve error cuando se
+// agotan los 8 intentos, así que aquí se ocupan los 8 puertos consecutivos.
+func TestRunDevuelveErrorSiNoQuedaPuertoLibre(t *testing.T) {
+	const base = 18090
+	var ocupados []net.Listener
+	for i := 0; i < 8; i++ {
+		ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(base+i))
+		if err != nil {
+			t.Fatalf("ocupando el puerto %d: %v", base+i, err)
+		}
+		ocupados = append(ocupados, ln)
+	}
+	defer func() {
+		for _, ln := range ocupados {
+			ln.Close()
+		}
+	}()
 
 	t.Setenv("DB_PATH", filepath.Join(t.TempDir(), "test.db"))
-	t.Setenv("LISTEN_ADDR", "127.0.0.1:18081")
+	t.Setenv("LISTEN_ADDR", "127.0.0.1:"+strconv.Itoa(base))
 	t.Setenv("IPTV_ORG_URL", "http://127.0.0.1:1/index.m3u")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	if err := run(ctx, slog.New(slog.DiscardHandler)); err == nil {
-		t.Error("run debería devolver error si no puede escuchar")
+	if err := run(ctx, slog.New(slog.DiscardHandler), true); err == nil {
+		t.Error("run debería devolver error si no queda ningún puerto libre")
+	}
+}
+
+// El fallback de puerto es la diferencia entre "no arranca" y "arranca en el
+// 8081". Se comprueba con el 8080 realmente ocupado.
+func TestRunSaltaDePuertoSiEstaOcupado(t *testing.T) {
+	ocupado, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("preparando el puerto ocupado: %v", err)
+	}
+	defer ocupado.Close()
+
+	t.Setenv("DB_PATH", filepath.Join(t.TempDir(), "test.db"))
+	t.Setenv("LISTEN_ADDR", ocupado.Addr().String())
+	t.Setenv("IPTV_ORG_URL", "http://127.0.0.1:1/index.m3u")
+
+	_, puertoStr, _ := net.SplitHostPort(ocupado.Addr().String())
+	puerto, _ := strconv.Atoi(puertoStr)
+	siguiente := "http://127.0.0.1:" + strconv.Itoa(puerto+1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() { errc <- run(ctx, slog.New(slog.DiscardHandler), true) }()
+
+	var resp *http.Response
+	for i := 0; i < 60; i++ {
+		resp, err = http.Get(siguiente + "/health")
+		if err == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err != nil {
+		cancel()
+		t.Fatalf("no escuchó en el puerto siguiente: %v", err)
+	}
+	resp.Body.Close()
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Errorf("run devolvió error: %v", err)
 	}
 }
 

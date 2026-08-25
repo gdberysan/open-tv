@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,6 +19,8 @@ import (
 	"github.com/gdberysan/open-tv/internal/adapters/providers/opensource"
 	"github.com/gdberysan/open-tv/internal/adapters/validator"
 	"github.com/gdberysan/open-tv/internal/api"
+	"github.com/gdberysan/open-tv/internal/datadir"
+	"github.com/gdberysan/open-tv/internal/netx"
 	"github.com/gdberysan/open-tv/internal/services"
 )
 
@@ -30,10 +34,22 @@ func main() {
 	log.SetFlags(0)
 	log.SetOutput(slogWriter{logger})
 
+	// Subcomandos: `serve` es el default. Se acepta explícito para que el
+	// LaunchAgent y los scripts de arranque no dependan del default.
+	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "serve" {
+		args = args[1:]
+	}
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	sinNavegador := fs.Bool("no-browser", false, "no abrir el navegador al arrancar")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := run(ctx, logger); err != nil {
+	if err := run(ctx, logger, *sinNavegador); err != nil {
 		logger.Error("Fallo fatal", slog.Any("error", err))
 		os.Exit(1)
 	}
@@ -42,13 +58,14 @@ func main() {
 // run monta el stack completo y bloquea hasta que ctx se cancele. Separado de
 // main para que sea testeable: main solo traduce el error a un exit code, y así
 // el cableado de workers y el orden de apagado quedan bajo test.
-func run(ctx context.Context, logger *slog.Logger) error {
+func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 	logger.Info("Iniciando Korven Open TV — gateway")
 
-	// 1. Base de datos SQLite
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "iptv.db"
+	// 1. Base de datos SQLite. La ruta viene del directorio de datos del
+	// sistema salvo que DB_PATH diga otra cosa.
+	dbPath, err := datadir.RutaDB()
+	if err != nil {
+		return fmt.Errorf("resolviendo el directorio de datos: %w", err)
 	}
 	sqlDB, err := db.Open(dbPath)
 	if err != nil {
@@ -124,24 +141,47 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:8080"
 	}
+
+	ln, err := netx.EscuchaConFallback(listenAddr, 8)
+	if err != nil {
+		// Puerto ocupado: lo más probable es que ya haya un Open TV abierto.
+		base := "http://" + listenAddr
+		if InstanciaViva(ctx, base) {
+			logger.Info("Ya hay un Open TV escuchando; abriendo esa ventana",
+				slog.String("url", base))
+			if !sinNavegador {
+				if err := AbrirNavegador(base); err != nil {
+					logger.Warn("No se pudo abrir el navegador", slog.Any("error", err))
+				}
+			}
+			return nil
+		}
+		return fmt.Errorf("escuchando en %s: %w", listenAddr, err)
+	}
+
+	url := "http://" + ln.Addr().String()
 	srv := &http.Server{
-		Addr:              listenAddr,
-		Handler:           api.NewRouter(logger, channelRepoRO, provider, streamRepoRO, lecturaDB, syncer),
+		Handler:           api.NewRouter(logger, channelRepoRO, provider, streamRepoRO, lecturaDB, syncer, esLoopback(ln)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
 
-	// El fallo del servidor viaja por un canal en vez de os.Exit(1): así el
-	// apagado ordenado se ejecuta igual y no se saltan los defers.
 	srvErr := make(chan error, 1)
 	go func() {
-		logger.Info("Servidor escuchando", slog.String("addr", srv.Addr))
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Info("Servidor escuchando", slog.String("url", url))
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			srvErr <- err
 		}
 	}()
+
+	if !sinNavegador {
+		if err := AbrirNavegador(url); err != nil {
+			logger.Warn("No se pudo abrir el navegador; abre la URL a mano",
+				slog.String("url", url), slog.Any("error", err))
+		}
+	}
 
 	select {
 	case err := <-srvErr:
@@ -189,4 +229,15 @@ type slogWriter struct{ l *slog.Logger }
 func (w slogWriter) Write(p []byte) (int, error) {
 	w.l.Warn("stdlib log", slog.String("msg", strings.TrimSpace(string(p))))
 	return len(p), nil
+}
+
+// esLoopback decide si el proxy HLS puede montarse. Se pregunta al listener
+// real y no a la cadena de configuración: LISTEN_ADDR puede decir "localhost",
+// un nombre puede resolver a otra cosa, y lo que importa es la IP que quedó.
+func esLoopback(ln net.Listener) bool {
+	addr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		return false
+	}
+	return addr.IP.IsLoopback()
 }

@@ -85,7 +85,7 @@ func TestTablaDeRutas(t *testing.T) {
 	defer sqlDB.Close()
 
 	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{},
-		streamsVacio{}, sqlDB, syncVacio{})
+		streamsVacio{}, sqlDB, syncVacio{}, false)
 
 	casos := []struct {
 		ruta   string
@@ -108,5 +108,21 @@ func TestTablaDeRutas(t *testing.T) {
 		if rr.Code != c.quiero {
 			t.Errorf("%s = %d, quiero %d", c.ruta, rr.Code, c.quiero)
 		}
+	}
+}
+
+// El gateway local dejó de ser legible por webs de terceros. Sin este test,
+// alguien reintroduce el middleware "porque el navegador se quejaba" y la
+// regresión no se ve: todo sigue funcionando, solo que para todos.
+func TestRouterNoAnunciaCORS(t *testing.T) {
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, false)
+
+	req := httptest.NewRequest(http.MethodGet, "/channels", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if v := rec.Header().Get("Access-Control-Allow-Origin"); v != "" {
+		t.Errorf("Access-Control-Allow-Origin = %q, quiero vacío", v)
 	}
 }
