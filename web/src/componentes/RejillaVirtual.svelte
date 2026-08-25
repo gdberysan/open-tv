@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { onDestroy, tick } from 'svelte'
   import type { Canal } from '../datos/catalogo'
   import TarjetaCanal from './TarjetaCanal.svelte'
 
@@ -50,7 +50,6 @@
   let anchoContenedor = $state(0)
   let altoMedido = $state(0)
 
-  let scrollY = $state(0)
   let innerHeight = $state(0)
   let innerWidth = $state(0)
 
@@ -64,21 +63,56 @@
   let filaInicio = $state(0)
   let filaFin = $state(0)
 
-  // Ventana visible: se recalcula en cada scroll/resize. altoFila y filas
-  // también son dependencias porque una tarjeta medida con más precisión (o
-  // un cambio de nº de columnas) desplaza qué filas caen dentro del margen.
-  $effect(() => {
-    scrollY
-    innerHeight
-    columnas
-    altoFila
-    filas
+  // Fix ronda 1 (controlador, rendimiento): con bind:scrollY el efecto de
+  // la ventana leía getBoundingClientRect() de forma SÍNCRONA en cada
+  // evento 'scroll' — un flick de trackpad dispara decenas de esos eventos
+  // por segundo, y cada lectura de layout forzada así es "layout thrash".
+  // Se sustituye por un listener manual pasivo + coalescencia por rAF: cada
+  // 'scroll' solo agenda un requestAnimationFrame (si no hay ya uno
+  // pendiente), y la única lectura de layout ocurre dentro de ese rAF —
+  // como mucho una vez por frame, sea cual sea el nº de eventos de scroll
+  // que hayan llegado en ese frame.
+  let rafVentana = 0
+
+  function recalcularVentana() {
+    rafVentana = 0
     if (!contenedor) return
     const top = contenedor.getBoundingClientRect().top
     const inicioPx = Math.max(0, -top - FILAS_BUFFER * altoFila)
     const finPx = -top + innerHeight + FILAS_BUFFER * altoFila
     filaInicio = Math.min(filas, Math.max(0, Math.floor(inicioPx / altoFila)))
     filaFin = Math.max(filaInicio, Math.min(filas, Math.ceil(finPx / altoFila)))
+  }
+
+  function agendarRecalculo() {
+    if (rafVentana) return // ya hay un rAF pendiente: no agendar otro
+    rafVentana = requestAnimationFrame(recalcularVentana)
+  }
+
+  onDestroy(() => {
+    if (rafVentana) cancelAnimationFrame(rafVentana)
+  })
+
+  // Listener pasivo: no bloquea el scroll del navegador a la espera de que
+  // termine el handler (no hay preventDefault posible ni falta que hace).
+  $effect(() => {
+    window.addEventListener('scroll', agendarRecalculo, { passive: true })
+    return () => window.removeEventListener('scroll', agendarRecalculo)
+  })
+
+  // Recalcula también cuando cambia algo que NO viene de un evento de
+  // scroll: alto/ancho de ventana, nº de columnas, alto de fila medido, o
+  // el nº de filas (cambia el catálogo). Estos son mucho menos frecuentes
+  // que el scroll, pero pasan por el mismo agendarRecalculo() para no leer
+  // layout dos veces en el mismo frame si coinciden con un scroll, y para
+  // sembrar filaInicio/filaFin en el primer render.
+  $effect(() => {
+    innerHeight
+    innerWidth
+    columnas
+    altoFila
+    filas
+    agendarRecalculo()
   })
 
   // Ancho real del contenedor y alto real de una tarjeta: se miden tras
@@ -109,8 +143,16 @@
   const indiceInicio = $derived(filaInicio * columnas)
   const indiceFin = $derived(Math.min(canales.length, filaFin * columnas))
   const visibles = $derived(canales.slice(indiceInicio, indiceFin))
-  const altoArriba = $derived(filaInicio * altoFila)
-  const altoAbajo = $derived(Math.max(0, (filas - filaFin) * altoFila))
+  // Fix ronda 1 (controlador, minor — doble GAP): un espaciador de N filas
+  // ocultas NO necesita N*altoFila. El `gap:12px` de la propia grid YA pone
+  // un separador entre el espaciador y la primera tarjeta visible (ese es
+  // exactamente el gap real entre la última fila oculta y la primera
+  // visible) — sumar N*altoFila = N*(alto+GAP) además de ese gap cuenta el
+  // último GAP dos veces. El espaciador solo debe cubrir las N alturas de
+  // fila MÁS los (N-1) gaps INTERNOS entre ellas, y dejar que el grid ponga
+  // el último: N*alto + (N-1)*GAP = N*altoFila - GAP.
+  const altoArriba = $derived(Math.max(0, filaInicio * altoFila - GAP))
+  const altoAbajo = $derived(Math.max(0, (filas - filaFin) * altoFila - GAP))
 
   // Mismo centinela que en modo lista (ver RejillaCanales): al entrar en el
   // viewport pide la página siguiente. Vive fuera del contenedor
@@ -128,7 +170,7 @@
   })
 </script>
 
-<svelte:window bind:scrollY bind:innerHeight bind:innerWidth />
+<svelte:window bind:innerHeight bind:innerWidth />
 
 <div class="rejilla-virtual" bind:this={contenedor}>
   {#if altoArriba > 0}

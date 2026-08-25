@@ -27,7 +27,13 @@ function canalFalso(i: number): Canal {
 // 0), así que la ventana cae al respaldo (ALTO_RESPALDO=220, 1 columna).
 // Da igual el número exacto: lo que importa es que sea muchísimo menor que
 // el total, y que no reviente con 0 tarjetas.
+//
+// El cálculo de la ventana se agenda con requestAnimationFrame (fix ronda 1,
+// coalescencia por rAF): no basta con un setTimeout(0), porque el rAF de
+// jsdom no resuelve hasta su propio tick — hay que esperarlo explícitamente
+// antes de esperar también un tick de Svelte para que el estado se propague.
 async function asentar() {
+  await new Promise<number>((resolve) => requestAnimationFrame(resolve))
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
