@@ -3,11 +3,12 @@
   import { get } from 'svelte/store'
   import { idioma, t } from './i18n'
   import { crearHttpCatalog } from './datos/http'
-  import type { Canal, ConsultaCatalogo, Faceta } from './datos/catalogo'
+  import type { Canal, ConsultaCatalogo, DestinoStream, Faceta } from './datos/catalogo'
   import { filtros } from './estado/filtros'
   import { favoritos } from './estado/favoritos'
   import BarraFiltros from './componentes/BarraFiltros.svelte'
   import RejillaCanales from './componentes/RejillaCanales.svelte'
+  import Reproductor from './componentes/Reproductor.svelte'
 
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
@@ -28,6 +29,13 @@
   // filtro dos veces seguidas no puede dejar pintada la respuesta de la
   // primera si llega después que la de la segunda.
   let peticionActual = 0
+
+  // Estado del reproductor. destinoAbierto null = aún resolviendo destino()
+  // (o no hay canal abierto): el componente Reproductor no se monta hasta
+  // tener los dos, porque necesita destino.url desde el primer render.
+  let canalAbierto = $state<Canal | null>(null)
+  let destinoAbierto = $state<DestinoStream | null>(null)
+  let proxyDisp = $state(false)
 
   function construirConsulta(paginar: boolean): ConsultaCatalogo {
     const f = get(filtros)
@@ -82,9 +90,42 @@
     cargarPagina(false)
   }
 
-  function abrirCanal(canal: Canal) {
-    // El reproductor llega en la Tarea 13. De momento no hay a dónde abrir.
-    console.debug('open-tv: abrir canal', canal.id)
+  async function abrirCanal(canal: Canal) {
+    canalAbierto = canal
+    destinoAbierto = null
+    try {
+      const [destino, proxy] = await Promise.all([catalogo.destino(canal.id), catalogo.proxyDisponible()])
+      // Si mientras tanto se cerró el reproductor o se abrió otro canal, esta
+      // respuesta ya no es la que hay que pintar.
+      if (canalAbierto?.id !== canal.id) return
+      destinoAbierto = destino
+      proxyDisp = proxy
+    } catch (e) {
+      if (canalAbierto?.id !== canal.id) return
+      error = mensajeError(e)
+      canalAbierto = null
+    }
+  }
+
+  function cerrarReproductor() {
+    canalAbierto = null
+    destinoAbierto = null
+  }
+
+  // ←/→ del reproductor se mueven dentro de la lista ya cargada en pantalla,
+  // no piden más canales: son "el siguiente que ya veo", no paginación.
+  function indiceAbierto(): number {
+    return canalAbierto ? canales.findIndex((c) => c.id === canalAbierto!.id) : -1
+  }
+
+  function canalAnterior() {
+    const i = indiceAbierto()
+    if (i > 0) abrirCanal(canales[i - 1])
+  }
+
+  function canalSiguiente() {
+    const i = indiceAbierto()
+    if (i >= 0 && i < canales.length - 1) abrirCanal(canales[i + 1])
   }
 
   async function alAleatorio() {
@@ -150,6 +191,17 @@
     <RejillaCanales {canales} vista={$filtros.vista} {cargando} {alPedirMas} alAbrir={abrirCanal} />
   {/if}
 </main>
+
+{#if canalAbierto && destinoAbierto}
+  <Reproductor
+    canal={canalAbierto}
+    destino={destinoAbierto}
+    proxyDisponible={proxyDisp}
+    alCerrar={cerrarReproductor}
+    alAnterior={canalAnterior}
+    alSiguiente={canalSiguiente}
+  />
+{/if}
 
 <style>
   main {
