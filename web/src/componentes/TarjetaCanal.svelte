@@ -8,12 +8,15 @@
 
   let { canal, alAbrir }: { canal: Canal; alAbrir: (c: Canal) => void } = $props()
   const esFavorito = $derived($favoritos.has(canal.id))
+  // La logoUrl del catálogo suele estar muerta/404/bloqueada; si la imagen no
+  // carga, caemos a las iniciales en vez de dejar el icono de imagen rota.
+  let logoRoto = $state(false)
 </script>
 
 <article class="tarjeta">
   <button class="abrir" onclick={() => alAbrir(canal)} aria-label={canal.nombre}>
-    {#if canal.logoUrl}
-      <img src={canal.logoUrl} alt="" loading="lazy" />
+    {#if canal.logoUrl && !logoRoto}
+      <img src={canal.logoUrl} alt="" loading="lazy" onerror={() => (logoRoto = true)} />
     {:else}
       <span class="sinlogo" aria-hidden="true">{canal.nombre.slice(0, 2)}</span>
     {/if}
