@@ -146,9 +146,14 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 		listenAddr = "127.0.0.1:8080"
 	}
 
-	ln, err := netx.EscuchaConFallback(listenAddr, 8)
+	// Se prueba el puerto configurado a pelo ANTES de barajar fallbacks: si
+	// está libre, nada cambia. Si está ocupado, hay que decidir por qué antes
+	// de saltar de puerto — puede ser otro Open TV (llevar al usuario a esa
+	// ventana, NUNCA arrancar un segundo catálogo contra la misma SQLite) o
+	// un servicio ajeno (entonces sí tiene sentido probar los siguientes
+	// puertos, que es el comportamiento de siempre).
+	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
-		// Puerto ocupado: lo más probable es que ya haya un Open TV abierto.
 		base := "http://" + listenAddr
 		if InstanciaViva(ctx, base) {
 			logger.Info("Ya hay un Open TV escuchando; abriendo esa ventana",
@@ -160,7 +165,12 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 			}
 			return nil
 		}
-		return fmt.Errorf("escuchando en %s: %w", listenAddr, err)
+		// No es Open TV: el puerto configurado lo tiene otra cosa, así que
+		// probamos los siguientes.
+		ln, err = netx.EscuchaConFallback(listenAddr, 8)
+		if err != nil {
+			return fmt.Errorf("escuchando en %s: %w", listenAddr, err)
+		}
 	}
 
 	url := "http://" + ln.Addr().String()

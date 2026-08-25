@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -122,6 +123,63 @@ func TestRunSaltaDePuertoSiEstaOcupado(t *testing.T) {
 	cancel()
 	if err := <-errc; err != nil {
 		t.Errorf("run devolvió error: %v", err)
+	}
+}
+
+// Deviación #7 del plan: si el puerto configurado ya lo tiene OTRO Open TV
+// (no un servicio cualquiera), run() no debe arrancar un segundo catálogo —
+// tiene que detectarlo por InstanciaViva y volver sin tocar ningún puerto de
+// fallback. Arrancar un segundo Syncer + health-worker contra la misma
+// SQLite es exactamente el bug que este fix cierra.
+func TestRunEnfocaInstanciaExistenteEnVezDeArrancarSegunda(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("preparando el puerto ocupado: %v", err)
+	}
+	addr := ln.Addr().String()
+
+	// Un Open TV "de mentira": un httptest.Server pegado al puerto que
+	// normalmente usaría el segundo run(), con un /health que marca web_ui
+	// tal y como lo hace el router real (ver instancia_test.go).
+	falso := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok","db":"ok","web_ui":true}`))
+	}))
+	falso.Listener = ln
+	falso.Start()
+	defer falso.Close()
+
+	_, puertoStr, _ := net.SplitHostPort(addr)
+	puerto, _ := strconv.Atoi(puertoStr)
+	siguiente := "127.0.0.1:" + strconv.Itoa(puerto+1)
+
+	t.Setenv("DB_PATH", filepath.Join(t.TempDir(), "test.db"))
+	t.Setenv("LISTEN_ADDR", addr)
+	t.Setenv("IPTV_ORG_URL", "http://127.0.0.1:1/index.m3u")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	errc := make(chan error, 1)
+	go func() { errc <- run(ctx, slog.New(slog.DiscardHandler), true) }()
+
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Errorf("run devolvió error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run no volvió: parece haber arrancado un segundo catálogo en vez de detectar la instancia existente")
+	}
+
+	// Nada debería haber arrancado un segundo Open TV en el puerto de
+	// fallback. Un dial TCP a pelo es poco fiable aquí — el SO puede tener
+	// algún otro proceso ajeno ocupando ese puerto efímero por pura
+	// coincidencia — así que se pregunta con la misma vara que usa la
+	// producción: InstanciaViva exige un /health con web_ui, que ningún
+	// proceso ajeno va a servir por casualidad.
+	if InstanciaViva(context.Background(), "http://"+siguiente) {
+		t.Error("no debería haber un segundo Open TV escuchando en el puerto de fallback")
 	}
 }
 
