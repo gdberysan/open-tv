@@ -126,3 +126,22 @@ func TestRouterNoAnunciaCORS(t *testing.T) {
 		t.Errorf("Access-Control-Allow-Origin = %q, quiero vacío", v)
 	}
 }
+
+// La regla estructural: sin loopback no hay proxy. Si alguien la relaja, este
+// test es el que lo dice.
+func TestProxySoloExisteEnLoopback(t *testing.T) {
+	for _, c := range []struct {
+		activo bool
+		quiero int
+	}{
+		{true, http.StatusBadRequest}, // montado: se queja de que falta u
+		{false, http.StatusNotFound},  // no montado: la ruta no existe
+	} {
+		r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, c.activo)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy/hls", nil))
+		if rec.Code != c.quiero {
+			t.Errorf("proxyActivo=%v → %d, quiero %d", c.activo, rec.Code, c.quiero)
+		}
+	}
+}

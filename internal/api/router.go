@@ -12,13 +12,17 @@ import (
 	"github.com/gdberysan/open-tv/internal/api/handlers"
 	"github.com/gdberysan/open-tv/internal/api/middleware"
 	"github.com/gdberysan/open-tv/internal/ports"
+	"github.com/gdberysan/open-tv/internal/proxy"
 )
+
+// RutaProxy es el prefijo con el que se reescriben las URIs del manifiesto y
+// la ruta que las sirve. Una sola constante para que el reescritor y el router
+// no puedan divergir.
+const RutaProxy = "/proxy/hls?u="
 
 func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer handlers.SyncStatus, proxyActivo bool) http.Handler {
 	// proxyActivo lo decide el listener real (loopback o no) y lo consumen el
 	// proxy HLS (montaje) y /health (proxy_enabled).
-	_ = proxyActivo
-
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
@@ -43,6 +47,15 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 		r.Get("/random", ch.GetRandom)
 		r.Get("/{id}/health", ch.GetHealth)
 	})
+
+	// El proxy HLS solo existe cuando escuchamos en loopback. No hay flag para
+	// forzarlo: un proxy abierto a la red es un relay de vídeo de terceros con
+	// la IP de quien lo levante, y eso no se ofrece ni por accidente. Los
+	// builds del snapshot tampoco lo incluyen porque nunca son loopback.
+	if proxyActivo {
+		ph := proxy.NewHandler(RutaProxy, false)
+		r.Get("/proxy/hls", ph.ServeHTTP)
+	}
 
 	return r
 }
