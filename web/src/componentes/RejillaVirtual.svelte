@@ -24,10 +24,13 @@
   // <body>. Por eso el estado real es `activeIndex`: un índice GLOBAL (no de
   // la ventana visible) que vive en RejillaVirtual y sobrevive a que su
   // tarjeta se monte o desmonte. Cada tarjeta visible recibe `indice` (su
-  // posición global) y `focoActivo` (si coincide con activeIndex): solo esa
-  // tarjeta tiene tabindex=0, el resto -1 — el patrón estándar de roving
-  // tabindex, adaptado para que la ÚNICA fuente de verdad sea un número, no
-  // una referencia a un nodo.
+  // posición global) y `focoActivo` (si coincide con activeIndex): SOLO esa
+  // tarjeta tiene tabindex=0 en TODOS sus controles (el botón "abrir" y el
+  // de favorito — fix round 1: el de favorito se quedó fuera la primera
+  // vez, y una tarjeta no-activa seguía aportando un tab stop de más), el
+  // resto -1 en ambos — el patrón estándar de roving tabindex, adaptado
+  // para que la ÚNICA fuente de verdad sea un número, no una referencia a
+  // un nodo.
   //
   // Mover el índice activo (enfocarIndice) a una fila fuera de
   // [filaInicio, filaFin) primero ABRE a mano una ventana nueva y acotada
@@ -40,10 +43,15 @@
   //
   // El Tab nativo del navegador entre <button> sigue funcionando igual que
   // siempre (no se toca): con roving tabindex, un Tab que ENTRA en la
-  // rejilla aterriza en la tarjeta activa (tabindex=0) y CONTINÚA hacia
-  // fuera de la rejilla en vez de recorrer tarjeta a tarjeta — ese es
-  // justamente el comportamiento esperado del patrón (las flechas son las
-  // que recorren la colección; Tab la atraviesa).
+  // rejilla aterriza en el primer control con tabindex=0 de la tarjeta
+  // ACTIVA (su botón "abrir"), un segundo Tab pasa al otro control de esa
+  // MISMA tarjeta (su botón de favorito — el único otro tabindex=0 que
+  // existe), y el siguiente Tab ya sale de la rejilla: ninguna tarjeta
+  // no-activa aporta tab stop alguno, ni de abrir ni de favorito. Eso es lo
+  // que hace que el roving tabindex reduzca los tab stops de la rejilla de
+  // 2·N (dos controles por cada una de las N tarjetas) a 2 (los de la única
+  // tarjeta activa) en vez de no cambiar nada — las flechas recorren la
+  // colección; Tab la atraviesa.
   let { canales, alAbrir, alPedirMas }: {
     canales: Canal[]
     alAbrir: (c: Canal) => void
@@ -220,9 +228,13 @@
 
   // Flechas mueven activeIndex; Enter/Espacio abren el canal por la
   // semántica nativa del <button> enfocado — no hace falta reimplementarla.
-  // Se filtra por `.abrir` para que las flechas no interfieran con el resto
-  // de controles de la tarjeta (p.ej. el botón de favorito, que no
-  // participa del roving tabindex).
+  // Se filtra por `.abrir` porque las flechas navegan ENTRE tarjetas
+  // (mueven qué tarjeta es la activa), no entre los controles DENTRO de
+  // una misma tarjeta: con el foco en el botón de favorito (que sí
+  // participa del roving tabindex — su tabindex también sigue a
+  // focoActivo, ver TarjetaCanal.svelte — pero al que las flechas no
+  // apuntan) una flecha debe hacer lo de siempre (nada especial aquí),
+  // no saltar de tarjeta.
   function alTecladoRejilla(e: KeyboardEvent) {
     if (!(e.target instanceof HTMLElement) || !e.target.classList.contains('abrir')) return
     switch (e.key) {

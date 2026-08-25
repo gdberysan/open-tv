@@ -61,6 +61,7 @@
       onclick={() => favoritos.alternar(canal.id)}
       aria-pressed={esFavorito}
       aria-label={esFavorito ? t('canal.favorito.quitar') : t('canal.favorito.anadir')}
+      tabindex={focoActivo ? 0 : -1}
     >★</button>
   </footer>
 </article>

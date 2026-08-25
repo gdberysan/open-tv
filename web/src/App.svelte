@@ -221,6 +221,27 @@
   function alternarIdioma() {
     idioma.actual = idioma.actual === 'es' ? 'en' : 'es'
   }
+
+  // Regiones aria-live PERSISTENTES (fix round 1, Hallazgo 1): Sincronizando
+  // y MensajeError se montan/desmontan con {#if}/{:else if} — un lector de
+  // pantalla que solo escucha MUTACIONES DE TEXTO dentro de una región ya
+  // presente (NVDA, y VoiceOver de forma inconsistente) no anuncia la
+  // inserción de un nodo aria-live nuevo. Estas dos cadenas derivadas
+  // alimentan un par de <div class="sr-only" aria-live> que existen SIEMPRE
+  // (vacíos en catálogo normal) en vez de togglear el nodo entero; los
+  // componentes visuales Sincronizando/MensajeError no cambian — siguen
+  // siendo lo que ve quien SÍ ve la pantalla.
+  const mensajeDeClaseAccesible = (clase: ClaseError) =>
+    clase === 'gateway' ? t('estado.gatewayCaido') : clase === 'red' ? t('estado.sinRed') : t('estado.errorServidor')
+
+  let mensajeSincronizandoAccesible = $derived(fase.tipo === 'sincronizando' ? t('estado.sincronizando') : '')
+  let mensajeErrorAccesible = $derived(
+    fase.tipo === 'error'
+      ? mensajeDeClaseAccesible(fase.clase)
+      : fase.tipo === 'listo' && errorCatalogo
+        ? mensajeDeClaseAccesible(errorCatalogo)
+        : '',
+  )
 </script>
 
 <!-- inert (Tarea 18, orden de foco): mientras el reproductor está abierto es
@@ -231,6 +252,13 @@
      "salirse" del modal sin cerrarlo. inert saca todo <main>/<footer> del
      árbol de accesibilidad y del orden de tabulación de una sola vez, sin
      tener que enumerar a mano cada control de fuera. -->
+<!-- Persistentes (fix round 1, Hallazgo 1): ver el comentario largo en el
+     <script> sobre por qué NO son los <p aria-live> que se montan dentro de
+     Sincronizando/MensajeError. Vacías en catálogo normal; su texto es lo
+     único que cambia. -->
+<div class="sr-only" aria-live="polite" aria-atomic="true">{mensajeSincronizandoAccesible}</div>
+<div class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">{mensajeErrorAccesible}</div>
+
 <main inert={!!canalAbierto}>
   <header>
     <h1>{t('app.titulo')}</h1>

@@ -148,7 +148,11 @@ describe('Reproductor — failover entre mirrors', () => {
     hlsState.instancias[1].fallar('manifestLoadError')
 
     // Los dos mirrors se agotaron: ahora sí se muestra el error, y no antes.
-    await vi.waitFor(() => expect(screen.queryByText(t('reproductor.error.noArranco'))).not.toBeNull())
+    // queryAllByText (no queryByText): desde el fix round 1 de la Tarea 18
+    // el mensaje aparece DOS veces a propósito — el <p class="estado error">
+    // visual y la región aria-live persistente y oculta que lo anuncia de
+    // forma fiable (ver Reproductor.svelte).
+    await vi.waitFor(() => expect(screen.queryAllByText(t('reproductor.error.noArranco')).length).toBeGreaterThan(0))
     expect(intentadas).toEqual(['https://muerto/x.m3u8', 'https://vivo/x.m3u8'])
     expect(fuente.mirrors).toHaveBeenCalledWith('c1')
   })
@@ -188,7 +192,10 @@ describe('Reproductor — failover entre mirrors', () => {
 
     render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
 
-    await vi.waitFor(() => expect(screen.queryByText(t('estado.gatewayCaido'))).not.toBeNull())
+    // queryAllByText: mismo motivo que arriba — el mensaje aparece por
+    // partida doble (visual + región aria-live persistente) desde el fix
+    // round 1 de la Tarea 18.
+    await vi.waitFor(() => expect(screen.queryAllByText(t('estado.gatewayCaido')).length).toBeGreaterThan(0))
     expect(screen.queryByText(t('reproductor.error.noArranco'))).toBeNull()
   })
 

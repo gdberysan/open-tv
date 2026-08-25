@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, fireEvent, screen } from '@testing-library/svelte'
 import { tick } from 'svelte'
 import App from '../App.svelte'
@@ -9,6 +9,7 @@ import RejillaCanales from '../componentes/RejillaCanales.svelte'
 import Reproductor from '../componentes/Reproductor.svelte'
 import { filtros } from '../estado/filtros'
 import { favoritos } from '../estado/favoritos'
+import { consultarSalud } from '../estado/salud'
 import { t } from '../i18n'
 import type { Canal, CatalogSource, PaginaCanales } from '../datos/catalogo'
 
@@ -111,6 +112,100 @@ describe('a11y — estados con aria-live', () => {
   })
 })
 
+describe('a11y — regiones aria-live PERSISTENTES (fix round 1, Hallazgo 1)', () => {
+  // La diferencia con el describe anterior: allí se comprueba que el
+  // ATRIBUTO existe. Aquí se comprueba lo que ese hallazgo señaló que
+  // faltaba: que la región ya está montada ANTES del cambio de estado
+  // (para que un lector de pantalla que solo anuncia mutaciones de texto
+  // dentro de un nodo YA presente, no la inserción del nodo, sí la capte),
+  // y que es el MISMO nodo (misma referencia) el que cambia de texto, no
+  // uno nuevo que reemplaza al anterior.
+
+  // consultarSalud es un mock SINGLETON por módulo (no se recrea entre
+  // tests): si un test deja una respuesta "Once" sin consumir en su cola,
+  // el SIGUIENTE test que también llama a consultarSalud() se la comería
+  // sin darse cuenta. Restaurar aquí la implementación por defecto tras
+  // cada test de este describe evita ese acoplamiento entre tests.
+  afterEach(() => {
+    vi.mocked(consultarSalud).mockReset()
+    vi.mocked(consultarSalud).mockImplementation(async () => ({
+      sincronizando: false,
+      proxyDisponible: false,
+      ultimoSync: new Date('2026-01-01T00:00:00Z'),
+      version: 'test',
+    }))
+  })
+
+  it('App: la región polite ya existe en el montaje inicial y su TEXTO (no el nodo) refleja "sincronizando"', async () => {
+    // Fuerza la fase 'sincronizando' (el mock global de consultarSalud
+    // resuelve 'listo' por defecto). Se encolan EXACTAMENTE dos respuestas
+    // —no solo una— porque Sincronizando.svelte hace su PROPIA llamada a
+    // consultarSalud() en su onMount (además de la de App): con una sola
+    // respuesta encolada, esa segunda llamada consumiría el valor por
+    // defecto (sincronizando:false) y la fase saltaría a 'listo' antes de
+    // que la aserción de abajo llegara a leer el texto. Exactamente dos
+    // (ni una de más) para no dejar una respuesta sin consumir que
+    // contamine el SIGUIENTE test del fichero (el mock es un singleton por
+    // módulo, no se resetea entre tests).
+    const respuestaSincronizando = {
+      sincronizando: true, proxyDisponible: false, ultimoSync: null, version: 'test',
+    }
+    vi.mocked(consultarSalud).mockResolvedValueOnce(respuestaSincronizando)
+    vi.mocked(consultarSalud).mockResolvedValueOnce(respuestaSincronizando)
+    const { container } = render(App, { fuente: fuenteFalsa() })
+
+    // Ya existe en el primer render (fase todavía 'comprobando'), vacía.
+    const region = container.querySelector('[aria-live="polite"].sr-only')
+    expect(region).not.toBeNull()
+    expect(region?.textContent).toBe('')
+
+    await vi.waitFor(() => expect(region?.textContent).toBe(t('estado.sincronizando')))
+
+    // MISMO NODO: si el arreglo montara/desmontara un <p aria-live> nuevo
+    // (el bug original), esta comprobación de identidad fallaría aunque el
+    // texto final fuera el correcto.
+    expect(container.querySelector('[aria-live="polite"].sr-only')).toBe(region)
+  })
+
+  it('App: la región assertive ya existe en el montaje inicial y su TEXTO refleja el error de salud', async () => {
+    vi.mocked(consultarSalud).mockRejectedValueOnce(new Error('gateway inalcanzable'))
+    const { container } = render(App, { fuente: fuenteFalsa() })
+
+    const region = container.querySelector('[aria-live="assertive"].sr-only')
+    expect(region).not.toBeNull()
+    expect(region?.textContent).toBe('')
+
+    await vi.waitFor(() => expect(region?.textContent).toBe(t('estado.gatewayCaido')))
+    expect(container.querySelector('[aria-live="assertive"].sr-only')).toBe(region)
+  })
+
+  it('Reproductor: las dos regiones existen desde el montaje y solo su texto cambia entre "cargando" y el error', async () => {
+    const canal: Canal = { ...canalFalso(0), nombre: 'Canal de prueba' }
+    const fuente = fuenteFalsa({
+      mirrors: vi.fn(async () => {
+        throw new Error('gateway inalcanzable')
+      }),
+      proxyDisponible: vi.fn(async () => false),
+    })
+    const { container } = render(Reproductor, { canal, fuente, alCerrar: () => {} })
+
+    const polite = container.querySelector('[aria-live="polite"].sr-only')
+    const assertive = container.querySelector('[aria-live="assertive"].sr-only')
+    expect(polite).not.toBeNull()
+    expect(assertive).not.toBeNull()
+    // cargando=true desde el primer render: la región polite ya lo refleja.
+    expect(polite?.textContent).toBe(t('reproductor.cargando'))
+    expect(assertive?.textContent).toBe('')
+
+    await vi.waitFor(() => expect(assertive?.textContent).toBe(t('estado.gatewayCaido')))
+    // La polite vuelve a quedar vacía (ya no está cargando) — mismo nodo,
+    // no uno nuevo.
+    expect(polite?.textContent).toBe('')
+    expect(container.querySelector('[aria-live="polite"].sr-only')).toBe(polite)
+    expect(container.querySelector('[aria-live="assertive"].sr-only')).toBe(assertive)
+  })
+})
+
 describe('a11y — rejilla y lista exponen role=list/listitem', () => {
   it('RejillaVirtual: el contenedor es role=list y cada tarjeta es role=listitem', async () => {
     const canales = Array.from({ length: 4 }, (_, i) => canalFalso(i))
@@ -138,24 +233,46 @@ describe('a11y — rejilla y lista exponen role=list/listitem', () => {
 })
 
 describe('a11y — roving tabindex en la rejilla virtualizada', () => {
-  it('solo la tarjeta activa tiene tabindex=0; ArrowRight mueve el foco y el tabindex a la siguiente', async () => {
+  it('solo la tarjeta activa tiene tabindex=0 en AMBOS controles (abrir y favorito); ArrowRight mueve el foco y el tabindex a la siguiente', async () => {
     const canales = Array.from({ length: 5 }, (_, i) => canalFalso(i))
     const { container } = render(RejillaVirtual, { canales, alAbrir: () => {}, alPedirMas: () => {} })
     await asentar()
 
-    const botones = () => [...container.querySelectorAll<HTMLElement>('article .abrir')]
-    // Antes del arreglo ningún botón tenía atributo tabindex: getAttribute
-    // devolvía null en las dos comprobaciones siguientes, no '0'/'-1'.
-    expect(botones()[0].getAttribute('tabindex')).toBe('0')
-    expect(botones()[1].getAttribute('tabindex')).toBe('-1')
+    const abrir = () => [...container.querySelectorAll<HTMLElement>('article .abrir')]
+    const favorito = () => [...container.querySelectorAll<HTMLElement>('article .favorito')]
+    // Antes del arreglo ningún botón "abrir" tenía atributo tabindex, y el
+    // de favorito NUNCA lo tuvo (fix round 1, Hallazgo 2): cada tarjeta
+    // visible aportaba su estrella como tab stop aunque no fuera la
+    // activa. getAttribute devolvía null (abrir) o '0' fijo (favorito) en
+    // vez de '0'/'-1' según focoActivo.
+    expect(abrir()[0].getAttribute('tabindex')).toBe('0')
+    expect(abrir()[1].getAttribute('tabindex')).toBe('-1')
+    expect(favorito()[0].getAttribute('tabindex')).toBe('0')
+    expect(favorito()[1].getAttribute('tabindex')).toBe('-1')
 
-    botones()[0].focus()
-    await fireEvent.keyDown(botones()[0], { key: 'ArrowRight' })
+    abrir()[0].focus()
+    await fireEvent.keyDown(abrir()[0], { key: 'ArrowRight' })
     await asentar()
 
-    expect(document.activeElement).toBe(botones()[1])
-    expect(botones()[0].getAttribute('tabindex')).toBe('-1')
-    expect(botones()[1].getAttribute('tabindex')).toBe('0')
+    expect(document.activeElement).toBe(abrir()[1])
+    expect(abrir()[0].getAttribute('tabindex')).toBe('-1')
+    expect(abrir()[1].getAttribute('tabindex')).toBe('0')
+    // El favorito sigue a la MISMA tarjeta activa que el botón "abrir": se
+    // gatea igual, no de forma independiente.
+    expect(favorito()[0].getAttribute('tabindex')).toBe('-1')
+    expect(favorito()[1].getAttribute('tabindex')).toBe('0')
+  })
+
+  it('una tarjeta no-activa no aporta ningún tab stop (ni abrir ni favorito) — el roving tabindex reduce 2·N a 2', async () => {
+    const canales = Array.from({ length: 4 }, (_, i) => canalFalso(i))
+    const { container } = render(RejillaVirtual, { canales, alAbrir: () => {}, alPedirMas: () => {} })
+    await asentar()
+
+    const tabuables = container.querySelectorAll('article [tabindex="0"]')
+    // Antes del arreglo, cada una de las 4 tarjetas aportaba su favorito
+    // como tab stop (tabindex 0 fijo) además del "abrir" de la activa:
+    // 5 nodos con tabindex=0 en vez de 2 (los de la única tarjeta activa).
+    expect(tabuables.length).toBe(2)
   })
 
   it('End mueve el foco a un canal que NO estaba montado (sobrevive a la ventana virtualizada)', async () => {
@@ -233,15 +350,6 @@ describe('a11y — reproductor: controles etiquetados, aria-live y foco', () => 
     const dialogo = container.querySelector('[role="dialog"]')
     expect(dialogo?.getAttribute('aria-modal')).toBe('true')
     expect(dialogo?.getAttribute('aria-label')).toBe('Canal de prueba')
-  })
-
-  it('el estado "cargando" es aria-live="polite"', () => {
-    const { container } = render(Reproductor, { canal, fuente: fuenteFalsa(), alCerrar: () => {} })
-    const estado = container.querySelector('.estado')
-    expect(estado?.textContent).toBe(t('reproductor.cargando'))
-    // Antes del arreglo, <p class="estado"> no llevaba aria-live: un fallo
-    // de carga silencioso para quien usa lector de pantalla.
-    expect(estado?.getAttribute('aria-live')).toBe('polite')
   })
 
   it('al montar, el foco entra en el reproductor en vez de quedarse fuera', async () => {

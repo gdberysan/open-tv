@@ -457,10 +457,20 @@
     <video bind:this={video} {...{ 'x-webkit-airplay': 'allow' }} playsinline muted={silenciado}></video>
 
     {#if cargando}
-      <p class="estado" aria-live="polite">{t('reproductor.cargando')}</p>
+      <p class="estado">{t('reproductor.cargando')}</p>
     {:else if mensajeError}
-      <p class="estado error" role="alert" aria-live="assertive">{mensajeError}</p>
+      <p class="estado error">{mensajeError}</p>
     {/if}
+
+    <!-- Regiones aria-live PERSISTENTES (fix round 1, Hallazgo 1): los <p>
+         de arriba son SOLO visuales — se montan/desmontan con {#if}/
+         {:else if}, y un lector de pantalla que solo anuncia mutaciones de
+         texto dentro de una región ya presente (no la inserción del nodo
+         entero) no anunciaría nada al abrirse. Estas dos existen SIEMPRE
+         mientras el reproductor existe (vacías cuando no aplican); es su
+         textContent el que cambia. -->
+    <p class="sr-only" aria-live="polite" aria-atomic="true">{cargando ? t('reproductor.cargando') : ''}</p>
+    <p class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">{mensajeError ?? ''}</p>
   </div>
 
   <div class="controles">
