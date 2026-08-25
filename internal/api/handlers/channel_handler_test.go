@@ -93,6 +93,10 @@ func (m *mockProviderSinCache) GetStreamURL(ctx context.Context, channelID domai
 
 type mockStreamRepo struct {
 	streams map[domain.ChannelID][]domain.Stream
+	// mirrors, si no es nil, gana sobre el cálculo a partir de streams: es lo
+	// único que permite fijar WebOK a un valor concreto en el test, porque
+	// domain.Stream no tiene campo Web (ver FindMirrorsByChannelID).
+	mirrors []ports.MirrorHealth
 }
 
 func (m *mockStreamRepo) Save(ctx context.Context, s domain.Stream) error         { return nil }
@@ -125,6 +129,9 @@ func (m *mockStreamRepo) FindBestByChannelID(ctx context.Context, id domain.Chan
 // FindMirrorsByChannelID replica el orden del repo real (vivos primero, por
 // latencia ascendente) a partir de los mismos domain.Stream de m.streams.
 func (m *mockStreamRepo) FindMirrorsByChannelID(ctx context.Context, id domain.ChannelID) ([]ports.MirrorHealth, error) {
+	if m.mirrors != nil {
+		return m.mirrors, nil
+	}
 	streams := append([]domain.Stream(nil), m.streams[id]...)
 	sort.SliceStable(streams, func(i, j int) bool {
 		if streams[i].IsAlive != streams[j].IsAlive {
@@ -452,5 +459,41 @@ func TestGetStreamURLIncluyeAirplayOK(t *testing.T) {
 	}
 	if body.AirplayOK == nil || !*body.AirplayOK {
 		t.Errorf("airplay_ok = %v, quiero true", body.AirplayOK)
+	}
+}
+
+// /channels/streams es endpoint nuevo (no lo consume Flutter): expone los
+// mirrors ordenados por salud de la Tarea 1, con web_ok mapeado a bool/null.
+func TestGetChannelStreamsDevuelveMirrorsOrdenados(t *testing.T) {
+	streams := &mockStreamRepo{mirrors: []ports.MirrorHealth{
+		{URL: "https://a/x.m3u8", IsAlive: true, LatencyMs: 100, WebOK: domain.WebOK},
+		{URL: "https://b/x.m3u8", IsAlive: true, LatencyMs: 300, WebOK: domain.WebNo},
+	}}
+	h := NewChannelHandler(slog.New(slog.DiscardHandler), &mockRepo{}, &mockProvider{}, streams, nil)
+
+	rec := httptest.NewRecorder()
+	h.GetChannelStreams(rec, httptest.NewRequest(http.MethodGet, "/channels/streams?id=c1", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("código %d: %s", rec.Code, rec.Body.String())
+	}
+	var got []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(got) != 2 || got[0]["url"] != "https://a/x.m3u8" {
+		t.Fatalf("mirrors = %v", got)
+	}
+	if got[0]["web_ok"] != true || got[1]["web_ok"] != false {
+		t.Errorf("web_ok mal mapeado: %v", got)
+	}
+}
+
+func TestGetChannelStreamsSinIdEs400(t *testing.T) {
+	h := NewChannelHandler(slog.New(slog.DiscardHandler), &mockRepo{}, &mockProvider{}, &mockStreamRepo{}, nil)
+	rec := httptest.NewRecorder()
+	h.GetChannelStreams(rec, httptest.NewRequest(http.MethodGet, "/channels/streams", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("código %d, quiero 400", rec.Code)
 	}
 }

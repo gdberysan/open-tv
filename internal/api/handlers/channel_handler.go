@@ -173,6 +173,56 @@ func (h *ChannelHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, res)
 }
 
+// mirrorJSON es la forma de cable de /channels/streams. Endpoint nuevo, no lo
+// consume Flutter: etiquetas limpias en minúsculas.
+type mirrorJSON struct {
+	URL       string `json:"url"`
+	IsAlive   bool   `json:"is_alive"`
+	LatencyMs int64  `json:"latency_ms"`
+	WebOK     *bool  `json:"web_ok"` // null = sin comprobar
+}
+
+// GetChannelStreams devuelve los mirrors de un canal ordenados por salud, para
+// que el cliente haga failover. Ruta: GET /channels/streams?id=<channelID>
+func (h *ChannelHandler) GetChannelStreams(w http.ResponseWriter, r *http.Request) {
+	id := domain.ChannelID(r.URL.Query().Get("id"))
+	if id == "" {
+		h.writeError(w, http.StatusBadRequest, "id requerido")
+		return
+	}
+	mirrors, err := h.streams.FindMirrorsByChannelID(r.Context(), id)
+	if err != nil {
+		h.logger.Error("GetChannelStreams: fallo buscando mirrors", slog.Any("error", err))
+		h.writeError(w, http.StatusInternalServerError, "Error buscando mirrors")
+		return
+	}
+	if len(mirrors) == 0 {
+		h.writeError(w, http.StatusNotFound, "Canal sin mirrors")
+		return
+	}
+	salida := make([]mirrorJSON, 0, len(mirrors))
+	for _, m := range mirrors {
+		salida = append(salida, mirrorJSON{
+			URL: m.URL, IsAlive: m.IsAlive, LatencyMs: m.LatencyMs, WebOK: webOKaPtr(m.WebOK),
+		})
+	}
+	h.writeJSON(w, http.StatusOK, salida)
+}
+
+// webOKaPtr traduce el tri-estado al *bool del cable (nil = sin comprobar).
+func webOKaPtr(v domain.WebSupport) *bool {
+	switch v {
+	case domain.WebOK:
+		t := true
+		return &t
+	case domain.WebNo:
+		f := false
+		return &f
+	default:
+		return nil
+	}
+}
+
 // GetCountries y GetCategories alimentan los selectores de filtro de la app:
 // cada valor con su recuento real, para que el usuario vea cuánto hay detrás de
 // cada opción antes de elegirla.
