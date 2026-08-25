@@ -100,6 +100,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sec-Fetch-Site lo manda el navegador y el atacante no puede falsificarlo
+	// desde JS. Si viene y no es same-origin/none, la petición la disparó otro
+	// sitio (una página maliciosa cargando esta URL de proxy), y el relay no
+	// tiene por qué obedecerla aunque el Host ya haya pasado el filtro de
+	// MismoOrigen (ese filtro no ve de qué origen viene el fetch).
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+		http.Error(w, "origen cruzado no permitido", http.StatusForbidden)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), tiempoPeticion)
 	defer cancel()
 

@@ -189,8 +189,9 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 	url := "http://" + ln.Addr().String()
 	srv := &http.Server{
 		Handler: api.NewRouter(logger, channelRepoRO, provider, streamRepoRO, lecturaDB, syncer, api.Options{
-			ProxyActivo: esLoopback(ln),
-			Version:     version,
+			ProxyActivo:     esLoopback(ln),
+			Version:         version,
+			HostsPermitidos: hostsPermitidos(ln),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -270,4 +271,23 @@ func esLoopback(ln net.Listener) bool {
 		return false
 	}
 	return addr.IP.IsLoopback()
+}
+
+// hostsPermitidos construye la lista blanca de Host para el middleware
+// anti-rebinding (Ruling R13) a partir del puerto REAL con el que se acabó
+// enlazando (no LISTEN_ADDR: pudo haber saltado a un puerto de fallback). Los
+// tres literales de loopback son los que un navegador puede usar para llegar
+// aquí; un dominio atacante que resuelve a 127.0.0.1 llega con su propio
+// Host y no está en esta lista.
+func hostsPermitidos(ln net.Listener) []string {
+	addr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		return nil
+	}
+	puerto := fmt.Sprintf("%d", addr.Port)
+	return []string{
+		"127.0.0.1:" + puerto,
+		"localhost:" + puerto,
+		"[::1]:" + puerto,
+	}
 }

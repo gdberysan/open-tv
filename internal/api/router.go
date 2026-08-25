@@ -28,11 +28,18 @@ type Options struct {
 	// configuración: LISTEN_ADDR puede decir "localhost" y resolver a otra cosa.
 	ProxyActivo bool
 	Version     string
+	// HostsPermitidos cierra el DNS-rebinding (Ruling R13): si no está vacía,
+	// solo se sirven peticiones cuyo Host esté en la lista. Vacía = middleware
+	// deshabilitado, que es lo que usan los tests con Host arbitrario.
+	HostsPermitidos []string
 }
 
 func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer handlers.SyncStatus, opts Options) http.Handler {
 	r := chi.NewRouter()
 
+	// Primero: si el Host no es el loopback enlazado, se corta antes de que
+	// nada más (logger, rate limiter, handlers) toque la petición.
+	r.Use(middleware.MismoOrigen(opts.HostsPermitidos))
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(middleware.Logger(logger))

@@ -90,6 +90,40 @@ func TestProxyRechazaDestinosPrivados(t *testing.T) {
 	}
 }
 
+// Una página de otro sitio no puede usar el proxy como relay: Sec-Fetch-Site
+// lo manda el navegador y el atacante no puede falsificarlo desde JS.
+func TestProxyRechazaSecFetchSiteCruzado(t *testing.T) {
+	origen := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "video/mp2t")
+		_, _ = w.Write([]byte("bytes-de-video"))
+	}))
+	defer origen.Close()
+
+	h := proxy.NewHandler("/proxy/hls?u=", true)
+
+	for _, c := range []struct {
+		site   string
+		quiero int
+	}{
+		{"cross-site", http.StatusForbidden},
+		{"same-site", http.StatusForbidden},
+		{"same-origin", http.StatusOK},
+		{"none", http.StatusOK},
+		{"", http.StatusOK},
+	} {
+		req := httptest.NewRequest(http.MethodGet,
+			"/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg1.ts"), nil)
+		if c.site != "" {
+			req.Header.Set("Sec-Fetch-Site", c.site)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != c.quiero {
+			t.Errorf("Sec-Fetch-Site %q → %d, quiero %d", c.site, rec.Code, c.quiero)
+		}
+	}
+}
+
 func TestProxySinParametroU(t *testing.T) {
 	h := proxy.NewHandler("/proxy/hls?u=", true)
 	rec := httptest.NewRecorder()
