@@ -246,6 +246,20 @@ func (h *ChannelHandler) GetCategories(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, facetas)
 }
 
+// GetQualities alimenta la faceta de calidad del cliente web (hd/fhd/4k) con
+// el recuento real de cada tramo, reutilizando el mismo predicado de
+// resolución que el filtro quality= de /channels. Solo lo consume el
+// cliente web; Flutter no lo conoce.
+func (h *ChannelHandler) GetQualities(w http.ResponseWriter, r *http.Request) {
+	facetas, err := h.repo.Qualities(r.Context())
+	if err != nil {
+		h.logger.Error("GetQualities: fallo consultando calidades", slog.Any("error", err))
+		h.writeError(w, http.StatusInternalServerError, "Error obteniendo calidades")
+		return
+	}
+	h.writeJSON(w, http.StatusOK, facetas)
+}
+
 // GetRandom devuelve un canal al azar entre los que casan con el filtro. Se
 // fuerza AliveOnly: un aleatorio muerto arruina la función.
 // Ruta: GET /channels/random?country=&category=&quality=

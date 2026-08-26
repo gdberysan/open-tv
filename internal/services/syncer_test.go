@@ -89,6 +89,7 @@ func (f *fakeChannelRepo) Random(context.Context, ports.ChannelFilter) (domain.C
 
 func (f *fakeChannelRepo) Countries(context.Context) ([]ports.Faceta, error)  { return nil, nil }
 func (f *fakeChannelRepo) Categories(context.Context) ([]ports.Faceta, error) { return nil, nil }
+func (f *fakeChannelRepo) Qualities(context.Context) ([]ports.Faceta, error)  { return nil, nil }
 
 type deleteStaleCall struct {
 	providerID string

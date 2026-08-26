@@ -40,6 +40,7 @@ func (repoVacio) Random(context.Context, ports.ChannelFilter) (domain.Channel, e
 
 func (repoVacio) Countries(context.Context) ([]ports.Faceta, error)  { return nil, nil }
 func (repoVacio) Categories(context.Context) ([]ports.Faceta, error) { return nil, nil }
+func (repoVacio) Qualities(context.Context) ([]ports.Faceta, error)  { return nil, nil }
 
 type provVacio struct{}
 

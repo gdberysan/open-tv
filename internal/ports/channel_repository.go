@@ -63,6 +63,11 @@ type ChannelRepository interface {
 	// su número de canales, ordenados por volumen.
 	Countries(ctx context.Context) ([]Faceta, error)
 	Categories(ctx context.Context) ([]Faceta, error)
+	// Qualities cuenta los canales por tramo de calidad (hd/fhd/4k),
+	// reutilizando el MISMO predicado de resolución que el filtro quality= de
+	// FindFiltered: el conteo de la faceta debe cuadrar con lo que se ve al
+	// aplicar ese filtro. Solo lo consume el cliente web.
+	Qualities(ctx context.Context) ([]Faceta, error)
 	// Random devuelve un canal al azar que case con el filtro.
 	Random(ctx context.Context, f ChannelFilter) (domain.Channel, error)
 }

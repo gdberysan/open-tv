@@ -8,11 +8,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gdberysan/open-tv/internal/adapters/db"
 	"github.com/gdberysan/open-tv/internal/domain"
 	"github.com/gdberysan/open-tv/internal/ports"
 	"github.com/go-chi/chi/v5"
@@ -59,6 +61,9 @@ func (m *mockRepo) Countries(context.Context) ([]ports.Faceta, error) {
 }
 func (m *mockRepo) Categories(context.Context) ([]ports.Faceta, error) {
 	return []ports.Faceta{{Valor: "News", Count: 2}}, nil
+}
+func (m *mockRepo) Qualities(context.Context) ([]ports.Faceta, error) {
+	return []ports.Faceta{{Valor: "hd", Count: 5}, {Valor: "fhd", Count: 3}, {Valor: "4k", Count: 1}}, nil
 }
 
 func (m *mockRepo) CountFiltered(context.Context, ports.ChannelFilter) (int, error) {
@@ -486,6 +491,67 @@ func TestGetChannelStreamsDevuelveMirrorsOrdenados(t *testing.T) {
 	}
 	if got[0]["web_ok"] != true || got[1]["web_ok"] != false {
 		t.Errorf("web_ok mal mapeado: %v", got)
+	}
+}
+
+// GetQualities debe reutilizar el MISMO predicado que /channels?quality=,
+// no una copia: se prueba contra el repo SQLite real (no el mock) para que
+// el test verifique el predicado de verdad y no una expectativa inventada.
+// hd (>=720p) es un superconjunto de fhd (>=1080p), que a su vez lo es de 4k
+// —así es como qualityWhereClause construye los tramos—, y un canal cuyo
+// nombre no lleva ningún token de resolución reconocible no debe contar en
+// ninguno.
+func TestChannelHandler_GetQualities(t *testing.T) {
+	sqlDB, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	repo := db.NewChannelRepository(sqlDB)
+
+	ctx := context.Background()
+	channels := []domain.Channel{
+		{ID: "c-720", Name: "Canal HD (720p)", ProviderID: "opensource", ProviderType: domain.ProviderOpenSource},
+		{ID: "c-1080", Name: "Canal FHD (1080p)", ProviderID: "opensource", ProviderType: domain.ProviderOpenSource},
+		{ID: "c-2160", Name: "Canal 4K (2160p)", ProviderID: "opensource", ProviderType: domain.ProviderOpenSource},
+		// Sin token de resolución reconocible: no debe contar en ningún tramo.
+		{ID: "c-sd", Name: "Canal SD (576p)", ProviderID: "opensource", ProviderType: domain.ProviderOpenSource},
+	}
+	if err := repo.SaveBatch(ctx, channels); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+
+	h := NewChannelHandler(slog.New(slog.DiscardHandler), repo, &mockProvider{}, &mockStreamRepo{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/channels/qualities", nil)
+	rec := httptest.NewRecorder()
+	h.GetQualities(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("código = %d, quiero 200 (body %s)", rec.Code, rec.Body.String())
+	}
+
+	var got []ports.Faceta
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("esperaba 3 tramos (hd/fhd/4k), tengo %d: %+v", len(got), got)
+	}
+
+	porValor := map[string]int{}
+	for _, f := range got {
+		porValor[f.Valor] = f.Count
+	}
+
+	if porValor["hd"] != 3 {
+		t.Errorf("hd = %d, quiero 3 (720p + 1080p + 4k)", porValor["hd"])
+	}
+	if porValor["fhd"] != 2 {
+		t.Errorf("fhd = %d, quiero 2 (1080p + 4k)", porValor["fhd"])
+	}
+	if porValor["4k"] != 1 {
+		t.Errorf("4k = %d, quiero 1", porValor["4k"])
 	}
 }
 

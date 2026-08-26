@@ -526,6 +526,31 @@ func (r *SQLiteChannelRepository) Categories(ctx context.Context) ([]ports.Facet
 	return out, nil
 }
 
+// tramosCalidad son los tramos que expone la faceta, en orden decreciente de
+// inclusividad: hd (720p+) incluye a fhd (1080p+), que incluye a 4k. El mismo
+// orden en que aparecen en la doc de GetChannels.
+var tramosCalidad = []string{"hd", "fhd", "4k"}
+
+// Qualities cuenta los canales por tramo de calidad para la faceta del
+// cliente web. Reutiliza qualityWhereClause —el MISMO predicado que aplica
+// FindFiltered a quality=hd|fhd|4k— así que el conteo siempre cuadra con lo
+// que se ve al filtrar por ese tramo. Un canal sin ningún token de resolución
+// reconocible no cuenta en ningún tramo.
+func (r *SQLiteChannelRepository) Qualities(ctx context.Context) ([]ports.Faceta, error) {
+	out := make([]ports.Faceta, 0, len(tramosCalidad))
+	for _, tramo := range tramosCalidad {
+		clause, args := qualityWhereClause(tramo)
+
+		var n int
+		if err := r.db.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM channels WHERE "+clause, args...).Scan(&n); err != nil {
+			return nil, fmt.Errorf("db.Qualities (%s): %w", tramo, err)
+		}
+		out = append(out, ports.Faceta{Valor: tramo, Count: n})
+	}
+	return out, nil
+}
+
 // Random devuelve un canal al azar que case con el filtro. El sorteo va en SQL
 // y no en el cliente: elegir entre las páginas ya cargadas sesgaría el
 // resultado hacia el principio del catálogo.
