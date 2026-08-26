@@ -23,6 +23,7 @@
   import SincronizandoFuente from './componentes/SincronizandoFuente.svelte'
   import Fuentes from './componentes/Fuentes.svelte'
   import PieDeMarca from './componentes/PieDeMarca.svelte'
+  import Paleta from './componentes/Paleta.svelte'
 
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
@@ -102,6 +103,17 @@
   // necesita saber QUÉ canal está abierto, no resolverle antes una URL.
   let canalAbierto = $state<Canal | null>(null)
 
+  // Paleta de comandos ⌘K/Ctrl+K (Tarea 4, P0.8). RULING del plan: se
+  // INHIBE por completo mientras el reproductor está abierto — dos modales
+  // con trap de foco propio anidados (¿qué Esc gana? ¿qué Tab atrapa?) es una
+  // complejidad que un atajo de conveniencia no justifica; más simple es "un
+  // solo modal a la vez" (ver alTeclaVentana, más abajo, y cerrarPaleta).
+  let paletaAbierta = $state(false)
+
+  function cerrarPaleta() {
+    paletaAbierta = false
+  }
+
   // Shell de dos columnas (Tarea 4 de P0.6): true = barra de facetas visible.
   // En escritorio (>900px) es simplemente la columna izquierda del grid; bajo
   // ~900px la misma bandera gobierna el cajón (aside fijo con translateX).
@@ -141,11 +153,21 @@
   // router nunca registra ese path; F5 sirve el SPA de siempre).
   let vistaFuentes = $state(typeof window !== 'undefined' && window.location.hash === '#fuentes')
 
-  function abrirStats(e: MouseEvent) {
-    e.preventDefault()
+  // irAStats/irAFuentes son el núcleo sin evento de ratón (Tarea 4, P0.8):
+  // la paleta de comandos dispara las mismas dos vistas sin partir de un
+  // clic sobre un <a>, así que no tiene un MouseEvent que prevenir. Los
+  // manejadores de clic de abajo (abrirStats/abrirFuentes) siguen siendo la
+  // única puerta para los enlaces reales de la cabecera/pie — un solo sitio
+  // que sabe "qué significa ir a stats/fuentes", con o sin evento.
+  function irAStats() {
     vistaFuentes = false
     vistaStats = true
     location.hash = 'stats'
+  }
+
+  function abrirStats(e: MouseEvent) {
+    e.preventDefault()
+    irAStats()
   }
 
   function volverDelPanel() {
@@ -153,11 +175,15 @@
     history.pushState('', document.title, window.location.pathname + window.location.search)
   }
 
-  function abrirFuentes(e: MouseEvent) {
-    e.preventDefault()
+  function irAFuentes() {
     vistaStats = false
     vistaFuentes = true
     location.hash = 'fuentes'
+  }
+
+  function abrirFuentes(e: MouseEvent) {
+    e.preventDefault()
+    irAFuentes()
   }
 
   function volverDeFuentes() {
@@ -329,7 +355,31 @@
   // el reproductor cerrado (abierto, la barra espaciadora ya es su atajo de
   // play/pausa — ver Reproductor.svelte; dejar que ambos oyentes de
   // window compitan por la misma tecla sería confuso e imprevisible).
+  // ⌘K (mac) / Ctrl+K (el resto) abre la paleta de comandos (Tarea 4, P0.8).
+  // Nunca Alt+K/AltGr — con altKey no cuenta como el atajo real.
+  function esAtajoPaleta(e: KeyboardEvent): boolean {
+    return e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey) && !e.altKey
+  }
+
   function alTeclaVentana(e: KeyboardEvent) {
+    if (esAtajoPaleta(e)) {
+      // RULING (ver `paletaAbierta` más arriba): inhibida con el reproductor
+      // abierto. paletaAbierta ya true: no hay nada que hacer dos veces (su
+      // propio manejador de teclado, dentro de Paleta.svelte, es quien
+      // gobierna el teclado mientras está montada).
+      if (canalAbierto || paletaAbierta) return
+      // No robarle el atajo a un campo de texto AJENO (el buscador de
+      // facetas, la URL de una fuente, el propio buscador de la barra
+      // lateral…): con el foco ya tecleando ahí, ⌘K no hace nada — mismo
+      // espíritu de guarda que debeHacerSurf aplica más abajo a la barra
+      // espaciadora.
+      const objetivo = e.target
+      if (objetivo instanceof HTMLElement && (objetivo.tagName === 'INPUT' || objetivo.tagName === 'TEXTAREA')) return
+      e.preventDefault()
+      paletaAbierta = true
+      return
+    }
+
     // sinFuentes (Tarea 6, P0.7): sin catálogo que surfear, el mismo espacio
     // debe dejar que el navegador haga lo suyo (p. ej. scroll) en vez de
     // llamar a fuente.aleatorio() sobre un catálogo que se sabe vacío.
@@ -654,7 +704,7 @@
      existía, un solo nodo — alimenta esEstrecho para el inert del cajón. -->
 <svelte:window onkeydown={alTeclaVentana} bind:innerWidth />
 
-<div class="fondo" inert={!!canalAbierto}>
+<div class="fondo" inert={!!canalAbierto || paletaAbierta}>
   <div class="sala">
     <header class="cabecera">
       <div class="marca">
@@ -715,7 +765,7 @@
         <BarraLateralFacetas {paises} {categorias} {calidades} />
       </aside>
 
-      <main inert={!!canalAbierto}>
+      <main inert={!!canalAbierto || paletaAbierta}>
         {#if vistaStats}
           <PanelStats alVolver={volverDelPanel} />
         {:else if fase.tipo === 'sincronizando'}
@@ -797,7 +847,7 @@
     </div>
   </div>
 
-  <footer class="pie" inert={!!canalAbierto}>
+  <footer class="pie" inert={!!canalAbierto || paletaAbierta}>
     <p>{t('pie.fuente')}</p>
     <p>{t('pie.postura')}</p>
     {#if !vistaStats}
@@ -820,6 +870,24 @@
     alCerrar={cerrarReproductor}
     alAnterior={canalAnterior}
     alSiguiente={canalSiguiente}
+  />
+{/if}
+
+{#if paletaAbierta}
+  <!-- Tarea 4 (P0.8): montada FUERA de .fondo, como Reproductor arriba —
+       vive su propio ciclo de foco (ver Paleta.svelte) mientras .fondo/
+       main/footer quedan inert (arriba). Nunca coexiste con canalAbierto
+       (RULING: ⌘K inhibida con el reproductor abierto — ver alTeclaVentana). -->
+  <Paleta
+    {canales}
+    {paises}
+    {categorias}
+    {calidades}
+    alCerrar={cerrarPaleta}
+    alAbrirCanal={abrirCanal}
+    {alAleatorio}
+    alAbrirFuentes={irAFuentes}
+    alAbrirStats={irAStats}
   />
 {/if}
 

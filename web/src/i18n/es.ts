@@ -237,6 +237,23 @@ export const es = {
   'fuentes.legal.responsabilidad': 'Tú eliges tus fuentes y eres responsable de la legalidad del contenido al que accedes con ellas.',
   'fuentes.legal.sinDrm': 'Sin DRM ni elusión de geobloqueo — pensado para televisión abierta (FTA).',
   'fuentes.legal.sugeridas': 'Las fuentes sugeridas son enlaces públicos de la comunidad iptv-org; añadirlas es decisión tuya.',
+
+  // Tarea 4 (P0.8): paleta de comandos ⌘K/Ctrl+K — buscador difuso sobre los
+  // canales ya cargados, las facetas y un puñado de acciones. Ver
+  // Paleta.svelte.
+  'paleta.titulo': 'Paleta de comandos',
+  'paleta.placeholder': 'Buscar canales, facetas o acciones…',
+  'paleta.grupo.canales': 'Canales',
+  'paleta.grupo.facetas': 'Facetas',
+  'paleta.grupo.acciones': 'Acciones',
+  'paleta.buscarTodos': 'Buscar «{termino}» en todos los canales',
+  // "Surf" y "Canal al azar" (accion.aleatorio) son el mismo comando por
+  // debajo — dos nombres findables, ver el comentario de accionesBase.
+  'paleta.accion.surf': 'Surf: salta a un canal vivo al azar',
+  'paleta.accion.quitarSoloFavoritos': 'Quitar «Solo favoritos»',
+  'paleta.accion.abrirFuentes': 'Abrir Fuentes',
+  'paleta.accion.abrirStats': 'Abrir Estadísticas',
+  'paleta.pista': '↑↓ navega · Enter abre · Esc cierra',
 } as const
 
 export type ClaveMensaje = keyof typeof es

@@ -168,4 +168,17 @@ export const en: Record<ClaveMensaje, string> = {
   'fuentes.legal.responsabilidad': 'You choose your sources and are responsible for the legality of the content you access with them.',
   'fuentes.legal.sinDrm': 'No DRM, no geoblock circumvention — built for free-to-air (FTA) television.',
   'fuentes.legal.sugeridas': 'Suggested sources are public links from the iptv-org community; adding them is your call.',
+
+  // Task 4 (P0.8): ⌘K/Ctrl+K command palette.
+  'paleta.titulo': 'Command palette',
+  'paleta.placeholder': 'Search channels, facets or actions…',
+  'paleta.grupo.canales': 'Channels',
+  'paleta.grupo.facetas': 'Facets',
+  'paleta.grupo.acciones': 'Actions',
+  'paleta.buscarTodos': 'Search “{termino}” across all channels',
+  'paleta.accion.surf': 'Surf: jump to a random live channel',
+  'paleta.accion.quitarSoloFavoritos': 'Remove “Favourites only”',
+  'paleta.accion.abrirFuentes': 'Open Sources',
+  'paleta.accion.abrirStats': 'Open Stats',
+  'paleta.pista': '↑↓ navigate · Enter opens · Esc closes',
 }

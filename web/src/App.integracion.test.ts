@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, fireEvent, screen, within } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import App from './App.svelte'
 import type { Canal, CatalogSource, ConsultaCatalogo, Fuente, PaginaCanales } from './datos/catalogo'
 import { filtros } from './estado/filtros'
@@ -567,5 +568,121 @@ describe('App — vista Fuentes (gestión, Tarea 7 de P0.7)', () => {
     // la vista de gestión, que es justo el bug que este fix cierra.
     await screen.findByRole('button', { name: t('accion.aleatorio') })
     expect(screen.queryByRole('heading', { name: t('fuentes.titulo') })).toBeNull()
+  })
+})
+
+// Tarea 4 (P0.8): el atajo ⌘K/Ctrl+K en sí (abrir/inhibir) es responsabilidad
+// de App (alTeclaVentana) — el resto del comportamiento de la paleta
+// (filtrado, navegación, Enter/Esc) está cubierto de forma aislada en
+// Paleta.test.ts, montando el componente directamente sin pasar por App.
+function paletaDialogo() {
+  return screen.queryByRole('dialog', { name: t('paleta.titulo') })
+}
+
+describe('App — paleta de comandos ⌘K', () => {
+  // La acción «Abrir Fuentes» (más abajo) navega a #fuentes sin pasar por
+  // volverDeFuentes() — a diferencia de otros tests de este fichero que sí
+  // cierran esa vista (y con ella limpian el hash vía history.pushState),
+  // este deja window.location.hash='#fuentes' sucio para el SIGUIENTE test
+  // del archivo, que montaría App ya "dentro" de la vista Fuentes (bug real
+  // cazado al escribir este mismo bloque). Se resetea aquí explícitamente.
+  afterEach(() => {
+    window.location.hash = ''
+  })
+
+  it('(a) ⌘ (metaKey) + K abre la paleta', async () => {
+    const fuente = fuenteFalsa()
+    render(App, { fuente })
+    await screen.findByRole('button', { name: t('accion.aleatorio') }) // catálogo listo
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+    await tick()
+
+    expect(paletaDialogo()).not.toBeNull()
+  })
+
+  it('Ctrl+K también la abre (no solo ⌘ de mac)', async () => {
+    const fuente = fuenteFalsa()
+    render(App, { fuente })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
+    await tick()
+
+    expect(paletaDialogo()).not.toBeNull()
+  })
+
+  it('(a) NO se abre con el foco en un input ajeno — no le roba el atajo al buscador de facetas', async () => {
+    const fuente = fuenteFalsa()
+    render(App, { fuente })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    const buscador = screen.getByLabelText(t('catalogo.buscar')) as HTMLInputElement
+    buscador.focus()
+    expect(document.activeElement).toBe(buscador)
+    await fireEvent.keyDown(buscador, { key: 'k', metaKey: true })
+    await tick()
+
+    expect(paletaDialogo()).toBeNull()
+  })
+
+  it('se INHIBE mientras el reproductor está abierto — RULING: un solo modal a la vez', async () => {
+    const canales = [canalDePrueba('a')]
+    const fuente = fuenteFalsa({ canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })) })
+    render(App, { fuente })
+
+    const abrir = await screen.findByLabelText('a')
+    await fireEvent.click(abrir)
+    await screen.findByRole('dialog', { name: 'a' }) // el reproductor abrió
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+    await tick()
+
+    expect(paletaDialogo()).toBeNull()
+  })
+
+  it('Esc cierra la paleta (App la desmonta al recibir alCerrar)', async () => {
+    const fuente = fuenteFalsa()
+    render(App, { fuente })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+    await tick()
+    await screen.findByRole('dialog', { name: t('paleta.titulo') })
+
+    const campo = screen.getByRole('combobox')
+    await fireEvent.keyDown(campo, { key: 'Escape' })
+    await tick()
+
+    expect(paletaDialogo()).toBeNull()
+  })
+
+  it('elegir «Abrir Fuentes» desde la paleta navega a la vista de gestión de fuentes real de App', async () => {
+    const fuente = fuenteFalsa()
+    render(App, { fuente })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+    await tick()
+
+    await fireEvent.click(screen.getByRole('option', { name: t('paleta.accion.abrirFuentes') }))
+
+    await screen.findByRole('heading', { name: t('fuentes.titulo') })
+    expect(paletaDialogo()).toBeNull()
+  })
+
+  it('elegir un canal desde la paleta abre el MISMO Reproductor que abrir desde la rejilla', async () => {
+    const canales = [canalDePrueba('a')]
+    const fuente = fuenteFalsa({ canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })) })
+    render(App, { fuente })
+    await screen.findByLabelText('a')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+    await tick()
+
+    await fireEvent.click(screen.getByRole('option', { name: 'a' }))
+
+    await screen.findByRole('dialog', { name: 'a' }) // el Reproductor, no la paleta
+    expect(paletaDialogo()).toBeNull()
   })
 })
