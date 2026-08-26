@@ -21,8 +21,8 @@ export const en: Record<ClaveMensaje, string> = {
   'filtro.calidad.4k': '4K',
   'filtro.limpiar': 'Clear filters',
   'filtro.mostrarOffline': 'Show the ones not responding',
-  'filtro.verPaises': 'See all {n} countries',
-  'filtro.verMenosPaises': 'Show fewer countries',
+  'filtro.filtrarPais': 'Filter countries',
+  'filtro.filtrarCategoria': 'Filter categories',
   'shell.facetas': 'Facets',
 
   'accion.aleatorio': 'Random channel',

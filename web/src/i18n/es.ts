@@ -29,10 +29,11 @@ export const es = {
   // de macOS (mobile/lib/presentation/widgets/console_bar.dart).
   'filtro.mostrarOffline': 'Mostrar los que no responden',
 
-  // Tarea 6 (P0.6): «Ver los N países» expande la lista de país, colapsada
-  // por defecto porque puede tener decenas de entradas.
-  'filtro.verPaises': 'Ver los {n} países',
-  'filtro.verMenosPaises': 'Ver menos países',
+  // Tarea 9 (P0.7): buscador de tipeo del propio grupo de facetas, cuando
+  // tiene más de doce entradas — sustituye al viejo «Ver los N países»
+  // (Tarea 6, P0.6), que con cientos de países se volvía un muro sin salida.
+  'filtro.filtrarPais': 'Filtrar países',
+  'filtro.filtrarCategoria': 'Filtrar categorías',
 
   // Shell de dos columnas (Tarea 4): el botón de cajón alterna la barra
   // lateral de facetas en pantallas estrechas; el mismo texto etiqueta el
