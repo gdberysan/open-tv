@@ -1,0 +1,61 @@
+name: Release
+
+# Solo tags "vX.Y.Z" disparan una release real. Este plan (P1) NO empuja
+# ningún tag: el workflow queda cableado y en verde por construcción, pero no
+# se ejecuta hasta que alguien etiquete a propósito (fuera de este alcance).
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: goreleaser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # goreleaser genera el changelog a partir del historial de commits
+          # y necesita compararlo contra el tag anterior: con el checkout
+          # superficial de por defecto no ve más que el último commit.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # El cliente web se construye aquí, ANTES de goreleaser, por la misma
+      # razón que en .goreleaser.yml: internal/ui/dist tiene que existir con
+      # el build real antes de que `go build` (dentro de goreleaser) lo
+      # embeba. goreleaser también trae este mismo paso en su propio
+      # `before.hooks`, así que este paso es en rigor redundante — pero
+      # dejarlo explícito aquí hace el fallo legible en los logs de Actions
+      # si el build del cliente es lo que rompe, en vez de aparecer como un
+      # fallo genérico dentro del paso de goreleaser.
+      - name: build del cliente web
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Token con permiso de escritura sobre gdberysan/homebrew-tap: el
+          # GITHUB_TOKEN por defecto de este workflow solo alcanza a ESTE
+          # repo, así que la fórmula de Homebrew necesita un secret aparte.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

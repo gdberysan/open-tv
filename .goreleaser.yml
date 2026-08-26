@@ -1,0 +1,120 @@
+version: 2
+
+project_name: open-tv
+
+# El binario embebe el cliente web (internal/ui/dist vía go:embed). goreleaser
+# solo ejecuta `go build`, que da por hecho que ese directorio ya está
+# construido — así que el paso previo compila el cliente Svelte ANTES de que
+# arranque cualquier build de Go. Sin este hook, `goreleaser build`/`release`
+# local produce un binario que sirve el `dist/` que hubiera en el árbol (o
+# falla si está vacío), no el cliente real de este commit.
+before:
+  hooks:
+    # before.hooks solo admite comandos sueltos (sin cmd/dir estructurado,
+    # eso es exclusivo de los hooks a nivel de build) — de ahí el `sh -c` con
+    # `cd web &&` para correrlos en el subdirectorio del cliente.
+    - sh -c "cd web && npm ci"
+    - sh -c "cd web && npm run build"
+
+builds:
+  - id: open-tv
+    main: ./cmd/open-tv
+    binary: open-tv
+    # El proyecto usa modernc/sqlite (Go puro): CGO_ENABLED=0 ya es lo que
+    # hace un `go build` normal aquí (verificado), así que fijarlo explícito
+    # solo documenta la garantía, no la cambia.
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # No hay build objetivo para Windows en ARM64 en este plan.
+      - goos: windows
+        goarch: arm64
+    # main.go: "var version = "dev"" — el propio comentario del código dice
+    # que el linker la inyecta en releases con -X main.version=…; esa es la
+    # única variable de versión que existe, no se inventa ninguna otra.
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: default
+    ids:
+      - open-tv
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: "checksums.txt"
+
+# Las notas de cada release se generan a partir del historial de commits
+# (ya en español, con el prefijo Conventional Commits del repo) en vez de
+# duplicar contenido con CHANGELOG.md; los grupos de abajo solo traducen las
+# cabeceras al español para que la página de Releases quede consistente con
+# el resto del proyecto.
+changelog:
+  use: git
+  sort: asc
+  groups:
+    - title: "Novedades"
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: "Correcciones"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: "Otros cambios"
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "^style:"
+      - "^refactor:"
+      - "Merge pull request"
+      - "Merge branch"
+
+# Fórmula de Homebrew empujada al tap propio (gdberysan/homebrew-tap), NO al
+# repo del proyecto. El push real solo ocurre dentro de `goreleaser release`
+# cuando corre contra un tag — este fichero no dispara nada por sí solo.
+# HOMEBREW_TAP_TOKEN tiene que ser un token con permiso de escritura sobre
+# ese repo (secret de Actions), nunca hardcodeado aquí.
+brews:
+  - name: open-tv
+    ids:
+      - default
+    repository:
+      owner: gdberysan
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    url_template: >-
+      https://github.com/gdberysan/open-tv/releases/download/{{ .Tag }}/{{ .ArtifactName }}
+    homepage: "https://github.com/gdberysan/open-tv"
+    description: "Reproductor de televisión abierta (FTA): un solo binario, tus propias listas M3U."
+    license: "MIT"
+    commit_author:
+      name: gdberysan
+      email: gdberysan@gmail.com
+    commit_msg_template: "chore(tap): actualiza open-tv a {{ .Tag }}"
+    install: |
+      bin.install "open-tv"
+    test: |
+      system "#{bin}/open-tv", "--help"

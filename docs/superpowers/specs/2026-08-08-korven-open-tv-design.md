@@ -12,7 +12,7 @@ activo. La calidad visual no corresponde a la funcional.
 
 Aparte, el proyecto pasa a ser una obra de **Korven** (korven.dev, estudio de
 Gerard Bernal) y se renombra a **Korven Open TV**. Existe un design
-system completo y de alta fidelidad en `/Users/usuario/Dev/korven/design/`, con
+system completo y de alta fidelidad en `~/Dev/korven/design/`, con
 tokens CSS reutilizables tal cual, assets de marca oficiales y capturas de
 referencia. No hay que inventar nada: hay que portarlo.
 
@@ -190,7 +190,7 @@ mayor riesgo:
 
 Descubierto al medir, no es obvio:
 
-- **`.claude/settings.json` contiene 3 rutas absolutas** a `/Users/usuario/Dev/ip-tv`.
+- **`.claude/settings.json` contiene 3 rutas absolutas** a `~/Dev/ip-tv`.
   Al renombrar la carpeta dejan de casar y **vuelven los diálogos de permisos** que
   costó trabajo eliminar.
 - **El directorio de memoria de Claude Code está indexado por ruta**
