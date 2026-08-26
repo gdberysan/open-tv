@@ -15,39 +15,27 @@ async function abrir(page: import('@playwright/test').Page, nombre: string) {
   await page.locator('article', { hasText: nombre }).getByRole('button', { name: nombre }).click()
 }
 
-// Dos comportamientos de producción, los dos correctos por separado, chocan
-// con unas fixtures que solo pueden vivir en loopback y sin TLS:
+// ClassifyWeb (internal/domain/web.go) exige HTTPS antes de mirar CORS
+// siquiera —contenido mixto: una página segura no carga vídeo por HTTP—. Sin
+// certificado de confianza para el servidor de fixtures, los dos canales de
+// este e2e SIEMPRE salen web_ok=false. Y motorDelNavegador (plan.ts) prefiere
+// hls.js sobre cualquier veredicto nativo que no sea definitivo en cuanto hay
+// MediaSource disponible, que es el caso de Chromium y Firefox por igual (solo
+// Safari da 'probably' y se queda con el nativo). La combinación de las dos
+// cosas hace que, con web_ok=false, el ÚNICO intento de Chromium y Firefox
+// aquí sea el proxy (planDeReproduccion, rama `webOk === false`): nunca hay
+// intento directo que probar por separado.
 //
-// 1. ClassifyWeb (internal/domain/web.go) exige HTTPS antes de mirar CORS
-//    siquiera —contenido mixto: una página seguía no carga vídeo por HTTP—.
-//    Sin certificado de confianza para el servidor de fixtures (SSL_CERT_FILE
-//    no lo consigue en macOS: la verificación va por el Keychain, no por esa
-//    variable), los dos canales de este e2e SIEMPRE salen web_ok=false, con o
-//    sin CORS. La distinción CORS/sin-CORS que separa las dos rutas de
-//    fixtures se queda solo en si el intento directo puede o no leer la
-//    respuesta desde JS; el veredicto persistido es falso para ambas.
-// 2. El proxy (internal/proxy/handler.go, destinoPrivado) rechaza con 403
-//    cualquier destino loopback/privado a propósito —es protección contra
-//    SSRF, no un descuido— así que NUNCA puede relayar las fixtures de este
-//    mismo e2e, que viven en 127.0.0.1.
-//
-// Combinado con motorDelNavegador (canPlayType): en este Playwright/macOS,
-// Chromium y WebKit devuelven "maybe" para HLS y toman la rama NATIVA, que
-// ignora web_ok y prueba el vídeo directo primero —una carga de <video src>
-// cross-origin no pasa por el mismo cauce de lectura que un fetch/XHR, así
-// que el CORS que falta no la bloquea— y por eso reproducen sin tocar el
-// proxy. Firefox sí devuelve "" y toma la rama hls.js real: con web_ok=false
-// forzado, su ÚNICO intento es el proxy, que rechaza el origen loopback por
-// diseño. Firefox no puede reproducir NINGÚN canal de este fixture concreto,
-// no por un fallo del test sino porque las dos protecciones de producción
-// [1] y [2] son exactamente las que deberían dispararse aquí.
-test('un canal con CORS reproduce directo y los frames avanzan', async ({ page, browserName }) => {
-  test.skip(
-    browserName === 'firefox',
-    'web_ok sale false para las dos fixtures (contenido mixto, ver comentario arriba); ' +
-      'con hls.js real el único intento es el proxy, y el proxy rechaza el 127.0.0.1 de ' +
-      'las fixtures por protección SSRF. No hay forma de que Firefox reproduzca esta fixture.',
-  )
+// Que el proxy pueda relayar estas fixtures en absoluto depende de que el
+// servidor que este e2e arranca (global-setup.ts) le diga
+// OPEN_TV_PERMITIR_DESTINOS_PRIVADOS=1: sin eso, destinoPrivado
+// (internal/proxy/handler.go) rechaza con 403 cualquier destino
+// loopback/privado por protección SSRF —correcto en producción, donde el
+// proxy jamás debe relayar 127.0.0.1— y ningún motor podría reproducir un
+// fixture que vive necesariamente en loopback. Con la variable puesta, el
+// proxy sí releva el origen real, así que hay algo genuino que probar aquí en
+// los dos motores soportados en CI.
+test('un canal reproduce vía proxy y los frames avanzan', async ({ page }) => {
   await abrir(page, 'Canal Con CORS')
   const video = page.locator('video')
   await expect(video).toBeVisible()
@@ -57,31 +45,6 @@ test('un canal con CORS reproduce directo y los frames avanzan', async ({ page, 
   await expect
     .poll(async () => video.evaluate((v: HTMLVideoElement) => v.currentTime), { timeout: 20_000 })
     .toBeGreaterThan(0.5)
-})
-
-// El brief original pedía comprobar que un canal sin CORS reproduce A TRAVÉS
-// del proxy. Eso es irreproducible aquí: el proxy rechaza CUALQUIER destino
-// loopback —el 127.0.0.1 de este mismo servidor de fixtures incluido— así que
-// jamás lo relaya con éxito (ver el bloque de comentario de arriba). Lo que
-// SÍ es real y vale la pena verificar es que el rechazo no deja al usuario
-// mirando un cuadro negro mudo: con web_ok=false forzado, el único intento de
-// un motor hls.js de verdad es el proxy, el proxy contesta 403, y el guard
-// tiene que declararlo fatal igual que si el origen hubiera muerto. Solo
-// Firefox toma esa rama en este Playwright/macOS (ver arriba); Chromium y
-// WebKit reproducen directo sin pasar por el proxy y no ejercitan este
-// camino, así que se saltan.
-test('un canal sin proxy disponible (rechazado por SSRF) declara el fallo, no se cuelga', async ({
-  page,
-  browserName,
-}) => {
-  test.skip(
-    browserName !== 'firefox',
-    'Chromium y WebKit toman la rama nativa (canPlayType "maybe") y reproducen directo ' +
-      'sin tocar el proxy; este camino solo lo ejercita un motor hls.js real.',
-  )
-  await abrir(page, 'Canal Sin CORS')
-
-  await expect(page.getByText(/no llegó a reproducir|never started playing/i)).toBeVisible({ timeout: 25_000 })
 })
 
 // Verificar el FALLO, no la salud: se mata el origen y se comprueba que el
@@ -98,6 +61,13 @@ test('un canal sin proxy disponible (rechazado por SSRF) declara el fallo, no se
 // la URL codificada del proxy, así que un solo filtro por substring basta
 // para cortar las dos rutas sin tocar el JS de la propia app (que no lo
 // contiene).
+//
+// El mensaje esperado es el de clasificarFallo (diagnostico.ts) para un error
+// de red sin status HTTP útil ('caido'), no el genérico "no llegó a
+// reproducir" (ese es para 'desconocido', cuando hls.js no da información
+// aprovechable): abortar la petición es justo el caso de red que hls.js
+// reporta como NETWORK_ERROR, así que el guard sabe distinguirlo y muestra el
+// mensaje específico.
 test('si el stream muere, el guard lo dice', async ({ page }) => {
   await page.route(
     (url) => url.href.includes('canal'),
@@ -105,5 +75,7 @@ test('si el stream muere, el guard lo dice', async ({ page }) => {
   )
   await abrir(page, 'Canal Con CORS')
 
-  await expect(page.getByText(/no llegó a reproducir|never started playing/i)).toBeVisible({ timeout: 25_000 })
+  await expect(
+    page.getByText(/está caído o su dirección caducó|is down or its address expired/i).first(),
+  ).toBeVisible({ timeout: 25_000 })
 })

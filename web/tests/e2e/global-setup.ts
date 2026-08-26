@@ -89,6 +89,12 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       LISTEN_ADDR: `127.0.0.1:${PUERTO_APP}`,
       IPTV_ORG_URL: `http://127.0.0.1:${PUERTO_FIXTURES}/cors/catalogo.m3u`,
       HEALTH_INTERVAL: '10s',
+      // Las fixtures HLS de este e2e viven en 127.0.0.1: sin esto, el proxy
+      // las rechazaría con 403 por protección SSRF (destino privado), igual
+      // que rechazaría cualquier loopback en producción. Solo este script
+      // fija esta variable — el default de main.go es bloquear, que es lo
+      // que corre en cualquier instalación real.
+      OPEN_TV_PERMITIR_DESTINOS_PRIVADOS: '1',
     },
     stdio: 'inherit',
   })
