@@ -36,7 +36,46 @@ type servidor struct {
 	ficheros http.Handler
 }
 
+// csp es la política de seguridad de contenido del cliente embebido. La pieza
+// que de verdad protege es `script-src 'self'`: NO hay scripts inline en el
+// index.html construido (Vite emite un único <script type=module src=...>), así
+// que podemos prohibir todo script que no sea del propio binario sin
+// concesiones — cierra el vector real de XSS aunque el catálogo es contenido
+// de terceros no confiable. El resto es a propósito permisivo porque es la
+// función de la app: los logos (`img-src`) y los streams (`media-src` +
+// `connect-src` para los fetch de hls.js) vienen de cualquier host FTA, http o
+// https; `blob:` lo necesita hls.js (MSE). `style-src` lleva 'unsafe-inline'
+// porque Svelte emite atributos style="" (p.ej. las alturas de los
+// espaciadores de la rejilla virtual); inyectar estilos es de bajo riesgo
+// comparado con inyectar scripts. `frame-ancestors 'none'` + `object-src
+// 'none'` + `base-uri 'self'` cierran clickjacking y trucos de base/objeto.
+const csp = "default-src 'self'; " +
+	"script-src 'self'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: https: http:; " +
+	"media-src 'self' blob: https: http:; " +
+	"connect-src 'self' https: http:; " +
+	"font-src 'self'; " +
+	"object-src 'none'; " +
+	"base-uri 'self'; " +
+	"frame-ancestors 'none'; " +
+	"form-action 'self'"
+
+// cabecerasSeguridad añade la CSP y las cabeceras de endurecimiento a toda
+// respuesta del cliente. Defensa en profundidad (hallazgo M1 de la revisión de
+// seguridad): hoy el cliente ya renderiza el catálogo no confiable de forma
+// segura (Svelte escapa el texto, el <img src> es inerte, no hay {@html}), pero
+// esto es la segunda capa si algún día se introduce un sink de XSS.
+func cabecerasSeguridad(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Content-Security-Policy", csp)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("X-Frame-Options", "DENY") // redundante con frame-ancestors; cubre navegadores viejos
+}
+
 func (s *servidor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	cabecerasSeguridad(w)
 	limpia := path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/"))
 
 	if limpia == "/" {
