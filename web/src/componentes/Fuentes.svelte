@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount, tick } from 'svelte'
   import type { CatalogSource, Fuente } from '../datos/catalogo'
   import { t } from '../i18n'
   import AnadirFuente from './AnadirFuente.svelte'
@@ -48,8 +48,15 @@
   // cancela implícitamente cualquier confirmación pendiente.
   let confirmandoId = $state<string | null>(null)
 
+  // Tarea 11 (P0.7, pase de accesibilidad — fix del ledger): label→url→id.
+  // Filas legacy de bases reales pueden tener label Y url vacíos (fuentes
+  // creadas antes de que ambos campos fueran obligatorios); sin este tercer
+  // escalón la fila entera se queda sin ningún texto identificador — ni en
+  // pantalla (.label) ni en los aria-label de Re-sincronizar/Quitar, que
+  // reutilizan esta misma función. `id` SIEMPRE existe (es la clave primaria
+  // de la fuente), así que es el único fallback que no puede fallar.
   function etiqueta(f: Fuente): string {
-    return f.label || f.url
+    return f.label || f.url || f.id
   }
 
   function relativo(ultimoSync: number | null): string {
@@ -74,7 +81,36 @@
     }
   }
 
-  onMount(cargar)
+  // Tarea 11 (P0.7, pase de accesibilidad): esta vista se abre/cierra
+  // reemplazando lo que hay dentro de <main> (ver App.svelte, `vistaFuentes`)
+  // — la cabecera con el botón «Fuentes» que la abre NUNCA se desmonta, así
+  // que sin esto el foco se quedaba quieto ahí: quien navega con lector de
+  // pantalla no recibía ningún indicio de que el contenido había cambiado
+  // por debajo. Al montar, se mueve el foco al título de esta vista
+  // (tabindex="-1" en el h2 de más abajo: programáticamente focable, nunca
+  // parada de Tab) — mismo principio que el diálogo modal de
+  // Reproductor.svelte al abrirse, pero sin su cepo de foco: esto no es un
+  // diálogo, `<main>` no queda inert mientras esta vista está montada.
+  // Al desmontar (Volver, o quitar la última fuente y que el Onboarding la
+  // reemplace) se devuelve el foco a quien la abrió — sin esto, pulsar
+  // «Volver» destruye el propio botón que tenía el foco (este componente se
+  // desmonta con él) y el foco cae a <body>, dejando a quien navega con
+  // teclado sin ningún indicador visible de dónde está. No hace falta el
+  // rAF que sí usa Reproductor (ahí compite con el `inert` de <main>
+  // limpiándose en el mismo flush; aquí nada vuelve inert al cerrar esta
+  // vista).
+  let elementoPrevio: HTMLElement | null = null
+  let tituloEl = $state<HTMLHeadingElement | undefined>(undefined)
+
+  onMount(() => {
+    elementoPrevio = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    cargar()
+    tick().then(() => tituloEl?.focus())
+  })
+
+  onDestroy(() => {
+    if (elementoPrevio && document.body.contains(elementoPrevio)) elementoPrevio.focus()
+  })
 
   async function resync(id: string) {
     if (resincronizandoId) return
@@ -123,7 +159,7 @@
 
 <section class="fuentes" aria-labelledby="fuentes-titulo">
   <button type="button" class="volver" onclick={alVolver}>{t('fuentes.volver')}</button>
-  <h2 id="fuentes-titulo">{t('fuentes.titulo')}</h2>
+  <h2 id="fuentes-titulo" bind:this={tituloEl} tabindex="-1">{t('fuentes.titulo')}</h2>
 
   {#if estado.tipo === 'cargando'}
     <p class="mensaje">{t('fuentes.cargando')}</p>
