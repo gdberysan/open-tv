@@ -10,6 +10,9 @@ export const en: Record<ClaveMensaje, string> = {
   'catalogo.cargando': 'Loading channels…',
   'catalogo.total': '{n} channels',
 
+  'vacio.sugerencia.quitar': 'Remove {valor}',
+  'vacio.sugerencia.quitarBusqueda': 'Remove the search “{valor}”',
+
   'filtro.pais': 'Country',
   'filtro.categoria': 'Category',
   'filtro.calidad': 'Quality',

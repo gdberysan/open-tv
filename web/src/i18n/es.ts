@@ -8,6 +8,13 @@ export const es = {
   'catalogo.cargando': 'Cargando canales…',
   'catalogo.total': '{n} canales',
 
+  // Tarea 13 (P0.6): CTA del estado vacío (Vacio.svelte) que sugiere quitar
+  // la dimensión de filtro más restrictiva. quitarBusqueda distingue la
+  // búsqueda de texto libre (comillas) del resto de dimensiones, igual que
+  // chip.quitarFiltro/chip.quitarBusqueda en ChipsFiltro.
+  'vacio.sugerencia.quitar': 'Quitar {valor}',
+  'vacio.sugerencia.quitarBusqueda': 'Quitar la búsqueda «{valor}»',
+
   'filtro.pais': 'País',
   'filtro.categoria': 'Categoría',
   'filtro.calidad': 'Calidad',

@@ -4,6 +4,7 @@
   import SenalCanal from './SenalCanal.svelte'
   import MarcaWeb from './MarcaWeb.svelte'
   import LogoCanal from './LogoCanal.svelte'
+  import Vacio from './Vacio.svelte'
   import { favoritos } from '../estado/favoritos'
   import { t } from '../i18n'
 
@@ -35,7 +36,10 @@
 </script>
 
 {#if canales.length === 0 && !cargando}
-  <p class="vacio">{t('catalogo.vacio')}</p>
+  <!-- Tarea 13 (P0.6): el vacío estático se sustituye por Vacio.svelte, que
+       deriva una sugerencia concreta del filtro activo en vez de solo
+       constatar "no hay nada". -->
+  <Vacio />
 {:else if vista === 'rejilla'}
   <RejillaVirtual {canales} {alAbrir} {alPedirMas} />
 {:else}
@@ -86,6 +90,6 @@
   .fila .favorito { all: unset; cursor: pointer; color: var(--text-muted); margin-left: auto; }
   /* Ámbar = activo. Un favorito apagado es neutro. */
   .fila .favorito.activo { color: var(--amber-500); }
-  .vacio, .cargando { text-align: center; color: var(--text-muted); padding: 24px 0; }
+  .cargando { text-align: center; color: var(--text-muted); padding: 24px 0; }
   .centinela { height: 1px; }
 </style>
