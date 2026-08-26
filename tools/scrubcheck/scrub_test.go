@@ -4,10 +4,10 @@ import "testing"
 
 func TestFindDenied_HitEnContenido(t *testing.T) {
 	files := []Fichero{
-		{Path: "README.md", Content: "contacto: correo-privado@example.com"},
+		{Path: "README.md", Content: "contacto: denegado@ejemplo.test"},
 		{Path: "notas.txt", Content: "nada relevante aquí"},
 	}
-	hits := findDenied(files, []string{"correo-privado@example.com"})
+	hits := findDenied(files, []string{"denegado@ejemplo.test"})
 
 	if len(hits) != 1 {
 		t.Fatalf("se esperaba 1 hallazgo, hubo %d: %+v", len(hits), hits)
@@ -24,7 +24,7 @@ func TestFindDenied_SinFalsoPositivo(t *testing.T) {
 	files := []Fichero{
 		{Path: "README.md", Content: "documentación pública sin nada sensible"},
 	}
-	hits := findDenied(files, []string{"correo-privado@example.com", "usuario"})
+	hits := findDenied(files, []string{"denegado@ejemplo.test", "usuarioprohibido"})
 
 	if len(hits) != 0 {
 		t.Fatalf("no se esperaban hallazgos, hubo %d: %+v", len(hits), hits)
@@ -33,9 +33,9 @@ func TestFindDenied_SinFalsoPositivo(t *testing.T) {
 
 func TestFindDenied_CaseInsensitive(t *testing.T) {
 	files := []Fichero{
-		{Path: "a.go", Content: "// autor: usuario"},
+		{Path: "a.go", Content: "// autor: USUARIOPROHIBIDO"},
 	}
-	hits := findDenied(files, []string{"usuario"})
+	hits := findDenied(files, []string{"usuarioprohibido"})
 
 	if len(hits) != 1 {
 		t.Fatalf("se esperaba 1 hallazgo (case-insensitive), hubo %d", len(hits))
@@ -44,9 +44,9 @@ func TestFindDenied_CaseInsensitive(t *testing.T) {
 
 func TestFindDenied_SubstringCualquierParte(t *testing.T) {
 	files := []Fichero{
-		{Path: "b.go", Content: "usuario=usuario-mac"},
+		{Path: "b.go", Content: "usuario=usuarioprohibido-mac"},
 	}
-	hits := findDenied(files, []string{"usuario"})
+	hits := findDenied(files, []string{"usuarioprohibido"})
 
 	if len(hits) != 1 {
 		t.Fatalf("se esperaba 1 hallazgo (substring), hubo %d", len(hits))
