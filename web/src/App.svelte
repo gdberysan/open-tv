@@ -427,8 +427,14 @@
     // se sondea tras añadir una fuente — el catálogo puede seguir en 0.
     // vistaFuentes (Tarea 7): mismo motivo que vistaStats — es otra vista, no
     // el catálogo normal.
+    // paletaAbierta: mismo motivo que canalAbierto — con un modal abierto es
+    // ese modal quien gobierna el teclado; sin esta guarda, un clic en el
+    // chrome no interactivo de la paleta (la pista, un título de grupo) saca
+    // el foco del <input> y la barra espaciadora surfea por debajo,
+    // violando el invariante "los dos modales nunca coexisten" (fix, P0.8).
     if (
       canalAbierto ||
+      paletaAbierta ||
       fase.tipo !== 'listo' ||
       vistaStats ||
       vistaFuentes ||

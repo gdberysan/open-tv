@@ -702,6 +702,46 @@ describe('App — paleta de comandos ⌘K', () => {
     expect(paletaDialogo()).toBeNull()
   })
 
+  // Fix (revisión final, P0.8): al invariante "los dos modales nunca
+  // coexisten" le faltaba esta pata. La paleta tiene tabindex="-1" en su
+  // contenedor — un clic en su chrome NO interactivo (la pista, un título de
+  // grupo) saca el foco del <input> y lo deja en ese div. Sin `paletaAbierta`
+  // en la guarda del surf, la barra espaciadora pasaba debeHacerSurf (el div
+  // no es un objetivo interactivo) y abría un canal ENCIMA de la paleta ya
+  // abierta. Este test reproduce justo ese camino: foco fuera del input,
+  // paleta abierta, espacio sobre window.
+  it('el surf (barra espaciadora) NO abre un canal con la paleta abierta, aunque el foco esté fuera del input', async () => {
+    const canales = [canalDePrueba('a')]
+    const fuente = fuenteFalsa({
+      canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })),
+      // debe coincidir con el canal real de la rejilla — si no, el falso
+      // "aleatorio" por defecto (id 'random') abriría un diálogo con OTRO
+      // nombre y la aserción de más abajo no detectaría el fallo real.
+      aleatorio: vi.fn(async () => canalDePrueba('a')),
+    })
+    render(App, { fuente })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+    await tick()
+    await screen.findByRole('dialog', { name: t('paleta.titulo') })
+
+    // Simula el foco cayendo en el propio contenedor de la paleta (o
+    // cualquier div no interactivo), como tras un clic en su chrome.
+    const divNoInteractivo = document.createElement('div')
+    divNoInteractivo.tabIndex = -1
+    document.body.appendChild(divNoInteractivo)
+    divNoInteractivo.focus()
+    expect(document.activeElement).toBe(divNoInteractivo)
+
+    await fireEvent.keyDown(divNoInteractivo, { key: ' ' })
+    await tick()
+
+    expect(paletaDialogo()).not.toBeNull() // la paleta sigue abierta
+    expect(screen.queryByRole('dialog', { name: 'a' })).toBeNull() // el reproductor NO se abrió
+    divNoInteractivo.remove()
+  })
+
   it('Esc cierra la paleta (App la desmonta al recibir alCerrar)', async () => {
     const fuente = fuenteFalsa()
     render(App, { fuente })
