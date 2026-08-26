@@ -144,3 +144,9 @@ jobs:
           name: playwright-report
           path: web/playwright-report/
           retention-days: 7
+
+  seguridad:
+    name: Seguridad
+    uses: gdberysan/.github/.github/workflows/security.yml@main
+    permissions:
+      contents: read
