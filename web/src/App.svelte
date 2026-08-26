@@ -9,6 +9,7 @@
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
   import { reportarDesenlace } from './estado/estadisticas'
   import { historial, type EntradaHistorial } from './estado/historial'
+  import { debeHacerSurf } from './lib/surf'
   import BarraLateralFacetas from './componentes/BarraLateralFacetas.svelte'
   import RejillaCanales from './componentes/RejillaCanales.svelte'
   import Reproductor from './componentes/Reproductor.svelte'
@@ -208,6 +209,22 @@
     }
   }
 
+  // Gesto "surf" (Tarea 11, P0.6): la barra espaciadora repite EXACTAMENTE
+  // el camino de "Canal al azar" (alAleatorio → fuente.aleatorio con la
+  // consulta del filtro actual → abrirCanal) — un solo lugar que sabe saltar
+  // a un canal al azar, dos formas de dispararlo. debeHacerSurf ya filtra
+  // teclas/objetivos; aquí solo se añaden las condiciones de CUÁNDO tiene
+  // sentido saltar: con el catálogo listo (antes no hay qué surfear) y con
+  // el reproductor cerrado (abierto, la barra espaciadora ya es su atajo de
+  // play/pausa — ver Reproductor.svelte; dejar que ambos oyentes de
+  // window compitan por la misma tecla sería confuso e imprevisible).
+  function alTeclaVentana(e: KeyboardEvent) {
+    if (canalAbierto || fase.tipo !== 'listo' || vistaStats) return
+    if (!debeHacerSurf(e)) return
+    e.preventDefault()
+    alAleatorio()
+  }
+
   // Todo lo que cambia el resultado del catálogo, con "vista" excluida a
   // propósito: es un modo de pintar la lista, no un filtro de la consulta.
   let claveConsulta = $derived(
@@ -339,6 +356,12 @@
 <div class="sr-only" aria-live="polite" aria-atomic="true">{mensajeSincronizandoAccesible}</div>
 <div class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">{mensajeErrorAccesible}</div>
 
+<!-- Tarea 11 (P0.6): gesto "surf". svelte:window en vez de un listener en un
+     nodo concreto porque el espacio puede pulsarse con el foco en cualquier
+     parte de la página (o en ningún control) — debeHacerSurf es la guarda
+     que decide si ESE objetivo concreto puede robarle el espacio. -->
+<svelte:window onkeydown={alTeclaVentana} />
+
 <div class="fondo" inert={!!canalAbierto}>
   <div class="sala">
     <header class="cabecera">
@@ -396,6 +419,15 @@
                azar", el conmutador de vista, los chips de filtro removibles
                y el conteo viven aquí, en BarraAcciones. -->
           <BarraAcciones {total} {frescura} {alAleatorio} />
+
+          <!-- Afordancia del gesto "surf" (Tarea 11): sin esto, la barra
+               espaciadora sería un atajo invisible que nadie descubre. El
+               cursor ámbar parpadeante es puramente decorativo (el texto ya
+               dice lo mismo), de ahí aria-hidden en el propio glifo. -->
+          <p class="pista-surf">
+            <span class="cursor-surf" aria-hidden="true">&lt;_</span>
+            {t('accion.surf')}
+          </p>
 
           {#if errorCatalogo}
             <MensajeError clase={errorCatalogo} />
@@ -512,6 +544,29 @@
   .pie a.stats { color: var(--text-muted); text-decoration: underline; }
   .pie a.stats:hover { color: var(--text-body); }
   .pie p { margin: 0; }
+
+  /* Afordancia del gesto "surf" (Tarea 11, P0.6). */
+  .pista-surf {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    margin: 0 0 var(--space-3, 12px);
+    color: var(--text-muted);
+    font: var(--type-mono-label, inherit);
+    letter-spacing: var(--tracking-mono);
+  }
+  .cursor-surf {
+    color: var(--amber-500);
+    animation: parpadeo-surf 1s step-end infinite;
+  }
+  @keyframes parpadeo-surf {
+    50% { opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cursor-surf {
+      animation: none;
+    }
+  }
 
   /* Responsive: bajo ~900px el aside se convierte en un cajón (fixed +
      translate) gobernado por data-abierto, y main pasa a ocupar todo el

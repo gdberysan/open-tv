@@ -39,6 +39,11 @@ export const es = {
   'accion.rejilla': 'Ver en rejilla',
   'accion.lista': 'Ver en lista',
 
+  // Tarea 11 (P0.6): afordancia del gesto "surf" — la barra espaciadora hace
+  // el mismo salto que el botón "Canal al azar" cuando el foco no está en un
+  // control (ver debeHacerSurf en lib/surf.ts).
+  'accion.surf': 'Barra espaciadora: salta a un canal vivo al azar',
+
   // Tarea 7 (P0.6): chips removibles de la barra de acciones — uno por
   // dimensión de filtro activa (país/categoría/calidad/favoritos comparten la
   // misma redacción; la búsqueda de texto lleva la suya, entre comillas).

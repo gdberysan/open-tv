@@ -27,6 +27,7 @@ export const en: Record<ClaveMensaje, string> = {
   'accion.favoritos': 'Favourites only',
   'accion.rejilla': 'Grid view',
   'accion.lista': 'List view',
+  'accion.surf': 'Spacebar: jump to a random live channel',
 
   'chip.quitarFiltro': 'Remove {valor} filter',
   'chip.quitarBusqueda': 'Remove search “{valor}”',
