@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/svelte'
 import Reproductor from './Reproductor.svelte'
 import { t } from '../i18n'
+import { urlProxy } from '../reproductor/plan'
+import type { DesenlaceReproduccion } from '../reproductor/failover'
 import type { Canal, Mirror } from '../datos/catalogo'
 
 // jsdom no decodifica HLS de verdad: canPlayType() no está implementado (así
@@ -175,6 +177,39 @@ describe('Reproductor — failover entre mirrors', () => {
 
     await vi.waitFor(() => expect(intentadas).toEqual(['https://unico/x.m3u8']))
     expect(fuente.destino).toHaveBeenCalledWith('c1')
+  })
+
+  // Fix final, hallazgo 2: el fallback legacy sin mirrors etiquetaba
+  // viaProxy por POSICIÓN (i > 0), no por si la url es de verdad la
+  // proxeada. Un plan SOLO-proxy (aquí, webOk=false + proxyDisponible=true)
+  // tiene su ÚNICA url en i=0 — "i > 0" la etiquetaba como 'directo' en las
+  // stats, cuando sí es por proxy. Contra el código viejo, este test
+  // fallaría (via sería 'directo').
+  it('plan legacy solo-proxy (sin mirrors, webOk=false) reporta via="proxy", no "directo"', async () => {
+    hlsState.instancias.length = 0
+    const fuente = {
+      mirrors: vi.fn(async () => []),
+      destino: vi.fn(async () => ({ url: 'https://unico/x.m3u8', airplayOk: null })),
+      proxyDisponible: vi.fn(async () => true),
+    }
+    const desenlaces: DesenlaceReproduccion[] = []
+
+    render(Reproductor, {
+      canal: { ...canal, webOk: false },
+      fuente: fuente as any,
+      alCerrar: () => {},
+      alDesenlace: (d) => desenlaces.push(d),
+    })
+
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    // El único intento YA es la url proxeada (planDeReproduccion con
+    // webOk=false devuelve solo [urlProxy(url)]).
+    expect(hlsState.instancias[0].url).toBe(urlProxy('https://unico/x.m3u8'))
+
+    hlsState.instancias[0].fallar('manifestLoadError')
+
+    await vi.waitFor(() => expect(desenlaces.length).toBeGreaterThan(0))
+    expect(desenlaces[0].via).toBe('proxy')
   })
 
   // Ronda 1 de revisión: un fetch que falla (mirrors()/destino()/

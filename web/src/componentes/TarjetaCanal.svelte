@@ -2,6 +2,7 @@
   import type { Canal } from '../datos/catalogo'
   import BarrasSenal from './BarrasSenal.svelte'
   import MarcaWeb from './MarcaWeb.svelte'
+  import LogoCanal from './LogoCanal.svelte'
   import { pareceGeoBloqueado } from '../lib/geo'
   import { favoritos } from '../estado/favoritos'
   import { t } from '../i18n'
@@ -22,15 +23,9 @@
     focoActivo = true,
   }: { canal: Canal; alAbrir: (c: Canal) => void; indice?: number; focoActivo?: boolean } = $props()
   const esFavorito = $derived($favoritos.has(canal.id))
-  // La logoUrl del catálogo suele estar muerta/404/bloqueada; si la imagen no
-  // carga, caemos a las iniciales en vez de dejar el icono de imagen rota.
-  let logoRoto = $state(false)
-  // En virtualización (Tarea 17), la instancia se reutiliza con otro canal.
-  // Resetear logoRoto al cambiar para que el logo nuevo intente cargar.
-  $effect(() => {
-    void canal.id
-    logoRoto = false
-  })
+  // El fallback img-o-iniciales (logoRoto/onerror) vive en LogoCanal.svelte
+  // (fix final, hallazgo 1) — compartido con la fila de RejillaCanales en
+  // modo lista, que antes se quedaba sin él.
 </script>
 
 <article class="tarjeta" role="listitem" data-indice={indice}>
@@ -40,11 +35,7 @@
     aria-label={canal.nombre}
     tabindex={focoActivo ? 0 : -1}
   >
-    {#if canal.logoUrl && !logoRoto}
-      <img src={canal.logoUrl} alt="" loading="lazy" onerror={() => (logoRoto = true)} />
-    {:else}
-      <span class="sinlogo" aria-hidden="true">{canal.nombre.slice(0, 2)}</span>
-    {/if}
+    <div class="logo"><LogoCanal logoUrl={canal.logoUrl} nombre={canal.nombre} /></div>
     <span class="nombre">{canal.nombre}</span>
   </button>
 
@@ -69,8 +60,10 @@
 <style>
   .tarjeta { background: var(--surface-card); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
   .abrir { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 6px; align-items: center; }
-  img, .sinlogo { width: 100%; aspect-ratio: 16/9; object-fit: contain; }
-  .sinlogo { display: grid; place-items: center; background: var(--surface-sunken); color: var(--text-muted, var(--graphite-300)); }
+  /* LogoCanal (fix final, hallazgo 1) no decide tamaño: este contenedor es
+     el mismo width:100%/aspect-ratio:16:9 que antes tenían img/.sinlogo
+     directamente — layout visual sin cambios. */
+  .logo { width: 100%; aspect-ratio: 16/9; }
   .nombre { font-size: 13px; text-align: center; }
   footer { display: flex; align-items: center; gap: 6px; }
   /* Contraste (Tarea 18): --graphite-300 sobre --surface-card da 3.74:1,

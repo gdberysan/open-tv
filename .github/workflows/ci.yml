@@ -103,8 +103,23 @@ jobs:
       - name: presupuesto de bundle (<= 80 KB gzip de JS propio)
         working-directory: web
         run: |
-          # El JS propio es el/los chunk(s) de entrada, NO el de hls.js (perezoso).
-          total=$(find ../internal/ui/dist/assets -name 'index-*.js' -exec gzip -c {} \; | wc -c)
+          # El JS propio es el chunk de entrada, NO el de hls.js (perezoso).
+          # Fix final, hallazgo 4: si Vite renombrara el chunk de entrada
+          # (deja de matchear 'index-*.js'), find no devolvería nada, total
+          # quedaría en 0 y "0 -gt 81920" es falso — el gate pasaría en
+          # silencio sin medir nada. Se cuenta ANTES de medir: exactamente
+          # UN chunk de entrada, o falla explícito con ::error::.
+          # $(( n )) normaliza el resultado de `wc -l` a un entero limpio
+          # (sin espacios de relleno, que algunas implementaciones de wc sí
+          # anteponen) sin depender de mapfile/readarray (bash 4+).
+          n=$(find ../internal/ui/dist/assets -maxdepth 1 -name 'index-*.js' | wc -l)
+          n=$((n))
+          if [ "$n" -ne 1 ]; then
+            echo "::error::se esperaba exactamente 1 chunk de entrada index-*.js en internal/ui/dist/assets, se encontraron ${n}"
+            exit 1
+          fi
+          archivo=$(find ../internal/ui/dist/assets -maxdepth 1 -name 'index-*.js')
+          total=$(gzip -c "$archivo" | wc -c)
           echo "JS propio inicial: ${total} bytes gzip"
           if [ "$total" -gt 81920 ]; then
             echo "::error::el bundle propio supera 80 KB gzip (${total} B)"; exit 1

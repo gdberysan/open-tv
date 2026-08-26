@@ -3,6 +3,7 @@
   import RejillaVirtual from './RejillaVirtual.svelte'
   import BarrasSenal from './BarrasSenal.svelte'
   import MarcaWeb from './MarcaWeb.svelte'
+  import LogoCanal from './LogoCanal.svelte'
   import { favoritos } from '../estado/favoritos'
   import { t } from '../i18n'
 
@@ -42,11 +43,7 @@
     {#each canales as canal (canal.id)}
       <article class="fila" role="listitem">
         <button class="abrir" onclick={() => alAbrir(canal)} aria-label={canal.nombre}>
-          {#if canal.logoUrl}
-            <img src={canal.logoUrl} alt="" loading="lazy" />
-          {:else}
-            <span class="sinlogo" aria-hidden="true">{canal.nombre.slice(0, 2)}</span>
-          {/if}
+          <div class="logo"><LogoCanal logoUrl={canal.logoUrl} nombre={canal.nombre} /></div>
           <span class="nombre">{canal.nombre}</span>
         </button>
         {#if canal.pais}<span class="pais">{canal.pais}</span>{/if}
@@ -71,8 +68,12 @@
   .canales.lista { display: flex; flex-direction: column; gap: 4px; }
   .fila { display: flex; align-items: center; gap: 8px; background: var(--surface-card); border-radius: 6px; padding: 6px 10px; }
   .fila .abrir { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
-  .fila img, .fila .sinlogo { width: 32px; height: 32px; object-fit: contain; flex-shrink: 0; }
-  .fila .sinlogo { display: grid; place-items: center; background: var(--surface-sunken); color: var(--text-muted); border-radius: 4px; }
+  /* LogoCanal (fix final, hallazgo 1) no decide tamaño ni redondeo: este
+     contenedor reproduce el mismo 32×32 que antes tenían img/.sinlogo
+     directamente, y overflow:hidden+border-radius le da el borde redondeado
+     que .sinlogo tenía en la lista (y la rejilla NO tiene) sin que
+     LogoCanal necesite saber que existe esa diferencia entre vistas. */
+  .fila .logo { width: 32px; height: 32px; flex-shrink: 0; border-radius: 4px; overflow: hidden; }
   .fila .nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* Contraste (Tarea 18): mismo arreglo que TarjetaCanal.svelte — se compone
      con --text-muted en vez de --graphite-300/--graphite-500 (ver ahí el

@@ -2,7 +2,7 @@
   import { onDestroy, onMount, tick } from 'svelte'
   import type { Canal, CatalogSource } from '../datos/catalogo'
   import { PlaybackGuard } from '../reproductor/guard'
-  import { planDeReproduccion, motorDelNavegador, type Motor } from '../reproductor/plan'
+  import { planDeReproduccion, motorDelNavegador, urlProxy, type Motor } from '../reproductor/plan'
   import { planDeFailover, type Intento, type DesenlaceReproduccion } from '../reproductor/failover'
   import { clasificarError, type ClaseError } from '../estado/salud'
   import { clasificarFallo, type ClaseFallo, type InfoFallo } from '../reproductor/diagnostico'
@@ -286,7 +286,18 @@
           mensajeError = t('canal.soloApp')
           return
         }
-        intentos = plan.intentos.map((url, i) => ({ url, viaProxy: i > 0, mirrorIndex: 0 }))
+        // viaProxy se deriva comparando la url del intento contra la
+        // proxeada (fix final, hallazgo 2), no por posición (i > 0): un plan
+        // SOLO-proxy (mixed-content o webOk=false, ver planDeReproduccion)
+        // tiene su única url en i=0 y ES por proxy — "i > 0" la etiquetaba
+        // como 'directo' en las stats. Misma derivación que planDeFailover
+        // usa en failover.ts, para no duplicar la lógica de "¿esta url va
+        // por proxy?" en dos sitios.
+        intentos = plan.intentos.map((url) => ({
+          url,
+          viaProxy: url === urlProxy(destinoUnico.url),
+          mirrorIndex: 0,
+        }))
       }
     } catch (e) {
       if (destruido || miId !== intentoId) return
