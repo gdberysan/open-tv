@@ -78,9 +78,11 @@
 
 <!-- Sin aria-live/role="status" propio (mismo patrón que Sincronizando.svelte
      y MensajeError.svelte): es un bloque visual, no una región que se
-     anuncia a sí misma. Ver el informe de la Tarea 13 sobre si esta
-     transición concreta queda cubierta por las regiones aria-live
-     persistentes de App.svelte. -->
+     anuncia a sí misma. Tarea 15 (P0.6) cerró el hueco que la Tarea 13 dejó
+     abierto: la región polite persistente de App.svelte (ver el <script> de
+     App) ahora también cubre esta transición — nunca una región propia
+     aquí, que duplicaría el anuncio (el mismo bug que el fix round 2 evitó
+     en Sincronizando/MensajeError). -->
 <div class="vacio">
   <p class="mensaje">{t('catalogo.vacio')}</p>
   <div class="acciones">

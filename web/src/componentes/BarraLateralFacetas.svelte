@@ -143,7 +143,6 @@
       <button
         type="button"
         class="fila fila-senal"
-        class:activa={!$filtros.mostrarOffline}
         aria-pressed={!$filtros.mostrarOffline}
         onclick={() => ($filtros.mostrarOffline = false)}
       >

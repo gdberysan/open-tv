@@ -303,7 +303,23 @@
   const mensajeDeClaseAccesible = (clase: ClaseError) =>
     clase === 'gateway' ? t('estado.gatewayCaido') : clase === 'red' ? t('estado.sinRed') : t('estado.errorServidor')
 
-  let mensajeSincronizandoAccesible = $derived(fase.tipo === 'sincronizando' ? t('estado.sincronizando') : '')
+  // Tarea 15 (P0.6, hallazgo del ledger): la transición al vacío
+  // ("Ningún canal casa con el filtro") no la anunciaba ninguna región
+  // aria-live — solo sincronizando/error lo hacían. Vacio.svelte NO lleva su
+  // propia semántica live a propósito (mismo principio que Sincronizando/
+  // MensajeError: evitar el doble anuncio del fix round 2) — la región
+  // polite YA PERSISTENTE de más abajo es la única que debe anunciarlo.
+  // MISMA condición que RejillaCanales usa para montar <Vacio> (ver
+  // RejillaCanales.svelte: `canales.length === 0 && !cargando`), con
+  // 'listo'/sin error/fuera del panel de stats añadidos porque esta cadena
+  // vive en App, que ve más fases que RejillaCanales.
+  let catalogoVacio = $derived(
+    fase.tipo === 'listo' && !vistaStats && !errorCatalogo && !cargando && canales.length === 0,
+  )
+
+  let mensajePoliteAccesible = $derived(
+    fase.tipo === 'sincronizando' ? t('estado.sincronizando') : catalogoVacio ? t('catalogo.vacio') : '',
+  )
   let mensajeErrorAccesible = $derived(
     fase.tipo === 'error'
       ? mensajeDeClaseAccesible(fase.clase)
@@ -352,8 +368,10 @@
      Sincronizando/MensajeError. Vacías en catálogo normal; su texto es lo
      único que cambia. Se quedan aquí, en la raíz, FUERA del contenedor
      inert y ANTES del shell — un solo nodo persistente cada una, nunca
-     duplicadas, y su anuncio no depende de que el fondo esté o no inert. -->
-<div class="sr-only" aria-live="polite" aria-atomic="true">{mensajeSincronizandoAccesible}</div>
+     duplicadas, y su anuncio no depende de que el fondo esté o no inert.
+     La polite (Tarea 15) cubre AHORA dos transiciones —sincronizando y
+     vacío— con el mismo nodo, nunca dos regiones compitiendo. -->
+<div class="sr-only" aria-live="polite" aria-atomic="true">{mensajePoliteAccesible}</div>
 <div class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">{mensajeErrorAccesible}</div>
 
 <!-- Tarea 11 (P0.6): gesto "surf". svelte:window en vez de un listener en un
