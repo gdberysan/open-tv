@@ -146,6 +146,21 @@ export const es = {
   'stats.webNo': 'web_no',
   'stats.webDesconocido': 'Sin comprobar',
   'stats.sinDatos': 'Sin datos todavía.',
+
+  // Tarea 6 (P0.7): onboarding cuando el catálogo está listo pero no hay
+  // ninguna fuente añadida (bring-your-own). Ver Onboarding.svelte.
+  'onboarding.titulo': 'Añade una fuente de canales',
+  'onboarding.copy': 'Open TV no trae canales de fábrica: añade tu primera lista M3U para empezar a ver algo.',
+  'onboarding.url.etiqueta': 'URL de la lista M3U',
+  'onboarding.url.placeholder': 'https://ejemplo.com/lista.m3u',
+  'onboarding.anadir': 'Añadir',
+  'onboarding.anadiendo': 'Añadiendo…',
+  'onboarding.fichero.etiqueta': 'O elige un fichero .m3u',
+  'onboarding.sugeridas.titulo': 'Sugeridas',
+  'onboarding.sugeridas.anadir': 'Añadir {label}',
+  'onboarding.error': 'No se pudo añadir la fuente. Comprueba la URL e inténtalo de nuevo.',
+  // Versión breve (brief, Tarea 6): el texto legal completo va en la Tarea 8.
+  'onboarding.disclaimer': 'Open TV es un reproductor: no aloja contenido. Tú eliges tus fuentes y respondes por ellas.',
 } as const
 
 export type ClaveMensaje = keyof typeof es

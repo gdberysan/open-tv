@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, fireEvent, screen } from '@testing-library/svelte'
 import App from './App.svelte'
-import type { Canal, CatalogSource, ConsultaCatalogo, PaginaCanales } from './datos/catalogo'
+import type { Canal, CatalogSource, ConsultaCatalogo, Fuente, PaginaCanales } from './datos/catalogo'
 import { filtros } from './estado/filtros'
 import { favoritos } from './estado/favoritos'
-import { idioma } from './i18n'
+import { idioma, t } from './i18n'
 
 // comprobarSalud() de App llama a consultarSalud(), que hace un fetch('/health')
 // real. Estos tests no hablan con ningún servidor: se sustituye por una
@@ -58,9 +58,21 @@ function canalDePrueba(id: string): Canal {
   }
 }
 
+function fuenteDePrueba(id: string): Fuente {
+  return { id, label: `Fuente ${id}`, url: `https://ej.test/${id}.m3u`, kind: 'url', ultimoSync: Date.now(), canales: 1 }
+}
+
 /** CatalogSource falso en memoria: implementa TODOS los métodos de la
  * interfaz (incluido mirrors, de la Tarea 3) para que App pueda montarse
- * entero sin tocar la red. */
+ * entero sin tocar la red.
+ *
+ * fuentes() por defecto devuelve UNA fuente ya sincronizada (Tarea 6, P0.7):
+ * la inmensa mayoría de los tests de este fichero no le importa el onboarding
+ * de fuentes, solo el comportamiento normal del catálogo — con fuentes()
+ * vacío por defecto, esos tests (varios con canales:[] a propósito, para
+ * ejercitar OTRO camino) habrían empezado a ver Onboarding en vez de
+ * BarraAcciones/RejillaCanales sin venir a cuento. Los tests que SÍ quieren
+ * ejercitar sinFuentes pasan `fuentes: vi.fn(async () => [])` explícito. */
 function fuenteFalsa(overrides: Partial<CatalogSource> = {}): CatalogSource {
   const canales = vi.fn(async (): Promise<PaginaCanales> => ({ canales: [], total: 0 }))
   return {
@@ -73,7 +85,7 @@ function fuenteFalsa(overrides: Partial<CatalogSource> = {}): CatalogSource {
     mirrors: vi.fn(async () => []),
     frescura: vi.fn(async () => ({ tipo: 'vivo' as const, generadoEn: null })),
     proxyDisponible: vi.fn(async () => false),
-    fuentes: vi.fn(async () => []),
+    fuentes: vi.fn(async () => [fuenteDePrueba('f0')]),
     anadirFuente: vi.fn(async () => ({
       id: 'f1', label: 'Fuente falsa', url: '', kind: 'url' as const, ultimoSync: null, canales: 0,
     })),
@@ -210,5 +222,48 @@ describe('App — invariantes de integración (los que dejaron pasar los peores 
     const abiertoAntes = container.querySelector('aside.facetas')?.getAttribute('data-abierto')
     await fireEvent.click(boton)
     expect(container.querySelector('aside.facetas')?.getAttribute('data-abierto')).not.toBe(abiertoAntes)
+  })
+})
+
+describe('App — onboarding cuando no hay fuentes (Tarea 6, P0.7)', () => {
+  it('(a) sin fuentes y catálogo vacío: se ve el Onboarding y no la rejilla/acciones', async () => {
+    const fuente = fuenteFalsa({ fuentes: vi.fn(async () => []) })
+    render(App, { fuente })
+
+    await screen.findByText(t('onboarding.titulo'))
+    expect(screen.queryByRole('button', { name: t('accion.aleatorio') })).toBeNull()
+    expect(screen.queryByRole('list', { name: t('rejilla.etiquetaLista') })).toBeNull()
+  })
+
+  it('(e) con al menos una fuente, el Onboarding no aparece', async () => {
+    const fuente = fuenteFalsa() // fuenteFalsa ya trae una fuente por defecto (Tarea 6)
+    render(App, { fuente })
+
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    expect(screen.queryByText(t('onboarding.titulo'))).toBeNull()
+  })
+
+  it('añadir una fuente desde el Onboarding hace que desaparezca y el resto del shell aparezca', async () => {
+    const nueva: Fuente = {
+      id: 'nueva', label: 'Nueva', url: 'https://ej.test/nueva.m3u', kind: 'url', ultimoSync: null, canales: 0,
+    }
+    const anadirFuente = vi.fn(async () => nueva)
+    const fuente = fuenteFalsa({ fuentes: vi.fn(async () => []), anadirFuente })
+    render(App, { fuente })
+
+    const campo = await screen.findByLabelText(t('onboarding.url.etiqueta'))
+    await fireEvent.input(campo, { target: { value: 'https://ej.test/nueva.m3u' } })
+    const boton = screen.getByRole('button', { name: t('onboarding.anadir') })
+    await fireEvent.click(boton)
+
+    await vi.waitFor(() => expect(anadirFuente).toHaveBeenCalledWith('https://ej.test/nueva.m3u'))
+    // Mecanismo de refresco (ver App.svelte, alFuenteAnadida): la Fuente ya
+    // creada se añade en el momento a `fuentes` (sinFuentes pasa a false de
+    // inmediato) y fase pasa por 'sincronizando' — como consultarSalud() está
+    // mockeado a nivel de fichero para responder siempre "ya sincronizado",
+    // Sincronizando.svelte llama a alListo() casi enseguida en su propio
+    // onMount, así que basta con esperar a que el Onboarding se desmonte.
+    await vi.waitFor(() => expect(screen.queryByText(t('onboarding.titulo'))).toBeNull())
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
   })
 })

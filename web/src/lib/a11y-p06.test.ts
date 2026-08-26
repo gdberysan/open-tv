@@ -63,6 +63,12 @@ function canalFalso(i: number): Canal {
   }
 }
 
+// fuentes() por defecto devuelve UNA fuente ya sincronizada (Tarea 6, P0.7):
+// estos tests ejercitan el catálogo vacío por FILTRO/sin resultados (mismo
+// camino de siempre), no el onboarding "sin fuentes" (App.integracion.test.ts
+// cubre ese) — con fuentes() vacío por defecto, App mostraría Onboarding en
+// vez del shell normal y estos tests dejarían de comprobar lo que dicen
+// comprobar.
 function fuenteFalsa(overrides: Partial<CatalogSource> = {}): CatalogSource {
   return {
     canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales: [], total: 0 })),
@@ -74,7 +80,9 @@ function fuenteFalsa(overrides: Partial<CatalogSource> = {}): CatalogSource {
     mirrors: vi.fn(async () => []),
     frescura: vi.fn(async () => ({ tipo: 'vivo' as const, generadoEn: null })),
     proxyDisponible: vi.fn(async () => false),
-    fuentes: vi.fn(async () => []),
+    fuentes: vi.fn(async () => [
+      { id: 'f0', label: 'Fuente de prueba', url: 'https://ej.test/f0.m3u', kind: 'url' as const, ultimoSync: Date.now(), canales: 1 },
+    ]),
     anadirFuente: vi.fn(async () => ({
       id: 'f1', label: 'Fuente falsa', url: '', kind: 'url' as const, ultimoSync: null, canales: 0,
     })),

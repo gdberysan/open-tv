@@ -108,4 +108,16 @@ export const en: Record<ClaveMensaje, string> = {
   'stats.webNo': 'web_no',
   'stats.webDesconocido': 'Not checked',
   'stats.sinDatos': 'No data yet.',
+
+  'onboarding.titulo': 'Add a channel source',
+  'onboarding.copy': "Open TV doesn't ship with channels: add your first M3U list to start watching something.",
+  'onboarding.url.etiqueta': 'M3U list URL',
+  'onboarding.url.placeholder': 'https://example.com/list.m3u',
+  'onboarding.anadir': 'Add',
+  'onboarding.anadiendo': 'Adding…',
+  'onboarding.fichero.etiqueta': 'Or choose a .m3u file',
+  'onboarding.sugeridas.titulo': 'Suggested',
+  'onboarding.sugeridas.anadir': 'Add {label}',
+  'onboarding.error': 'Could not add the source. Check the URL and try again.',
+  'onboarding.disclaimer': 'Open TV is a player: it hosts no content. You choose your sources and you are responsible for them.',
 }

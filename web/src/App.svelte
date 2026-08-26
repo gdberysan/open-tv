@@ -3,7 +3,7 @@
   import { get } from 'svelte/store'
   import { idioma, t } from './i18n'
   import { crearHttpCatalog } from './datos/http'
-  import type { CatalogSource, Canal, ConsultaCatalogo, Faceta, Frescura as InfoFrescura } from './datos/catalogo'
+  import type { CatalogSource, Canal, ConsultaCatalogo, Faceta, Frescura as InfoFrescura, Fuente } from './datos/catalogo'
   import { filtros } from './estado/filtros'
   import { favoritos } from './estado/favoritos'
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
@@ -19,6 +19,7 @@
   import IndicadorSenal from './componentes/IndicadorSenal.svelte'
   import BarraAcciones from './componentes/BarraAcciones.svelte'
   import ContinuarViendo from './componentes/ContinuarViendo.svelte'
+  import Onboarding from './componentes/Onboarding.svelte'
 
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
@@ -46,6 +47,14 @@
   let categorias = $state<Faceta[]>([])
   let calidades = $state<Faceta[]>([])
   let frescura = $state<InfoFrescura | null>(null)
+
+  // Tarea 6 (P0.7): fuentes bring-your-own. fuentesCargadas distingue "todavía
+  // no sabemos" (arranque, o un fallo de red en la carga inicial) de
+  // "confirmado: cero fuentes" — sin esa distinción, sinFuentes (más abajo)
+  // se activaría de más en el primer instante de cualquier montaje, antes de
+  // que fuente.fuentes() llegue a resolver.
+  let fuentes = $state<Fuente[]>([])
+  let fuentesCargadas = $state(false)
 
   // Descarta respuestas de peticiones que ya no son la última: cambiar de
   // filtro dos veces seguidas no puede dejar pintada la respuesta de la
@@ -234,7 +243,10 @@
   // play/pausa — ver Reproductor.svelte; dejar que ambos oyentes de
   // window compitan por la misma tecla sería confuso e imprevisible).
   function alTeclaVentana(e: KeyboardEvent) {
-    if (canalAbierto || fase.tipo !== 'listo' || vistaStats) return
+    // sinFuentes (Tarea 6, P0.7): sin catálogo que surfear, el mismo espacio
+    // debe dejar que el navegador haga lo suyo (p. ej. scroll) en vez de
+    // llamar a fuente.aleatorio() sobre un catálogo que se sabe vacío.
+    if (canalAbierto || fase.tipo !== 'listo' || vistaStats || sinFuentes) return
     if (!debeHacerSurf(e)) return
     e.preventDefault()
     alAleatorio()
@@ -281,20 +293,42 @@
     fase = { tipo: 'listo' }
   }
 
+  // Tarea 6 (P0.7): Onboarding ya recibió la Fuente creada como valor de
+  // retorno de anadirFuente*/fuentesSugeridas (el propio backend la crea al
+  // sincronizar) — no hace falta un fetch adicional a fuente.fuentes() para
+  // saber que ya no está vacía. Lo que SÍ falta es el catálogo: el backend
+  // sincroniza la fuente nueva de forma asíncrona, así que se reutiliza TAL
+  // CUAL la fase 'sincronizando' que ya existe (Sincronizando.svelte hace
+  // polling de /health cada 2s y llama a alSincronizado en cuanto termina),
+  // que a su vez retrigger el $effect de claveConsulta (lee fase.tipo) y
+  // vuelve a pedir la página 1 — el mismo camino que ya cubre el arranque
+  // normal, sin inventar un segundo mecanismo de espera.
+  function alFuenteAnadida(f: Fuente) {
+    fuentes = [...fuentes, f]
+    fase = { tipo: 'sincronizando' }
+  }
+
   onMount(() => {
     comprobarSalud()
     ;(async () => {
       try {
-        const [p, c, q, f] = await Promise.all([
+        const [p, c, q, f, fu] = await Promise.all([
           fuente.paises(),
           fuente.categorias(),
           fuente.calidades(),
           fuente.frescura(),
+          fuente.fuentes(),
         ])
         paises = p
         categorias = c
         calidades = q
         frescura = f
+        fuentes = fu
+        // fuentesCargadas se marca SOLO en el camino de éxito, dentro del
+        // try: si la petición falla no sabemos si hay fuentes o no, y es más
+        // seguro no mostrar el onboarding "sin fuentes" por un fallo de red
+        // pasajero que mostrarlo de más (ver el comentario de `fuentes`).
+        fuentesCargadas = true
       } catch {
         // Sin facetas los selectores se quedan solo con "Todos"; no es motivo
         // para tumbar el resto de la app.
@@ -332,8 +366,36 @@
     fase.tipo === 'listo' && !vistaStats && !errorCatalogo && !cargando && canales.length === 0,
   )
 
+  // Tarea 6 (P0.7): onboarding cuando el catálogo está listo pero NO hay
+  // ninguna fuente añadida — a diferencia de catalogoVacio (un FILTRO deja el
+  // catálogo sin resultados), aquí el catálogo entero está vacío porque no
+  // hay de dónde sacarlo. `total === 0` además de `canales.length === 0`:
+  // con soloFavoritos ambos podrían discrepar si algún día hay favoritos sin
+  // fuente propia, y total es la fuente de verdad de "cuántos hay" en todo
+  // el resto de App (ver el comentario de `cargarPagina`).
+  let sinFuentes = $derived(
+    fase.tipo === 'listo' &&
+      fuentesCargadas &&
+      fuentes.length === 0 &&
+      !vistaStats &&
+      !errorCatalogo &&
+      !cargando &&
+      canales.length === 0 &&
+      total === 0,
+  )
+
+  // `catalogoVacio && !sinFuentes`: cuando NO hay fuentes, App renderiza
+  // Onboarding en vez de RejillaCanales/Vacio (ver el <main> más abajo) — sin
+  // este guardián, esta región seguiría anunciando "Ningún canal casa con el
+  // filtro" (el texto de Vacio.svelte, pensado para un FILTRO demasiado
+  // estrecho) encima de una pantalla que en realidad pide una fuente, un
+  // mensaje falso para quien lo escucha por lector de pantalla.
   let mensajePoliteAccesible = $derived(
-    fase.tipo === 'sincronizando' ? t('estado.sincronizando') : catalogoVacio ? t('catalogo.vacio') : '',
+    fase.tipo === 'sincronizando'
+      ? t('estado.sincronizando')
+      : catalogoVacio && !sinFuentes
+        ? t('catalogo.vacio')
+        : '',
   )
   let mensajeErrorAccesible = $derived(
     fase.tipo === 'error'
@@ -459,30 +521,42 @@
         {:else if fase.tipo === 'error'}
           <MensajeError clase={fase.clase} />
         {:else if fase.tipo === 'listo'}
-          <!-- Tarea 10 (P0.6): héroe "Continuar viendo", ENCIMA de
-               BarraAcciones — se renderiza compacto o nada, según el
-               historial (ver ContinuarViendo.svelte). -->
-          <ContinuarViendo alAbrir={abrirDesdeHistorial} />
-
-          <!-- Tarea 7 (P0.6): buscador/facetas/señal viven en el aside
-               (BarraLateralFacetas, Tarea 6); "Solo favoritos", "Canal al
-               azar", el conmutador de vista, los chips de filtro removibles
-               y el conteo viven aquí, en BarraAcciones. -->
-          <BarraAcciones {total} {frescura} {alAleatorio} />
-
-          <!-- Afordancia del gesto "surf" (Tarea 11): sin esto, la barra
-               espaciadora sería un atajo invisible que nadie descubre. El
-               cursor ámbar parpadeante es puramente decorativo (el texto ya
-               dice lo mismo), de ahí aria-hidden en el propio glifo. -->
-          <p class="pista-surf">
-            <span class="cursor-surf" aria-hidden="true">&lt;_</span>
-            {t('accion.surf')}
-          </p>
-
-          {#if errorCatalogo}
-            <MensajeError clase={errorCatalogo} />
+          {#if sinFuentes}
+            <!-- Tarea 6 (P0.7): catálogo listo pero sin ninguna fuente
+                 bring-your-own — primer arranque en limpio. Sustituye TODO
+                 el bloque de abajo (héroe/acciones/pista de surf/rejilla): no
+                 tiene sentido ofrecer "Canal al azar" o una rejilla sobre un
+                 catálogo que se sabe vacío por falta de fuente, no por un
+                 filtro. El aside de facetas (arriba) se deja tal cual —
+                 vacío hasta que haya canales, pero sin recablear su propio
+                 inert/layout por este caso. -->
+            <Onboarding {fuente} {alFuenteAnadida} />
           {:else}
-            <RejillaCanales {canales} vista={$filtros.vista} {cargando} {alPedirMas} alAbrir={abrirCanal} />
+            <!-- Tarea 10 (P0.6): héroe "Continuar viendo", ENCIMA de
+                 BarraAcciones — se renderiza compacto o nada, según el
+                 historial (ver ContinuarViendo.svelte). -->
+            <ContinuarViendo alAbrir={abrirDesdeHistorial} />
+
+            <!-- Tarea 7 (P0.6): buscador/facetas/señal viven en el aside
+                 (BarraLateralFacetas, Tarea 6); "Solo favoritos", "Canal al
+                 azar", el conmutador de vista, los chips de filtro removibles
+                 y el conteo viven aquí, en BarraAcciones. -->
+            <BarraAcciones {total} {frescura} {alAleatorio} />
+
+            <!-- Afordancia del gesto "surf" (Tarea 11): sin esto, la barra
+                 espaciadora sería un atajo invisible que nadie descubre. El
+                 cursor ámbar parpadeante es puramente decorativo (el texto ya
+                 dice lo mismo), de ahí aria-hidden en el propio glifo. -->
+            <p class="pista-surf">
+              <span class="cursor-surf" aria-hidden="true">&lt;_</span>
+              {t('accion.surf')}
+            </p>
+
+            {#if errorCatalogo}
+              <MensajeError clase={errorCatalogo} />
+            {:else}
+              <RejillaCanales {canales} vista={$filtros.vista} {cargando} {alPedirMas} alAbrir={abrirCanal} />
+            {/if}
           {/if}
         {/if}
       </main>
