@@ -38,6 +38,17 @@ type Options struct {
 	// de los tests de router existentes, que no lo necesitan) se resuelve a
 	// un agregador nuevo y vacío: /stats nunca debe nil-pointer-panicar.
 	Agregador *stats.Agregador
+	// PermitirDestinosPrivados se traslada tal cual a proxy.NewHandler. Falso
+	// en todo despliegue real (Ruling de seguridad: el proxy nunca debe
+	// relayar loopback/red privada, protección SSRF); cmd/open-tv/main.go
+	// solo lo pone a true si OPEN_TV_PERMITIR_DESTINOS_PRIVADOS=1, una
+	// puerta pensada exclusivamente para que el e2e de Playwright (que sirve
+	// sus fixtures HLS en 127.0.0.1) pueda ejercitar el camino real del
+	// proxy. El default de este campo (false, el zero value) ya es el seguro,
+	// así que cualquier caller que no lo fije explícitamente —incluidos
+	// todos los tests de router existentes— se queda con el proxy
+	// bloqueando destinos privados.
+	PermitirDestinosPrivados bool
 }
 
 func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer handlers.SyncStatus, opts Options) http.Handler {
@@ -100,7 +111,7 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	// la IP de quien lo levante, y eso no se ofrece ni por accidente. Los
 	// builds del snapshot tampoco lo incluyen porque nunca son loopback.
 	if opts.ProxyActivo {
-		ph := proxy.NewHandler(RutaProxy, false)
+		ph := proxy.NewHandler(RutaProxy, opts.PermitirDestinosPrivados)
 		r.Get("/proxy/hls", ph.ServeHTTP)
 	} else {
 		// Sin proxy, /proxy/hls tiene que devolver un 404 explícito y no

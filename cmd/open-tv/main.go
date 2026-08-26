@@ -197,10 +197,11 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 	url := "http://" + ln.Addr().String()
 	srv := &http.Server{
 		Handler: api.NewRouter(logger, channelRepoRO, provider, streamRepoRO, lecturaDB, syncer, api.Options{
-			ProxyActivo:     esLoopback(ln),
-			Version:         version,
-			HostsPermitidos: hostsPermitidos(ln),
-			Agregador:       agregador,
+			ProxyActivo:              esLoopback(ln),
+			Version:                  version,
+			HostsPermitidos:          hostsPermitidos(ln),
+			Agregador:                agregador,
+			PermitirDestinosPrivados: permitirDestinosPrivados(),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -280,6 +281,18 @@ func esLoopback(ln net.Listener) bool {
 		return false
 	}
 	return addr.IP.IsLoopback()
+}
+
+// permitirDestinosPrivados decide si el proxy HLS puede relayar loopback/red
+// privada. El default (variable ausente o distinta de "1") es el seguro:
+// bloquear, que es la protección SSRF de producción y lo que corre en
+// cualquier build o instalación real. La única razón por la que esta puerta
+// existe es que el e2e de Playwright (web/tests/e2e/global-setup.ts) sirve
+// sus fixtures HLS de prueba en 127.0.0.1 y necesita ejercitar el camino real
+// del proxy (hls.js → proxy → origen) en vez de que el 403 de SSRF lo tape
+// siempre; ese script es el único sitio del repo que fija esta variable.
+func permitirDestinosPrivados() bool {
+	return os.Getenv("OPEN_TV_PERMITIR_DESTINOS_PRIVADOS") == "1"
 }
 
 // hostsPermitidos construye la lista blanca de Host para el middleware
