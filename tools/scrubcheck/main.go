@@ -153,7 +153,7 @@ func gitLsFiles(root string) ([]string, error) {
 func leerFicheros(root string, paths []string) ([]Fichero, error) {
 	files := make([]Fichero, 0, len(paths))
 	for _, p := range paths {
-		content, err := os.ReadFile(filepath.Join(root, p))
+		content, err := os.ReadFile(filepath.Join(root, p)) //nolint:gosec // p viene de `git ls-files` (el árbol versionado): leerlo TODO es justo la función de scrubcheck, no una inclusión de fichero por entrada de usuario
 		if err != nil {
 			// Un fichero listado por `git ls-files` pero ausente del disco
 			// (p.ej. borrado sin `git rm`) no es un hallazgo de scrubcheck.
@@ -183,7 +183,7 @@ func resolveDenylistPath() string {
 // loadDenylist lee la denylist privada, una línea por término. Líneas vacías
 // se ignoran aquí; el filtrado por longitud (<3 chars) lo hace findDenied.
 func loadDenylist(path string) ([]string, error) {
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) //nolint:gosec // path es la denylist privada del autor (KORVEN_DENYLIST o ~/.config/korven/...), no entrada de usuario en runtime
 	if err != nil {
 		return nil, err
 	}

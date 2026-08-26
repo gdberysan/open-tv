@@ -5,3 +5,12 @@ linters:
   default: standard
   enable:
     - gosec
+  settings:
+    errcheck:
+      # Escrituras de diagnóstico a stdout/stderr: un fallo de Fprint* no es
+      # accionable (no hay a dónde reportarlo) y comprobarlo solo añade ruido.
+      # Exclusión idiomática; el resto de errores SÍ se exigen.
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint
