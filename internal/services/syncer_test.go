@@ -335,11 +335,15 @@ func TestSyncOnce_FuenteInactiva_SeOmite(t *testing.T) {
 	}
 }
 
-// (d) El fallo de una fuente no aborta el ciclo: las demás se intentan y
-// tienen éxito igualmente; el ciclo completo se reporta como fallido (para
-// que Run() aplique el backoff existente), pero SOLO a la fuente sana se le
-// hace TouchSync.
-func TestSyncOnce_FalloDeUnaFuente_NoAbortaLasDemas(t *testing.T) {
+// (d, fix1) El fallo de una fuente no aborta el ciclo: las demás se intentan
+// e igual tienen éxito. Éxito PARCIAL es éxito del CICLO — este es el bug
+// real cazado en el gate (autor con una fila `stalker` legacy de URL vacía
+// junto a una fuente sana de 12k canales): con la semántica vieja, el ciclo
+// entero se reportaba como fallido, LastSuccess nunca se estampaba y /health
+// se quedaba en last_sync:null para siempre pese a estar sirviendo miles de
+// canales. SyncOnce debe devolver nil, y solo a la fuente sana se le hace
+// TouchSync.
+func TestSyncOnce_UnaFuenteFallaOtraSincroniza_CicloEsExito(t *testing.T) {
 	srvMala := failingServer(t)
 	srvBuena := m3uServer(t, "Uno")
 
@@ -351,9 +355,8 @@ func TestSyncOnce_FalloDeUnaFuente_NoAbortaLasDemas(t *testing.T) {
 	stRepo := &fakeStreamRepo{}
 
 	s := NewSyncer(nil, sources, chRepo, stRepo, "", Config{})
-	err := s.SyncOnce(context.Background())
-	if err == nil {
-		t.Fatal("SyncOnce debería reportar el ciclo como fallido si una fuente falló")
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce con éxito parcial debería devolver nil, no: %v", err)
 	}
 
 	if chRepo.batchCount() != 1 {
@@ -369,6 +372,94 @@ func TestSyncOnce_FalloDeUnaFuente_NoAbortaLasDemas(t *testing.T) {
 	}
 	if n := sources.touchCount("src-buena"); n != 1 {
 		t.Errorf("TouchSync(src-buena) = %d, quiero 1", n)
+	}
+}
+
+// (fix1) El mismo escenario que arriba pero a través de Run(): un ciclo con
+// éxito parcial tiene que estampar LastSuccess y cerrar FirstSyncDone — son
+// justo las dos señales de las que depende /health y, con ella, el cliente
+// para dejar de mostrar "Sincronizando el catálogo…".
+func TestSyncer_UnaFuenteFallaOtraSincroniza_EstampaLastSuccessYCierraFirstSyncDone(t *testing.T) {
+	srvMala := failingServer(t)
+	srvBuena := m3uServer(t, "Uno")
+
+	sources := &fakeSourceRepo{fuentes: []ports.Source{
+		fuente("src-mala", srvMala.URL),
+		fuente("src-buena", srvBuena.URL),
+	}}
+
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, "", Config{
+		Interval:  time.Hour, // que no re-sincronice durante el test
+		RetryBase: time.Millisecond,
+		RetryMax:  time.Millisecond,
+	})
+
+	if !s.LastSuccess().IsZero() {
+		t.Fatal("LastSuccess no debería estar fijado antes de sincronizar")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Run(ctx)
+
+	select {
+	case <-s.FirstSyncDone():
+	case <-time.After(2 * time.Second):
+		t.Fatal("FirstSyncDone no se cerró: un éxito parcial debe contar como éxito del ciclo")
+	}
+
+	if s.LastSuccess().IsZero() {
+		t.Error("LastSuccess no se estampó tras un ciclo con éxito parcial")
+	}
+}
+
+// (fix1) Si TODAS las fuentes intentadas fallan, el ciclo sí se reporta como
+// fallido: ahí, y solo ahí, tiene sentido que Run() aplique su backoff.
+func TestSyncOnce_TodasLasFuentesFallan_DevuelveError(t *testing.T) {
+	srvMalaA := failingServer(t)
+	srvMalaB := failingServer(t)
+
+	sources := &fakeSourceRepo{fuentes: []ports.Source{
+		fuente("src-a", srvMalaA.URL),
+		fuente("src-b", srvMalaB.URL),
+	}}
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, "", Config{})
+
+	if err := s.SyncOnce(context.Background()); err == nil {
+		t.Fatal("SyncOnce debería devolver error si TODAS las fuentes fallaron")
+	}
+}
+
+// (fix1) Mismo escenario a través de Run(): con todas las fuentes rotas,
+// FirstSyncDone no debe cerrarse nunca ni LastSuccess estamparse — el
+// catálogo no avanzó nada, así que no hay éxito parcial que rescatar.
+func TestSyncer_TodasLasFuentesFallan_SinLastSuccessNiFirstSyncDone(t *testing.T) {
+	srvMalaA := failingServer(t)
+	srvMalaB := failingServer(t)
+
+	sources := &fakeSourceRepo{fuentes: []ports.Source{
+		fuente("src-a", srvMalaA.URL),
+		fuente("src-b", srvMalaB.URL),
+	}}
+
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, "", Config{
+		Interval:  time.Hour,
+		RetryBase: time.Millisecond,
+		RetryMax:  5 * time.Millisecond,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Run(ctx)
+
+	select {
+	case <-s.FirstSyncDone():
+		t.Fatal("FirstSyncDone se cerró aunque TODAS las fuentes fallaron")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	if !s.LastSuccess().IsZero() {
+		t.Error("LastSuccess se estampó aunque TODAS las fuentes fallaron")
 	}
 }
 

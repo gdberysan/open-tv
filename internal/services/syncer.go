@@ -172,35 +172,51 @@ func (s *Syncer) syncWithTimeout(ctx context.Context) error {
 }
 
 // SyncOnce ejecuta un ciclo completo: relee las fuentes activas y sincroniza
-// cada una. El fallo de una fuente se registra y NO aborta el ciclo — las
-// demás se intentan igualmente — pero si al menos una falló, SyncOnce
-// devuelve error para que Run() aplique el backoff existente al ciclo
-// completo (decisión: log+continúa por fuente, backoff global por ciclo; ver
-// brief de la tarea). Con cero fuentes el ciclo es un no-op que se considera
-// éxito: no debe colgar a quien espera FirstSyncDone en una instalación limpia.
+// cada una. El fallo de una fuente se registra vía slog y NO aborta el
+// ciclo — las demás se intentan igualmente.
+//
+// Semántica de éxito/fallo del CICLO (no de cada fuente): un ciclo es útil
+// si el catálogo avanzó. Basta con que UNA fuente intentada haya
+// sincronizado bien —o con que no hubiera ninguna fuente activa que
+// intentar— para que el ciclo cuente como éxito de cara a Run(): LastSuccess
+// se estampa y FirstSyncDone se cierra aunque el resto fallara. Una fuente
+// rota entre varias buenas NUNCA debe hacer pasar el catálogo entero por
+// "no sincronizado": eso cuelga /health (last_sync:null para siempre) y con
+// él al cliente, aunque miles de canales de las fuentes sanas ya se estén
+// sirviendo. SyncOnce solo devuelve error (el errors.Join de los fallos, así
+// errors.Is/As sigue funcionando, p.ej. para ErrCatalogoSospechoso) cuando
+// TODAS las fuentes intentadas fallaron — ahí, y solo ahí, tiene sentido que
+// Run() aplique su backoff al ciclo completo. TouchSync sigue siendo
+// estrictamente por-fuente: solo se marca la que sincronizó bien.
 func (s *Syncer) SyncOnce(ctx context.Context) error {
 	fuentes, err := s.sources.List(ctx)
 	if err != nil {
 		return fmt.Errorf("services.SyncOnce (List): %w", err)
 	}
 
-	var errores []error
+	var (
+		errores  []error
+		intentos int
+		exitos   int
+	)
 	for _, fuente := range fuentes {
 		if !fuente.IsActive {
 			continue
 		}
+		intentos++
 		if err := s.sincronizarFuenteYMarcar(ctx, fuente); err != nil {
 			s.logger.Error("Fallo sincronizando fuente, se continúa con las demás",
 				slog.String("fuente", fuente.ID), slog.Any("error", err))
 			errores = append(errores, err)
+			continue
 		}
+		exitos++
 	}
 
-	// errors.Join en vez de un mensaje genérico: quien llame a SyncOnce (hoy
-	// solo Run(), pero también un futuro caller directo) puede seguir usando
-	// errors.Is/As sobre el resultado del ciclo, por ejemplo para distinguir
-	// ErrCatalogoSospechoso de un fallo de red.
-	return errors.Join(errores...)
+	if intentos > 0 && exitos == 0 {
+		return errors.Join(errores...)
+	}
+	return nil
 }
 
 // SyncOne sincroniza únicamente la fuente indicada, bajo demanda (pensado
