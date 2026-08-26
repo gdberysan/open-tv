@@ -82,10 +82,11 @@ func (syncVacio) SyncOne(context.Context, string) error { return nil }
 
 type sourcesVacio struct{}
 
-func (sourcesVacio) List(context.Context) ([]ports.Source, error)   { return nil, nil }
-func (sourcesVacio) Add(context.Context, ports.Source) error        { return nil }
-func (sourcesVacio) Remove(context.Context, string) error           { return nil }
-func (sourcesVacio) TouchSync(context.Context, string, int64) error { return nil }
+func (sourcesVacio) List(context.Context) ([]ports.Source, error)    { return nil, nil }
+func (sourcesVacio) Add(context.Context, ports.Source) error         { return nil }
+func (sourcesVacio) Remove(context.Context, string) error            { return nil }
+func (sourcesVacio) TouchSync(context.Context, string, int64) error  { return nil }
+func (sourcesVacio) SetTvgURL(context.Context, string, string) error { return nil }
 
 // Este test usa el router REAL, no una tabla de rutas duplicada en el test: si
 // el helper de los tests de handlers construye su propia tabla, puede derivar

@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS providers (
     -- Cómo se obtiene el M3U: 'url' (remoto) o 'file' (subido al datadir).
     -- No es el formato del catálogo, eso ya lo fija type.
     kind         TEXT    NOT NULL DEFAULT 'url',
+    -- url-tvg declarada en la cabecera M3U de la fuente; '' = sin guía.
+    tvg_url      TEXT    NOT NULL DEFAULT '',
     priority     INTEGER NOT NULL DEFAULT 100,
     is_active    INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
     created_at   INTEGER NOT NULL,

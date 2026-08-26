@@ -43,7 +43,7 @@ func sourceID(url string) string {
 // ver Add): no hace falta una columna nueva solo para ese timestamp.
 func (r *SQLiteSourceRepository) List(ctx context.Context) ([]ports.Source, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT p.id, p.label, p.base_url, p.kind, p.is_active, p.updated_at,
+		SELECT p.id, p.label, p.base_url, p.kind, p.is_active, p.updated_at, p.tvg_url,
 		       (SELECT COUNT(*) FROM channels c WHERE c.provider_id = p.id) AS canales
 		FROM providers p
 		ORDER BY p.created_at, p.id
@@ -59,7 +59,7 @@ func (r *SQLiteSourceRepository) List(ctx context.Context) ([]ports.Source, erro
 			s        ports.Source
 			isActive int
 		)
-		if err := rows.Scan(&s.ID, &s.Label, &s.URL, &s.Kind, &isActive, &s.UltimoSync, &s.Canales); err != nil {
+		if err := rows.Scan(&s.ID, &s.Label, &s.URL, &s.Kind, &isActive, &s.UltimoSync, &s.TvgURL, &s.Canales); err != nil {
 			return nil, fmt.Errorf("db.SourceRepository.List (scan): %w", err)
 		}
 		s.IsActive = isActive == 1
@@ -111,6 +111,16 @@ func (r *SQLiteSourceRepository) TouchSync(ctx context.Context, id string, cuand
 	if _, err := r.db.ExecContext(ctx,
 		"UPDATE providers SET updated_at = ? WHERE id = ?", cuando, id); err != nil {
 		return fmt.Errorf("db.SourceRepository.TouchSync (id=%s): %w", id, err)
+	}
+	return nil
+}
+
+// SetTvgURL fija la url-tvg que la fuente declaró en su cabecera M3U (ver
+// opensource.Provider.TvgURLs). List la refleja después en Source.TvgURL.
+func (r *SQLiteSourceRepository) SetTvgURL(ctx context.Context, id string, tvgURL string) error {
+	if _, err := r.db.ExecContext(ctx,
+		"UPDATE providers SET tvg_url = ? WHERE id = ?", tvgURL, id); err != nil {
+		return fmt.Errorf("db.SourceRepository.SetTvgURL (id=%s): %w", id, err)
 	}
 	return nil
 }

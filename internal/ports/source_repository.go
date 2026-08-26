@@ -28,6 +28,12 @@ type Source struct {
 	// Canales es el recuento de canales que tiene esta fuente en el catálogo
 	// ahora mismo. Se calcula en List, no se persiste.
 	Canales int
+	// TvgURL es la url-tvg (o x-tvg-url) que la propia fuente declaró en su
+	// cabecera M3U (ver opensource.Provider.TvgURLs), fijada por SetTvgURL.
+	// "" si la fuente no declara guía o aún no se ha sincronizado ninguna vez.
+	// Es dato interno para que el Syncer decida si toca refrescar el EPG; no
+	// se serializa en el contrato JSON de /sources.
+	TvgURL string
 }
 
 // SourceRepository gestiona las fuentes IPTV que el usuario ha dado de alta.
@@ -46,4 +52,8 @@ type SourceRepository interface {
 	Remove(ctx context.Context, id string) error
 	// TouchSync marca cuándo fue el último sync exitoso de la fuente.
 	TouchSync(ctx context.Context, id string, cuando int64) error
+	// SetTvgURL fija la url-tvg que la fuente declaró en su última
+	// sincronización (ver opensource.Provider.TvgURLs). List la devuelve
+	// después en Source.TvgURL para que el Syncer decida si el EPG cambió.
+	SetTvgURL(ctx context.Context, id string, tvgURL string) error
 }

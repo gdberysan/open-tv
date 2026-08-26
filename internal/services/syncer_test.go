@@ -64,6 +64,18 @@ func (f *fakeSourceRepo) TouchSync(_ context.Context, id string, cuando int64) e
 	return nil
 }
 
+func (f *fakeSourceRepo) SetTvgURL(_ context.Context, id string, tvgURL string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, s := range f.fuentes {
+		if s.ID == id {
+			f.fuentes[i].TvgURL = tvgURL
+			return nil
+		}
+	}
+	return nil
+}
+
 func (f *fakeSourceRepo) touchCount(id string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()

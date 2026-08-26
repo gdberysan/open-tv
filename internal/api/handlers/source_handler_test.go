@@ -87,6 +87,16 @@ func (f *fakeSourceRepo) TouchSync(_ context.Context, id string, cuando int64) e
 	return nil
 }
 
+func (f *fakeSourceRepo) SetTvgURL(_ context.Context, id string, tvgURL string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if s, ok := f.fuentes[id]; ok {
+		s.TvgURL = tvgURL
+		f.fuentes[id] = s
+	}
+	return nil
+}
+
 // spySyncer registra cada llamada a SyncOne y avisa por un canal, para que
 // los tests puedan esperar de forma determinista al goroutine asíncrono del
 // handler en vez de sondear con sleeps.

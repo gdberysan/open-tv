@@ -107,6 +107,9 @@ func alterMigrations(db *sql.DB) error {
 		// obtiene el M3U ('url' remota o 'file' subido), no el formato.
 		"ALTER TABLE providers ADD COLUMN label TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE providers ADD COLUMN kind TEXT NOT NULL DEFAULT 'url'",
+		// url-tvg declarada en la cabecera M3U de la fuente (ver
+		// opensource.Provider.TvgURLs); '' = la fuente no la declaró.
+		"ALTER TABLE providers ADD COLUMN tvg_url TEXT NOT NULL DEFAULT ''",
 	}
 	for _, stmt := range alters {
 		if _, err := db.Exec(stmt); err != nil {
