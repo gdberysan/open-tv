@@ -94,6 +94,7 @@ func TestLecturaNoSeBloqueaDetrasDeUnaEscritura(t *testing.T) {
 		t.Fatalf("db.Open: %v", err)
 	}
 	defer func() { _ = escritura.Close() }()
+	seedProviderOpensource(t, escritura)
 
 	lectura, err := db.OpenReadOnly(path)
 	if err != nil {

@@ -5,7 +5,6 @@ import (
 	"embed"
 	"fmt"
 	"strings"
-	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -24,8 +23,10 @@ const pragmaDSN = "_pragma=journal_mode(WAL)" +
 	"&_pragma=foreign_keys(1)" +
 	"&_pragma=busy_timeout(5000)"
 
-// Open abre o crea la base de datos SQLite, migra el esquema y siembra los
-// providers por defecto. Listo para usar tras retornar.
+// Open abre o crea la base de datos SQLite y migra el esquema. Listo para
+// usar tras retornar. Una instalación limpia arranca con CERO providers: ya
+// no hay seed de IPTV-org — el catálogo depende de las fuentes que el usuario
+// dé de alta con SourceRepository (ver source_repository.go).
 func Open(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", "file:"+path+"?"+pragmaDSN)
 	if err != nil {
@@ -37,10 +38,6 @@ func Open(path string) (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 
 	if err := migrate(db); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if err := seedProviders(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -105,6 +102,11 @@ func alterMigrations(db *sql.DB) error {
 		"ALTER TABLE streams ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE channels ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE streams ADD COLUMN web_ok INTEGER",
+		// Fuentes "bring your own" (retirada del seed de IPTV-org): label es
+		// el nombre que el usuario le pone a la fuente; kind distingue cómo se
+		// obtiene el M3U ('url' remota o 'file' subido), no el formato.
+		"ALTER TABLE providers ADD COLUMN label TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE providers ADD COLUMN kind TEXT NOT NULL DEFAULT 'url'",
 	}
 	for _, stmt := range alters {
 		if _, err := db.Exec(stmt); err != nil {
@@ -114,24 +116,6 @@ func alterMigrations(db *sql.DB) error {
 				continue
 			}
 			return fmt.Errorf("db.alterMigrations (%s): %w", stmt, err)
-		}
-	}
-	return nil
-}
-
-// seedProviders inserta el provider IPTV-org si no existe aún.
-func seedProviders(db *sql.DB) error {
-	now := time.Now().Unix()
-	seeds := []struct{ id, typ, baseURL string }{
-		{"opensource", "opensource", "https://iptv-org.github.io/iptv/index.m3u"},
-	}
-	for _, s := range seeds {
-		if _, err := db.Exec(`
-			INSERT INTO providers (id, type, base_url, priority, is_active, created_at, updated_at)
-			VALUES (?, ?, ?, 100, 1, ?, ?)
-			ON CONFLICT(id) DO NOTHING
-		`, s.id, s.typ, s.baseURL, now, now); err != nil {
-			return fmt.Errorf("db.seedProviders (%s): %w", s.id, err)
 		}
 	}
 	return nil
