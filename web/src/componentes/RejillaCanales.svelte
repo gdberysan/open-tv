@@ -85,18 +85,25 @@
     {#each canales as canal (canal.id)}
       {@const ahoraDespues = mapaEpg.get(canal.id)}
       <article class="fila" role="listitem">
-        <button class="abrir" onclick={() => alAbrir(canal)} aria-label={canal.nombre}>
+        <button
+          class="abrir"
+          onclick={() => alAbrir(canal)}
+          aria-label={ahoraDespues?.ahora
+            ? `${canal.nombre}. ${t('epg.ahora')}: ${ahoraDespues.ahora.titulo}`
+            : canal.nombre}
+        >
           <div class="logo"><LogoCanal logoUrl={canal.logoUrl} nombre={canal.nombre} /></div>
           <span class="info">
             <span class="nombre">{canal.nombre}</span>
             <!-- Insignia ahora/después (paridad con TarjetaCanal, Tarea 8 P2
-                 EPG). A diferencia de la rejilla, la lista NO virtualiza,
-                 así que no hace falta reservar una altura fija: sin guía,
-                 sin texto, sin espacio — fila limpia. El "●" decorativo va
-                 fuera del aria-label del botón "abrir" (que ya es solo
-                 canal.nombre); texto plano, sin aria-live nuevo. -->
+                 EPG). La lista NO virtualiza, así que no hace falta altura
+                 fija: sin guía, sin texto, fila limpia. Es VISUAL: el
+                 aria-label del botón (arriba) lleva «<nombre>. Ahora: <título>»
+                 cuando hay guía, porque un aria-label explícito anula el texto
+                 interno para el nombre accesible — sin él, el lector de
+                 pantalla no anunciaría la guía. Sin aria-live nuevo. -->
             {#if ahoraDespues?.ahora}
-              <span class="linea-epg">● {t('epg.ahora')}: {ahoraDespues.ahora.titulo}{#if ahoraDespues.siguiente} · {t('epg.siguiente')} {formatearHoraLocal(ahoraDespues.siguiente.inicioSeg)} · {ahoraDespues.siguiente.titulo}{/if}</span>
+              <span class="linea-epg" aria-hidden="true">● {t('epg.ahora')}: {ahoraDespues.ahora.titulo}{#if ahoraDespues.siguiente} · {t('epg.siguiente')} {formatearHoraLocal(ahoraDespues.siguiente.inicioSeg)} · {ahoraDespues.siguiente.titulo}{/if}</span>
             {/if}
           </span>
         </button>

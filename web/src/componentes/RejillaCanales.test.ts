@@ -100,6 +100,12 @@ describe('RejillaCanales — modo lista', () => {
 
       const texto = container.querySelector('article.fila .linea-epg')?.textContent ?? ''
       expect(texto).toContain('Ahora: Telediario')
+      // La insignia visual es aria-hidden; el nombre accesible del botón lleva
+      // la guía (un aria-label explícito anula el texto interno para el lector
+      // de pantalla, así que sin esto la guía no se anunciaría en la lista).
+      const boton = container.querySelector('article.fila button.abrir')
+      expect(container.querySelector('article.fila .linea-epg')?.getAttribute('aria-hidden')).toBe('true')
+      expect(boton?.getAttribute('aria-label')).toContain('Ahora: Telediario')
     })
 
     it('sin guía para este canal: la fila no muestra texto de EPG', () => {
