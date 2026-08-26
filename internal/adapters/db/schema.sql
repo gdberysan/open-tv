@@ -96,8 +96,30 @@ CREATE TABLE IF NOT EXISTS streams (
 CREATE INDEX IF NOT EXISTS idx_streams_channel_alive ON streams(channel_id, is_alive);
 CREATE INDEX IF NOT EXISTS idx_streams_latency       ON streams(channel_id, latency_ms) WHERE is_alive = 1;
 
+-- ─────────────────────────────────────────
+-- EPG (guía de programación)
+-- ─────────────────────────────────────────
+-- Vuelve en P2, esta vez ANCLADA a la fuente: el url-tvg lo declara cada
+-- provider en su propia cabecera M3U (providers.tvg_url), y channel_id aquí
+-- es el tvg-id del XMLTV de ESA fuente — el mismo valor que channels.tvg_id.
+-- Dos providers pueden traer el mismo channel_id con guías distintas: por
+-- eso la PK y el join de lectura SIEMPRE llevan provider_id, nunca channel_id
+-- a secas. Ver EPGRepository.
+CREATE TABLE IF NOT EXISTS epg_programmes (
+    provider_id  TEXT    NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+    channel_id   TEXT    NOT NULL,
+    start_utc    INTEGER NOT NULL,
+    stop_utc     INTEGER NOT NULL,
+    title        TEXT    NOT NULL,
+    sub_title    TEXT,
+    description  TEXT,
+    PRIMARY KEY (provider_id, channel_id, start_utc)
+);
+CREATE INDEX IF NOT EXISTS idx_epg_lookup ON epg_programmes (provider_id, channel_id, start_utc);
+
 -- Nota: sync_log, user_agents y epg_entries existieron en esquemas anteriores
 -- y pueden seguir presentes en DBs antiguas. Ya no se usan; no se borran para
 -- no tocar datos existentes sin necesidad. epg_entries se retiró al revertir la
 -- guía de programación: la única fuente XMLTV pública con ids compatibles
--- cubría 465 canales de India de 477, inservible para este catálogo.
+-- cubría 465 canales de India de 477, inservible para este catálogo. epg_programmes
+-- (arriba) es la tabla nueva de P2, distinta y sin relación con aquella.
