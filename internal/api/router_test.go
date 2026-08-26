@@ -77,7 +77,15 @@ func (streamsVacio) MarkBatch(context.Context, []ports.StreamHealth) error { ret
 
 type syncVacio struct{}
 
-func (syncVacio) LastSuccess() time.Time { return time.Time{} }
+func (syncVacio) LastSuccess() time.Time                { return time.Time{} }
+func (syncVacio) SyncOne(context.Context, string) error { return nil }
+
+type sourcesVacio struct{}
+
+func (sourcesVacio) List(context.Context) ([]ports.Source, error)   { return nil, nil }
+func (sourcesVacio) Add(context.Context, ports.Source) error        { return nil }
+func (sourcesVacio) Remove(context.Context, string) error           { return nil }
+func (sourcesVacio) TouchSync(context.Context, string, int64) error { return nil }
 
 // Este test usa el router REAL, no una tabla de rutas duplicada en el test: si
 // el helper de los tests de handlers construye su propia tabla, puede derivar
@@ -90,7 +98,7 @@ func TestTablaDeRutas(t *testing.T) {
 	defer func() { _ = sqlDB.Close() }()
 
 	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{},
-		streamsVacio{}, sqlDB, syncVacio{}, api.Options{})
+		streamsVacio{}, sqlDB, syncVacio{}, sourcesVacio{}, t.TempDir(), api.Options{})
 
 	// El fallback SPA solo existe cuando internal/ui/dist tiene un cliente
 	// construido (ui.Handler() ok=true): eso pasa en el job "Cliente web" de
@@ -118,6 +126,13 @@ func TestTablaDeRutas(t *testing.T) {
 		{"/channels/categories", http.StatusOK},
 		{"/channels/stream?id=x", http.StatusNotFound},
 		{"/channels/loquesea/health", http.StatusNotFound},
+		// /sources* (Tarea 4): alcanzables a través del router REAL, no de un
+		// mock de handler. Igual que arriba, "sugeridas" es una ruta literal
+		// que convive con /{id}/sync — si chi la absorbiera como parámetro,
+		// esto dejaría de ser 200 con la constante y pasaría a intentar un
+		// sync sobre una fuente inexistente.
+		{"/sources", http.StatusOK},
+		{"/sources/sugeridas", http.StatusOK},
 		// La guía se retiró. Ya no es 404 de API: el cliente web (Tarea 9) se
 		// monta como NotFound del router, así que cualquier ruta que ninguna
 		// API reclame cae al fallback SPA (200 con el index) SI hay cliente
@@ -138,7 +153,7 @@ func TestTablaDeRutas(t *testing.T) {
 // alguien reintroduce el middleware "porque el navegador se quejaba" y la
 // regresión no se ve: todo sigue funcionando, solo que para todos.
 func TestRouterNoAnunciaCORS(t *testing.T) {
-	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, api.Options{})
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), api.Options{})
 
 	req := httptest.NewRequest(http.MethodGet, "/channels", nil)
 	req.Header.Set("Origin", "https://evil.example")
@@ -167,7 +182,7 @@ func TestProxySoloExisteEnLoopback(t *testing.T) {
 		{true, http.StatusBadRequest}, // montado: se queja de que falta u
 		{false, http.StatusNotFound},  // apagado: 404 explícito, no el índice del SPA
 	} {
-		r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, api.Options{ProxyActivo: c.activo})
+		r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), api.Options{ProxyActivo: c.activo})
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy/hls", nil))
 		if rec.Code != c.quiero {
@@ -191,7 +206,7 @@ func TestProxyApagadoNoRompeFallbackSPA(t *testing.T) {
 		t.Skip("sin cliente web construido en internal/ui/dist: nada que distinguir")
 	}
 
-	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, api.Options{ProxyActivo: false})
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), api.Options{ProxyActivo: false})
 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy/hls?u=x", nil))

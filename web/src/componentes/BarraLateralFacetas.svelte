@@ -3,7 +3,8 @@
   import type { Faceta } from '../datos/catalogo'
   import { filtros } from '../estado/filtros'
   import { debounce } from '../lib/debounce'
-  import { t } from '../i18n'
+  import { idioma, t } from '../i18n'
+  import { nombreDePais } from '../lib/paises'
 
   // Los facetas vienen de App (el único que habla con CatalogSource); este
   // componente solo las pinta y escribe en el store de filtros. Reemplaza a
@@ -74,12 +75,52 @@
     return ETIQUETAS_CALIDAD[valor]?.() ?? valor
   }
 
-  // País puede tener decenas de entradas: colapsado por defecto, con un botón
-  // real para expandir la lista completa.
-  const PAISES_VISIBLES = 8
-  let paisesExpandido = $state(false)
-  let paisesAMostrar = $derived(paisesExpandido ? paises : paises.slice(0, PAISES_VISIBLES))
-  let hayMasPaises = $derived(paises.length > PAISES_VISIBLES)
+  // Un grupo con más de este número de facetas deja de listarse plano: gana
+  // un buscador de tipeo local + una lista acotada con scroll (Tarea 9,
+  // P0.7). Sustituye al viejo "colapsar + botón Ver los N", que con cientos
+  // de países se volvía un muro sin salida. Hoy solo País lo cruza;
+  // Categoría lo hereda gratis si algún día crece por encima del umbral.
+  const UMBRAL_BUSCADOR_FACETA = 12
+
+  // Normaliza para comparar sin distinguir mayúsculas ni acentos: 'mex' debe
+  // casar con 'México'. NFD separa cada letra de sus diacríticos
+  // combinantes (U+0300–U+036F), que el replace descarta.
+  function normalizarTexto(valor: string): string {
+    return valor.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  }
+
+  // `campos` da, por faceta, las cadenas contra las que casa el término
+  // tecleado — por defecto solo el valor crudo; País pasa nombre Y código
+  // (fix round 1: el catálogo sirve códigos ISO en `valor`, y "méxico"/"mex"
+  // es lo que la gente teclea, no "mx").
+  function facetasFiltradas(
+    facetas: Faceta[],
+    termino: string,
+    campos: (f: Faceta) => string[] = (f) => [f.valor],
+  ): Faceta[] {
+    const q = normalizarTexto(termino.trim())
+    if (!q) return facetas
+    return facetas.filter((f) => campos(f).some((campo) => normalizarTexto(campo).includes(q)))
+  }
+
+  // Fix round 1 (Tarea 9, P0.7): las facetas de país llegan como código ISO
+  // ("MX"); la fila muestra el nombre (Intl.DisplayNames, reactivo al
+  // idioma actual de la app) y ambos casan en el buscador. `filtros.pais`
+  // sigue escribiendo el CÓDIGO — el backend filtra por código, no por
+  // nombre.
+  function nombrePais(codigo: string): string {
+    return nombreDePais(codigo, idioma.actual)
+  }
+
+  let filtroPais = $state('')
+  let mostrarBuscadorPais = $derived(paises.length > UMBRAL_BUSCADOR_FACETA)
+  let paisesFiltrados = $derived(
+    facetasFiltradas(paises, filtroPais, (f) => [f.valor, nombrePais(f.valor)]),
+  )
+
+  let filtroCategoria = $state('')
+  let mostrarBuscadorCategoria = $derived(categorias.length > UMBRAL_BUSCADOR_FACETA)
+  let categoriasFiltradas = $derived(facetasFiltradas(categorias, filtroCategoria))
 </script>
 
 <div class="barra-lateral">
@@ -99,35 +140,46 @@
 
   <section class="grupo" role="group" aria-labelledby="titulo-pais">
     <h3 id="titulo-pais" class="titulo-grupo">{t('filtro.pais')}</h3>
-    <div class="lista">
-      {#each paisesAMostrar as f (f.valor)}
+    {#if mostrarBuscadorPais}
+      <input
+        type="search"
+        class="buscar-grupo"
+        placeholder={t('filtro.filtrarPais')}
+        aria-label={t('filtro.filtrarPais')}
+        value={filtroPais}
+        oninput={(evento) => (filtroPais = (evento.target as HTMLInputElement).value)}
+      />
+    {/if}
+    <div class="lista" class:lista-acotada={mostrarBuscadorPais}>
+      {#each paisesFiltrados as f (f.valor)}
         <button
           type="button"
           class="fila"
           aria-pressed={$filtros.pais === f.valor}
           onclick={() => alternarPais(f.valor)}
         >
-          <span class="valor">{f.valor}</span>
+          <span class="valor">{nombrePais(f.valor)}</span>
+          <span class="pais-codigo">{f.valor}</span>
           <span class="conteo">{f.total}</span>
         </button>
       {/each}
     </div>
-    {#if hayMasPaises}
-      <button
-        type="button"
-        class="expandir"
-        aria-expanded={paisesExpandido}
-        onclick={() => (paisesExpandido = !paisesExpandido)}
-      >
-        {paisesExpandido ? t('filtro.verMenosPaises') : t('filtro.verPaises', { n: paises.length })}
-      </button>
-    {/if}
   </section>
 
   <section class="grupo" role="group" aria-labelledby="titulo-categoria">
     <h3 id="titulo-categoria" class="titulo-grupo">{t('filtro.categoria')}</h3>
-    <div class="lista">
-      {#each categorias as f (f.valor)}
+    {#if mostrarBuscadorCategoria}
+      <input
+        type="search"
+        class="buscar-grupo"
+        placeholder={t('filtro.filtrarCategoria')}
+        aria-label={t('filtro.filtrarCategoria')}
+        value={filtroCategoria}
+        oninput={(evento) => (filtroCategoria = (evento.target as HTMLInputElement).value)}
+      />
+    {/if}
+    <div class="lista" class:lista-acotada={mostrarBuscadorCategoria}>
+      {#each categoriasFiltradas as f (f.valor)}
         <button
           type="button"
           class="fila"
@@ -229,6 +281,25 @@
     flex-direction: column;
     gap: 2px;
   }
+  /* Grupos por encima del umbral (Tarea 9, P0.7): la lista ya no se trunca,
+     scrollea dentro de una altura acotada a ~8 filas. */
+  .lista-acotada {
+    max-height: 208px;
+    overflow-y: auto;
+  }
+
+  .buscar-grupo {
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm, 5px);
+    padding: 4px 8px;
+    color: var(--text-body);
+    font: var(--type-body-sm, inherit);
+  }
+  .buscar-grupo:focus {
+    outline: none;
+    border-color: var(--tint-amber-line, var(--border-default));
+  }
 
   .fila {
     display: flex;
@@ -258,24 +329,23 @@
     font: var(--type-mono-label, inherit);
     color: var(--text-muted);
   }
+  /* Código ISO discreto junto al nombre del país (fix round 1, Tarea 9,
+     P0.7): legibilidad — el nombre es lo que se lee, el código queda como
+     referencia mínima, en el mismo tratamiento mono/atenuado que el conteo. */
+  .fila .pais-codigo {
+    flex-shrink: 0;
+    font: var(--type-mono-label, inherit);
+    color: var(--text-muted);
+  }
   /* Ámbar = faceta activa (única regla de color de todo el componente). */
   .fila[aria-pressed='true'] {
     background: var(--tint-amber-weak);
     border-color: var(--tint-amber-line);
   }
   .fila[aria-pressed='true'] .valor,
-  .fila[aria-pressed='true'] .conteo {
+  .fila[aria-pressed='true'] .conteo,
+  .fila[aria-pressed='true'] .pais-codigo {
     color: var(--amber-500);
-  }
-
-  .expandir {
-    align-self: flex-start;
-    background: none;
-    border: none;
-    color: var(--text-accent);
-    cursor: pointer;
-    font: var(--type-mono-label, inherit);
-    padding: 4px 8px;
   }
 
   .offline {

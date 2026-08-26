@@ -29,10 +29,11 @@ export const es = {
   // de macOS (mobile/lib/presentation/widgets/console_bar.dart).
   'filtro.mostrarOffline': 'Mostrar los que no responden',
 
-  // Tarea 6 (P0.6): «Ver los N países» expande la lista de país, colapsada
-  // por defecto porque puede tener decenas de entradas.
-  'filtro.verPaises': 'Ver los {n} países',
-  'filtro.verMenosPaises': 'Ver menos países',
+  // Tarea 9 (P0.7): buscador de tipeo del propio grupo de facetas, cuando
+  // tiene más de doce entradas — sustituye al viejo «Ver los N países»
+  // (Tarea 6, P0.6), que con cientos de países se volvía un muro sin salida.
+  'filtro.filtrarPais': 'Filtrar países',
+  'filtro.filtrarCategoria': 'Filtrar categorías',
 
   // Shell de dos columnas (Tarea 4): el botón de cajón alterna la barra
   // lateral de facetas en pantallas estrechas; el mismo texto etiqueta el
@@ -122,6 +123,13 @@ export const es = {
   'pie.codigo': 'Ver el código',
   'pie.stats': 'Estadísticas locales',
 
+  // Tarea 10 (P0.7): pie de crédito de marca (PieDeMarca.svelte), integrado
+  // en el mismo <footer class="pie"> de arriba. Los nombres propios (Korven,
+  // Claude Code) no se traducen — solo el conector "Desarrollado por". El
+  // enlace discreto al repo reutiliza pie.codigo, que ya existía sin usar.
+  'pieMarca.emblemaAlt': 'Emblema de Korven',
+  'pieMarca.desarrolladoPor': 'Desarrollado por',
+
   'idioma.es': 'Español',
   'idioma.en': 'English',
 
@@ -146,6 +154,77 @@ export const es = {
   'stats.webNo': 'web_no',
   'stats.webDesconocido': 'Sin comprobar',
   'stats.sinDatos': 'Sin datos todavía.',
+
+  // Tarea 6 (P0.7): onboarding cuando el catálogo está listo pero no hay
+  // ninguna fuente añadida (bring-your-own). Ver Onboarding.svelte.
+  'onboarding.titulo': 'Añade una fuente de canales',
+  'onboarding.copy': 'Open TV no trae canales de fábrica: añade tu primera lista M3U para empezar a ver algo.',
+  'onboarding.url.etiqueta': 'URL de la lista M3U',
+  'onboarding.url.placeholder': 'https://ejemplo.com/lista.m3u',
+  'onboarding.anadir': 'Añadir',
+  'onboarding.anadiendo': 'Añadiendo…',
+  'onboarding.fichero.etiqueta': 'O elige un fichero .m3u',
+  'onboarding.sugeridas.titulo': 'Sugeridas',
+  'onboarding.sugeridas.anadir': 'Añadir {label}',
+  'onboarding.error': 'No se pudo añadir la fuente. Comprueba la URL e inténtalo de nuevo.',
+  // Versión breve (brief, Tarea 6): el texto legal completo va en la Tarea 8.
+  'onboarding.disclaimer': 'Open TV es un reproductor: no aloja contenido. Tú eliges tus fuentes y respondes por ellas.',
+
+  // Fix round 1 (Tarea 6, P0.7): tras añadir una fuente, App sondea el
+  // catálogo hasta que aparecen canales — ver SincronizandoFuente.svelte.
+  'onboarding.sondeo.titulo': 'Sincronizando la fuente…',
+  'onboarding.sondeo.detalle': 'Puede tardar unos segundos, según el tamaño de la lista.',
+  'onboarding.sondeo.agotado': 'La fuente se añadió pero todavía no aparecen canales. Puede tardar más, o la lista puede estar vacía.',
+  'onboarding.sondeo.reintentar': 'Reintentar',
+  // Fix final-review (F2): salida del estado "agotado" — sin esto, quien
+  // añadió una fuente con un typo (o una lista vacía) se quedaba atrapado
+  // repitiendo "Reintentar" para siempre, sin forma de llegar a la vista de
+  // gestión a borrar la fuente rota. Limpia sondeoAgotado y abre #fuentes
+  // (ver irAGestionarFuentes en App.svelte).
+  'onboarding.sondeo.gestionar': 'Gestionar fuentes',
+
+  // Tarea 7 (P0.7): vista de gestión de fuentes (#fuentes), accesible desde la
+  // cabecera. Lista lo ya añadido, permite re-sincronizar o quitar, y
+  // reutiliza AnadirFuente.svelte para añadir más.
+  'fuentes.abrir': 'Fuentes',
+  'fuentes.titulo': 'Fuentes',
+  'fuentes.volver': '← Volver',
+  'fuentes.etiquetaLista': 'Fuentes añadidas',
+  'fuentes.kind.url': 'URL',
+  'fuentes.kind.file': 'Fichero',
+  'fuentes.canales': '{n} canales',
+  'fuentes.nuncaSincronizada': 'Nunca sincronizada',
+  'fuentes.relativo.ahora': 'hace un momento',
+  'fuentes.relativo.minutos': 'hace {n} min',
+  'fuentes.relativo.horas': 'hace {n} h',
+  'fuentes.relativo.dias': 'hace {n} d',
+  'fuentes.resincronizar': 'Re-sincronizar',
+  'fuentes.resincronizar.etiqueta': 'Re-sincronizar {label}',
+  'fuentes.resincronizando': 'Sincronizando…',
+  'fuentes.quitar': 'Quitar',
+  'fuentes.quitar.etiqueta': 'Quitar {label}',
+  'fuentes.quitar.confirmar': '¿Seguro? Quitar',
+  'fuentes.quitar.confirmar.etiqueta': 'Confirmar: quitar {label}',
+  'fuentes.quitar.cancelar': 'Cancelar',
+  // F6 (fix final-review): quitar() no tenía catch — un DELETE fallido salía
+  // como rechazo sin manejar de un onclick, sin ningún aviso visible. Este
+  // mensaje es el único rastro que ve quien usa la app de que la acción no
+  // se completó.
+  'fuentes.quitar.error': 'No se pudo quitar la fuente. Inténtalo de nuevo.',
+  'fuentes.anadirMas.titulo': 'Añadir otra fuente',
+  'fuentes.cargando': 'Cargando fuentes…',
+  'fuentes.error': 'No se pudieron cargar las fuentes.',
+  'fuentes.vacia': 'Todavía no hay fuentes añadidas.',
+
+  // Tarea 8 (P0.7): disclaimer legal completo, al pie de esta vista — la
+  // versión breve de onboarding.disclaimer sigue tal cual, esta es la
+  // completa. Cuatro líneas cortas, tono Korven: sobrio, declarativo, sin
+  // muro de legalese.
+  'fuentes.legal.titulo': 'Aviso legal',
+  'fuentes.legal.reproductor': 'Open TV es un reproductor: no aloja, no retransmite ni distribuye contenido.',
+  'fuentes.legal.responsabilidad': 'Tú eliges tus fuentes y eres responsable de la legalidad del contenido al que accedes con ellas.',
+  'fuentes.legal.sinDrm': 'Sin DRM ni elusión de geobloqueo — pensado para televisión abierta (FTA).',
+  'fuentes.legal.sugeridas': 'Las fuentes sugeridas son enlaces públicos de la comunidad iptv-org; añadirlas es decisión tuya.',
 } as const
 
 export type ClaveMensaje = keyof typeof es

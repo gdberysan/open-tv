@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 	"net/http"
@@ -51,7 +52,17 @@ type Options struct {
 	PermitirDestinosPrivados bool
 }
 
-func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer handlers.SyncStatus, opts Options) http.Handler {
+// Syncer es lo que el router necesita del *services.Syncer para cablear tanto
+// /health (SyncStatus: LastSuccess) como /sources/{id}/sync (SyncOne bajo
+// demanda). Una sola interfaz para las dos en vez de dos parámetros separados:
+// en producción los satisface el mismo *services.Syncer, y aquí se declara el
+// mínimo común para que los dobles de test puedan implementar solo lo que usan.
+type Syncer interface {
+	handlers.SyncStatus
+	SyncOne(ctx context.Context, id string) error
+}
+
+func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer Syncer, sources ports.SourceRepository, fuentesDir string, opts Options) http.Handler {
 	r := chi.NewRouter()
 
 	// Primero: si el Host no es el loopback enlazado, se corta antes de que
@@ -95,6 +106,24 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	sh := handlers.NewStatsHandler(agregador, handlers.NewDBCatalogoStats(sqlDB))
 	r.Post("/stats/playback", sh.PostPlayback)
 	r.Get("/stats", sh.GetStats)
+
+	// /sources* es exclusivo del cliente web (Flutter no lo conoce, ver
+	// contrato congelado): alta/baja/resync de las fuentes "bring your own"
+	// del usuario. "sources" tiene que ser el pool de ESCRITURA: Add y Remove
+	// mutan la tabla providers, y el pool de solo lectura del resto de
+	// handlers de este router (sqlDB de arriba) está abierto en modo
+	// read-only — cmd/open-tv/main.go es quien decide cuál pasa aquí.
+	fh := handlers.NewSourceHandler(logger, sources, syncer, fuentesDir)
+	r.Route("/sources", func(r chi.Router) {
+		r.Get("/", fh.Get)
+		r.Post("/", fh.Post)
+		// Ruta literal antes que la de parámetro por claridad de lectura (chi
+		// no necesita el orden para no confundir "sugeridas" con un {id}, pero
+		// el resto del router ya documenta este mismo cuidado en /channels).
+		r.Get("/sugeridas", fh.Sugeridas)
+		r.Delete("/{id}", fh.Delete)
+		r.Post("/{id}/sync", fh.Sync)
+	})
 
 	r.Route("/channels", func(r chi.Router) {
 		r.Get("/", ch.GetChannels)

@@ -10,11 +10,20 @@ PRAGMA foreign_keys  = ON;
 -- ─────────────────────────────────────────
 -- PROVEEDORES
 -- ─────────────────────────────────────────
+-- Cada fila es una fuente "bring your own" dada de alta por el usuario (ver
+-- SourceRepository). type se queda fijo a 'opensource' para todo M3U — no
+-- distingue fuentes entre sí, eso lo hace base_url. Ya no hay seed: una
+-- instalación limpia arranca sin ninguna fila aquí.
 CREATE TABLE IF NOT EXISTS providers (
     id           TEXT    PRIMARY KEY,
     type         TEXT    NOT NULL CHECK (type IN ('opensource')),
     base_url     TEXT    NOT NULL,
     credentials  TEXT,
+    -- Nombre que el usuario le puso a la fuente al darla de alta.
+    label        TEXT    NOT NULL DEFAULT '',
+    -- Cómo se obtiene el M3U: 'url' (remoto) o 'file' (subido al datadir).
+    -- No es el formato del catálogo, eso ya lo fija type.
+    kind         TEXT    NOT NULL DEFAULT 'url',
     priority     INTEGER NOT NULL DEFAULT 100,
     is_active    INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
     created_at   INTEGER NOT NULL,

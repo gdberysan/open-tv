@@ -3,16 +3,20 @@ import { render, fireEvent, screen, within } from '@testing-library/svelte'
 import { get } from 'svelte/store'
 import BarraLateralFacetas from './BarraLateralFacetas.svelte'
 import { filtros } from '../estado/filtros'
-import { t } from '../i18n'
+import { idioma, t } from '../i18n'
 import type { Faceta } from '../datos/catalogo'
 
-// Patrón establecido en P0.5: el reset vive a nivel de fichero, no anidado en
-// cada describe — así ningún test hereda el store mutado por el anterior.
+// Patrón establecido en P0.5/P0.6: el reset vive a nivel de fichero, no
+// anidado en cada describe — así ningún test hereda el store mutado por el
+// anterior. idioma.actual se fija a 'es' (como ChipsFiltro.test.ts): el fix
+// round 1 pinta nombres de país vía Intl.DisplayNames, que depende del
+// idioma actual de la app, no del entorno de jsdom.
 beforeEach(() => {
   filtros.set({
     q: '', pais: '', categoria: '', calidad: '', mostrarOffline: false,
     soloFavoritos: false, vista: 'rejilla',
   })
+  idioma.actual = 'es'
 })
 
 const paises: Faceta[] = [{ valor: 'ES', total: 12 }, { valor: 'MX', total: 7 }]
@@ -183,17 +187,124 @@ describe('BarraLateralFacetas — resincronización con filtros.q externo', () =
   })
 })
 
-describe('BarraLateralFacetas — país largo', () => {
-  it('colapsa la lista de país y «Ver los N países» la expande', async () => {
-    const paisesLargos: Faceta[] = Array.from({ length: 15 }, (_, i) => ({ valor: `P${i}`, total: i + 1 }))
+describe('BarraLateralFacetas — país buscable (>12 facetas)', () => {
+  const paisesLargos: Faceta[] = Array.from({ length: 15 }, (_, i) => ({ valor: `P${i}`, total: i + 1 }))
+  const paisesConMexico: Faceta[] = [...paisesLargos, { valor: 'México', total: 4 }]
+
+  it('pinta el buscador del grupo y una lista acotada con TODAS las facetas, sin «Ver los N países»', () => {
     render(BarraLateralFacetas, { paises: paisesLargos, categorias, calidades })
 
     const grupoPais = screen.getByRole('group', { name: t('filtro.pais') })
-    expect(within(grupoPais).queryByRole('button', { name: /P14/ })).toBeNull()
+    expect(within(grupoPais).getByLabelText(t('filtro.filtrarPais'))).toBeTruthy()
+    // Sin recorte: las 15 facetas están todas en el DOM (la lista acotada
+    // scrollea, no trunca), no las 8 del viejo colapso.
+    expect(within(grupoPais).getByRole('button', { name: /P14/ })).toBeTruthy()
+    // El botón «Ver los N países» de antes tenía aria-expanded; ya no existe
+    // ningún control así en el grupo.
+    expect(grupoPais.querySelector('[aria-expanded]')).toBeNull()
+    expect(grupoPais.querySelector('.lista-acotada')).not.toBeNull()
+  })
 
-    const verMas = within(grupoPais).getByRole('button', { name: t('filtro.verPaises', { n: 15 }) })
-    await fireEvent.click(verMas)
+  it('teclear "mex" filtra a México, insensible a mayúsculas/acentos', async () => {
+    render(BarraLateralFacetas, { paises: paisesConMexico, categorias, calidades })
 
-    expect(within(grupoPais).queryByRole('button', { name: /P14/ })).not.toBeNull()
+    const grupoPais = screen.getByRole('group', { name: t('filtro.pais') })
+    const buscador = within(grupoPais).getByLabelText(t('filtro.filtrarPais'))
+
+    await fireEvent.input(buscador, { target: { value: 'mex' } })
+
+    expect(within(grupoPais).getByRole('button', { name: /México/ })).toBeTruthy()
+    expect(within(grupoPais).getAllByRole('button')).toHaveLength(1)
+  })
+
+  it('limpiar el filtro restaura todas las facetas', async () => {
+    render(BarraLateralFacetas, { paises: paisesConMexico, categorias, calidades })
+
+    const grupoPais = screen.getByRole('group', { name: t('filtro.pais') })
+    const buscador = within(grupoPais).getByLabelText(t('filtro.filtrarPais'))
+
+    await fireEvent.input(buscador, { target: { value: 'mex' } })
+    expect(within(grupoPais).getAllByRole('button')).toHaveLength(1)
+
+    await fireEvent.input(buscador, { target: { value: '' } })
+    expect(within(grupoPais).getAllByRole('button')).toHaveLength(paisesConMexico.length)
+  })
+
+  it('la selección sigue funcionando sobre la lista filtrada', async () => {
+    render(BarraLateralFacetas, { paises: paisesConMexico, categorias, calidades })
+
+    const grupoPais = screen.getByRole('group', { name: t('filtro.pais') })
+    const buscador = within(grupoPais).getByLabelText(t('filtro.filtrarPais'))
+    await fireEvent.input(buscador, { target: { value: 'mex' } })
+
+    const filaMexico = within(grupoPais).getByRole('button', { name: /México/ })
+    expect(filaMexico.getAttribute('aria-pressed')).toBe('false')
+
+    await fireEvent.click(filaMexico)
+
+    expect(get(filtros).pais).toBe('México')
+    expect(filaMexico.getAttribute('aria-pressed')).toBe('true')
+  })
+})
+
+describe('BarraLateralFacetas — nombres de país desde código ISO (fix round 1)', () => {
+  // Códigos ISO 3166-1 alpha-2 reales, como los sirve el catálogo — >12 para
+  // que el grupo cruce el umbral y pinte el buscador. Contra el código
+  // ANTERIOR (fila con `f.valor` crudo) el assert de "México" de este bloque
+  // falla: la fila mostraba "MX", no "México".
+  const paisesReales: Faceta[] = [
+    'MX', 'US', 'ES', 'FR', 'DE', 'IT', 'GB', 'BR', 'AR', 'CA', 'JP', 'KR', 'CN', 'IN', 'AU',
+  ].map((valor, i) => ({ valor, total: i + 1 }))
+
+  it('la fila de país muestra el NOMBRE del país, no el código crudo', () => {
+    render(BarraLateralFacetas, { paises: paisesReales, categorias, calidades })
+
+    const grupoPais = screen.getByRole('group', { name: t('filtro.pais') })
+    expect(within(grupoPais).getByText('México')).toBeTruthy()
+  })
+
+  it('teclear "mex", "méxico" o "mx" encuentran todos la fila de México', async () => {
+    render(BarraLateralFacetas, { paises: paisesReales, categorias, calidades })
+
+    const grupoPais = screen.getByRole('group', { name: t('filtro.pais') })
+    const buscador = within(grupoPais).getByLabelText(t('filtro.filtrarPais'))
+
+    for (const termino of ['mex', 'méxico', 'mx']) {
+      await fireEvent.input(buscador, { target: { value: termino } })
+      expect(within(grupoPais).getByText('México')).toBeTruthy()
+      expect(within(grupoPais).getAllByRole('button')).toHaveLength(1)
+    }
+  })
+
+  it('seleccionar la fila de México escribe el CÓDIGO ("MX") en filtros.pais, no el nombre', async () => {
+    render(BarraLateralFacetas, { paises: paisesReales, categorias, calidades })
+
+    const grupoPais = screen.getByRole('group', { name: t('filtro.pais') })
+    const filaMexico = within(grupoPais).getByText('México').closest('button')
+    if (!filaMexico) throw new Error('No se encontró el botón de México')
+    expect(filaMexico.getAttribute('aria-pressed')).toBe('false')
+
+    await fireEvent.click(filaMexico)
+
+    expect(get(filtros).pais).toBe('MX')
+    expect(filaMexico.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('cambia de idioma con la app: en inglés la fila muestra "Mexico"', () => {
+    idioma.actual = 'en'
+    render(BarraLateralFacetas, { paises: paisesReales, categorias, calidades })
+
+    const grupoPais = screen.getByRole('group', { name: t('filtro.pais') })
+    expect(within(grupoPais).getByText('Mexico')).toBeTruthy()
+  })
+})
+
+describe('BarraLateralFacetas — grupo corto sin buscador', () => {
+  it('Calidad (3 facetas) no pinta buscador de grupo ni lista acotada', () => {
+    render(BarraLateralFacetas, { paises, categorias, calidades })
+
+    const grupoCalidad = screen.getByRole('group', { name: t('filtro.calidad') })
+    expect(grupoCalidad.querySelector('input[type="search"]')).toBeNull()
+    expect(grupoCalidad.querySelector('.lista-acotada')).toBeNull()
   })
 })

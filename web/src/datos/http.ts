@@ -1,5 +1,5 @@
 import type {
-  Canal, CatalogSource, ConsultaCatalogo, DestinoStream, Faceta, Frescura, Mirror, PaginaCanales,
+  Canal, CatalogSource, ConsultaCatalogo, DestinoStream, Faceta, Frescura, Fuente, Mirror, PaginaCanales,
 } from './catalogo'
 
 /**
@@ -35,6 +35,28 @@ function aCanal(c: CanalCable): Canal {
   }
 }
 
+interface FuenteCable {
+  id: string
+  label: string
+  url: string
+  kind: 'url' | 'file'
+  ultimo_sync: number
+  canales: number
+}
+
+function aFuente(f: FuenteCable): Fuente {
+  return {
+    id: f.id,
+    label: f.label,
+    url: f.url,
+    kind: f.kind,
+    // 0 es el centinela del cable para "nunca sincronizada": traducirlo a 0
+    // literal la confundiría con una sincronización real en 1970.
+    ultimoSync: f.ultimo_sync === 0 ? null : f.ultimo_sync,
+    canales: f.canales,
+  }
+}
+
 interface MirrorCable {
   url: string
   is_alive?: boolean
@@ -60,10 +82,10 @@ function query(c: ConsultaCatalogo): URLSearchParams {
   return p
 }
 
-async function pedir(url: string): Promise<Response> {
+async function pedir(url: string, init?: RequestInit): Promise<Response> {
   let resp: Response
   try {
-    resp = await fetch(url)
+    resp = await fetch(url, init)
   } catch (e) {
     // fetch solo lanza por fallo de transporte. Distinguirlo importa: el
     // mensaje "gateway caído" y el "sin red" son problemas distintos con
@@ -147,6 +169,43 @@ export function crearHttpCatalog(base = ''): CatalogSource {
       } catch {
         return false
       }
+    },
+
+    async fuentes(): Promise<Fuente[]> {
+      const resp = await pedir(`${base}/sources`)
+      const crudas = (await resp.json()) as FuenteCable[] | null
+      return (crudas ?? []).map(aFuente)
+    },
+
+    async anadirFuente(url: string, label?: string): Promise<Fuente> {
+      const cuerpo: { url: string; label?: string } = { url }
+      if (label) cuerpo.label = label
+      const resp = await pedir(`${base}/sources`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cuerpo),
+      })
+      return aFuente((await resp.json()) as FuenteCable)
+    },
+
+    async anadirFuenteFichero(f: File): Promise<Fuente> {
+      const form = new FormData()
+      form.set('fichero', f)
+      const resp = await pedir(`${base}/sources`, { method: 'POST', body: form })
+      return aFuente((await resp.json()) as FuenteCable)
+    },
+
+    async quitarFuente(id: string): Promise<void> {
+      await pedir(`${base}/sources/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    },
+
+    async resyncFuente(id: string): Promise<void> {
+      await pedir(`${base}/sources/${encodeURIComponent(id)}/sync`, { method: 'POST' })
+    },
+
+    async fuentesSugeridas(): Promise<{ label: string; url: string }[]> {
+      const resp = await pedir(`${base}/sources/sugeridas`)
+      return ((await resp.json()) as { label: string; url: string }[] | null) ?? []
     },
   }
 }

@@ -21,8 +21,8 @@ export const en: Record<ClaveMensaje, string> = {
   'filtro.calidad.4k': '4K',
   'filtro.limpiar': 'Clear filters',
   'filtro.mostrarOffline': 'Show the ones not responding',
-  'filtro.verPaises': 'See all {n} countries',
-  'filtro.verMenosPaises': 'Show fewer countries',
+  'filtro.filtrarPais': 'Filter countries',
+  'filtro.filtrarCategoria': 'Filter categories',
   'shell.facetas': 'Facets',
 
   'accion.aleatorio': 'Random channel',
@@ -84,6 +84,9 @@ export const en: Record<ClaveMensaje, string> = {
   'pie.codigo': 'View the code',
   'pie.stats': 'Local stats',
 
+  'pieMarca.emblemaAlt': 'Korven emblem',
+  'pieMarca.desarrolladoPor': 'Built by',
+
   'idioma.es': 'Español',
   'idioma.en': 'English',
 
@@ -108,4 +111,57 @@ export const en: Record<ClaveMensaje, string> = {
   'stats.webNo': 'web_no',
   'stats.webDesconocido': 'Not checked',
   'stats.sinDatos': 'No data yet.',
+
+  'onboarding.titulo': 'Add a channel source',
+  'onboarding.copy': "Open TV doesn't ship with channels: add your first M3U list to start watching something.",
+  'onboarding.url.etiqueta': 'M3U list URL',
+  'onboarding.url.placeholder': 'https://example.com/list.m3u',
+  'onboarding.anadir': 'Add',
+  'onboarding.anadiendo': 'Adding…',
+  'onboarding.fichero.etiqueta': 'Or choose a .m3u file',
+  'onboarding.sugeridas.titulo': 'Suggested',
+  'onboarding.sugeridas.anadir': 'Add {label}',
+  'onboarding.error': 'Could not add the source. Check the URL and try again.',
+  'onboarding.disclaimer': 'Open TV is a player: it hosts no content. You choose your sources and you are responsible for them.',
+
+  'onboarding.sondeo.titulo': 'Syncing the source…',
+  'onboarding.sondeo.detalle': "It can take a few seconds, depending on the list's size.",
+  'onboarding.sondeo.agotado': 'The source was added but no channels have shown up yet. It may take longer, or the list could be empty.',
+  'onboarding.sondeo.reintentar': 'Retry',
+  'onboarding.sondeo.gestionar': 'Manage sources',
+
+  'fuentes.abrir': 'Sources',
+  'fuentes.titulo': 'Sources',
+  'fuentes.volver': '← Back',
+  'fuentes.etiquetaLista': 'Added sources',
+  'fuentes.kind.url': 'URL',
+  'fuentes.kind.file': 'File',
+  'fuentes.canales': '{n} channels',
+  'fuentes.nuncaSincronizada': 'Never synced',
+  'fuentes.relativo.ahora': 'just now',
+  'fuentes.relativo.minutos': '{n} min ago',
+  'fuentes.relativo.horas': '{n} h ago',
+  'fuentes.relativo.dias': '{n} d ago',
+  'fuentes.resincronizar': 'Re-sync',
+  'fuentes.resincronizar.etiqueta': 'Re-sync {label}',
+  'fuentes.resincronizando': 'Syncing…',
+  'fuentes.quitar': 'Remove',
+  'fuentes.quitar.etiqueta': 'Remove {label}',
+  'fuentes.quitar.confirmar': 'Sure? Remove',
+  'fuentes.quitar.confirmar.etiqueta': 'Confirm: remove {label}',
+  'fuentes.quitar.cancelar': 'Cancel',
+  'fuentes.quitar.error': 'Could not remove the source. Please try again.',
+  'fuentes.anadirMas.titulo': 'Add another source',
+  'fuentes.cargando': 'Loading sources…',
+  'fuentes.error': 'Could not load the sources.',
+  'fuentes.vacia': 'No sources added yet.',
+
+  // Task 8 (P0.7): full legal disclaimer, footer of this view — the short
+  // version in onboarding.disclaimer stays as-is, this is the complete one.
+  // Four short lines, Korven tone: sober, declarative, no legalese wall.
+  'fuentes.legal.titulo': 'Legal',
+  'fuentes.legal.reproductor': 'Open TV is a player: it hosts, rebroadcasts, and distributes no content.',
+  'fuentes.legal.responsabilidad': 'You choose your sources and are responsible for the legality of the content you access with them.',
+  'fuentes.legal.sinDrm': 'No DRM, no geoblock circumvention — built for free-to-air (FTA) television.',
+  'fuentes.legal.sugeridas': 'Suggested sources are public links from the iptv-org community; adding them is your call.',
 }

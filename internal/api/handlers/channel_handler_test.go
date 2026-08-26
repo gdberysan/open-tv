@@ -507,6 +507,14 @@ func TestChannelHandler_GetQualities(t *testing.T) {
 		t.Fatalf("db.Open: %v", err)
 	}
 	defer func() { _ = sqlDB.Close() }()
+	// Sin seed de IPTV-org (retirado en P0.7/SourceRepository), channels.provider_id
+	// exige una fila en providers: se da de alta explícitamente para este test.
+	if _, err := sqlDB.Exec(`
+		INSERT INTO providers (id, type, base_url, priority, is_active, created_at, updated_at)
+		VALUES ('opensource', 'opensource', 'http://test.invalid/index.m3u', 100, 1, 0, 0)
+	`); err != nil {
+		t.Fatalf("seed provider: %v", err)
+	}
 	repo := db.NewChannelRepository(sqlDB)
 
 	ctx := context.Background()

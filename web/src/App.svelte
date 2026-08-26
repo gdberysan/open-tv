@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { onDestroy, onMount, untrack } from 'svelte'
   import { get } from 'svelte/store'
   import { idioma, t } from './i18n'
   import { crearHttpCatalog } from './datos/http'
-  import type { CatalogSource, Canal, ConsultaCatalogo, Faceta, Frescura as InfoFrescura } from './datos/catalogo'
+  import type { CatalogSource, Canal, ConsultaCatalogo, Faceta, Frescura as InfoFrescura, Fuente } from './datos/catalogo'
   import { filtros } from './estado/filtros'
   import { favoritos } from './estado/favoritos'
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
@@ -19,15 +19,37 @@
   import IndicadorSenal from './componentes/IndicadorSenal.svelte'
   import BarraAcciones from './componentes/BarraAcciones.svelte'
   import ContinuarViendo from './componentes/ContinuarViendo.svelte'
+  import Onboarding from './componentes/Onboarding.svelte'
+  import SincronizandoFuente from './componentes/SincronizandoFuente.svelte'
+  import Fuentes from './componentes/Fuentes.svelte'
+  import PieDeMarca from './componentes/PieDeMarca.svelte'
 
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
+
+  // Fix round 1 (Tarea 6, P0.7): cadencia/tope del sondeo tras añadir una
+  // fuente. 1.5s / 60 intentos ≈ 90s — las listas grandes (iptv-org global)
+  // pueden tardar decenas de segundos en sincronizar del lado del backend.
+  const SONDEO_FUENTE_INTERVALO_MS = 1500
+  const SONDEO_FUENTE_INTENTOS_MAX = Math.ceil(90_000 / SONDEO_FUENTE_INTERVALO_MS)
 
   // fuente es inyectable (Tarea 15): en producción cae en crearHttpCatalog,
   // pero los tests de componente pueden pasar un CatalogSource falso sin
   // tocar la red. Único punto del cliente que habla con CatalogSource: todos
   // los demás componentes leen stores y emiten callbacks.
-  let { fuente = crearHttpCatalog('') }: { fuente?: CatalogSource } = $props()
+  //
+  // sondeoFuenteIntervaloMs/sondeoFuenteIntentosMax son inyectables SOLO para
+  // tests (fix round 1, Tarea 6): sin esto, un test tendría que avanzar
+  // timers falsos ~90s reales (60 intentos) para ejercitar el caso de tope.
+  let {
+    fuente = crearHttpCatalog(''),
+    sondeoFuenteIntervaloMs = SONDEO_FUENTE_INTERVALO_MS,
+    sondeoFuenteIntentosMax = SONDEO_FUENTE_INTENTOS_MAX,
+  }: {
+    fuente?: CatalogSource
+    sondeoFuenteIntervaloMs?: number
+    sondeoFuenteIntentosMax?: number
+  } = $props()
 
   // Puerta de entrada: hasta que /health confirme que el catálogo ya se
   // sincronizó una vez, no tiene sentido pedir /channels — la primera
@@ -46,6 +68,29 @@
   let categorias = $state<Faceta[]>([])
   let calidades = $state<Faceta[]>([])
   let frescura = $state<InfoFrescura | null>(null)
+
+  // Tarea 6 (P0.7): fuentes bring-your-own. fuentesCargadas distingue "todavía
+  // no sabemos" (arranque, o un fallo de red en la carga inicial) de
+  // "confirmado: cero fuentes" — sin esa distinción, sinFuentes (más abajo)
+  // se activaría de más en el primer instante de cualquier montaje, antes de
+  // que fuente.fuentes() llegue a resolver.
+  let fuentes = $state<Fuente[]>([])
+  let fuentesCargadas = $state(false)
+
+  // Fix round 1 (Tarea 6, P0.7 — gate real en Chrome del controlador): tras
+  // crear una fuente, el backend la sincroniza de forma ASÍNCRONA — un solo
+  // refetch inmediato (el código original) casi siempre ve total=0 todavía.
+  // sondeandoFuenteNueva/sondeoAgotado gobiernan un tercer estado visible
+  // (SincronizandoFuente.svelte) que sondea el catálogo hasta que aparecen
+  // canales o se agota el tope. idSondeoActual seguido el mismo patrón que
+  // peticionActual: invalida cualquier tick de un sondeo anterior (reintento
+  // superpuesto, o componente desmontado) para que nunca dos sondeos
+  // escriban intentosSondeo/estado a la vez.
+  let sondeandoFuenteNueva = $state(false)
+  let sondeoAgotado = $state(false)
+  let intentosSondeo = 0
+  let idSondeoActual = 0
+  let temporizadorSondeo: ReturnType<typeof setTimeout> | undefined
 
   // Descarta respuestas de peticiones que ya no son la última: cambiar de
   // filtro dos veces seguidas no puede dejar pintada la respuesta de la
@@ -91,8 +136,14 @@
   // chocar con ninguna ruta de la API.
   let vistaStats = $state(typeof window !== 'undefined' && window.location.hash === '#stats')
 
+  // Tarea 7 (P0.7): vista de gestión de fuentes, mismo patrón de hash que
+  // vistaStats — #fuentes tampoco choca con ninguna ruta del servidor (el
+  // router nunca registra ese path; F5 sirve el SPA de siempre).
+  let vistaFuentes = $state(typeof window !== 'undefined' && window.location.hash === '#fuentes')
+
   function abrirStats(e: MouseEvent) {
     e.preventDefault()
+    vistaFuentes = false
     vistaStats = true
     location.hash = 'stats'
   }
@@ -100,6 +151,51 @@
   function volverDelPanel() {
     vistaStats = false
     history.pushState('', document.title, window.location.pathname + window.location.search)
+  }
+
+  function abrirFuentes(e: MouseEvent) {
+    e.preventDefault()
+    vistaStats = false
+    vistaFuentes = true
+    location.hash = 'fuentes'
+  }
+
+  function volverDeFuentes() {
+    vistaFuentes = false
+    history.pushState('', document.title, window.location.pathname + window.location.search)
+  }
+
+  // Tarea 7 (P0.7): "añadir fuente desde la vista Fuentes" reutiliza EXACTO
+  // el mismo camino de sondeo que Onboarding (alFuenteAnadida más abajo) —
+  // primero se sale de la vista (la nueva fuente ya no es "gestión", es "el
+  // catálogo está sincronizando", el mismo estado visible que el onboarding
+  // usa) y LUEGO se dispara el sondeo real. Sin este orden, sondeandoFuenteNueva
+  // se activaría por debajo de una vista que sigue tapándolo (vistaFuentes se
+  // comprueba antes que el sondeo en el <main> de abajo).
+  function alFuenteAnadidaDesdeFuentes(f: Fuente) {
+    volverDeFuentes()
+    alFuenteAnadida(f)
+  }
+
+  // Tarea 7 (P0.7): tras un «Quitar» en la vista Fuentes, App recibe la lista
+  // fresca del backend (Fuentes.svelte ya la refetcheó) — se adopta tal cual
+  // como la propia copia de `fuentes` (gobierna sinFuentes, Tarea 6) y se
+  // refresca el catálogo para que los canales de la fuente quitada
+  // desaparezcan de la rejilla sin esperar a que el usuario salga de la
+  // vista. `fase.tipo === 'listo'` de guardia: cargarPagina(true) solo tiene
+  // sentido con el catálogo ya arrancado (mismo guardián que el resto de
+  // llamadas a cargarPagina).
+  function alFuentesCambiaron(nuevas: Fuente[]) {
+    fuentes = nuevas
+    // Fix final-review (F3): con `!vistaFuentes` añadido a `sinFuentes` (ver
+    // más abajo), quitar la última fuente DESDE esta misma vista ya no
+    // bastaba por sí solo para que el Onboarding "volviera solo" —
+    // vistaFuentes seguía en true y bloqueaba esa rama. nuevas.length === 0
+    // es el mismo estado que sinFuentes vigila (cero fuentes): se resetea
+    // vistaFuentes aquí para preservar el comportamiento ya cubierto por el
+    // test "(e) quitar la ÚLTIMA fuente... el Onboarding vuelve a aparecer".
+    if (nuevas.length === 0) volverDeFuentes()
+    if (fase.tipo === 'listo') cargarPagina(true)
   }
 
   function construirConsulta(paginar: boolean): ConsultaCatalogo {
@@ -234,7 +330,15 @@
   // play/pausa — ver Reproductor.svelte; dejar que ambos oyentes de
   // window compitan por la misma tecla sería confuso e imprevisible).
   function alTeclaVentana(e: KeyboardEvent) {
-    if (canalAbierto || fase.tipo !== 'listo' || vistaStats) return
+    // sinFuentes (Tarea 6, P0.7): sin catálogo que surfear, el mismo espacio
+    // debe dejar que el navegador haga lo suyo (p. ej. scroll) en vez de
+    // llamar a fuente.aleatorio() sobre un catálogo que se sabe vacío.
+    // sondeandoFuenteNueva/sondeoAgotado (fix round 1): mismo motivo mientras
+    // se sondea tras añadir una fuente — el catálogo puede seguir en 0.
+    // vistaFuentes (Tarea 7): mismo motivo que vistaStats — es otra vista, no
+    // el catálogo normal.
+    if (canalAbierto || fase.tipo !== 'listo' || vistaStats || vistaFuentes || sinFuentes || sondeandoFuenteNueva || sondeoAgotado)
+      return
     if (!debeHacerSurf(e)) return
     e.preventDefault()
     alAleatorio()
@@ -281,20 +385,119 @@
     fase = { tipo: 'listo' }
   }
 
+  // Fix round 1 (Tarea 6, P0.7): PARAR cualquier temporizador de sondeo
+  // pendiente. Se llama al empezar un sondeo nuevo (evita dos sondeos
+  // corriendo a la vez si alguien pulsa "Reintentar" dos veces) y al
+  // desmontar App (ver onDestroy más abajo). Bumpear idSondeoActual aquí
+  // (no solo en iniciarSondeoFuente) invalida también un tick YA EN VUELO
+  // —esperando la respuesta de cargarPagina— para que, al resolver después
+  // de este punto, su comprobación `idPropio !== idSondeoActual` lo
+  // descarte: sin esto, un desmontaje a mitad de una petición en curso
+  // seguiría escribiendo estado (sondeandoFuenteNueva/sondeoAgotado) sobre
+  // un componente ya fuera.
+  function detenerSondeoFuente() {
+    if (temporizadorSondeo !== undefined) clearTimeout(temporizadorSondeo)
+    temporizadorSondeo = undefined
+    idSondeoActual++
+  }
+
+  // Un tick del sondeo: reutiliza cargarPagina(true) tal cual (mismo camino
+  // que ya cubre carga inicial/cambio de filtro, con su propio guardián de
+  // peticionActual para descartar respuestas fuera de orden) y comprueba
+  // `total` DESPUÉS — nunca duplica la lógica de qué hacer con la página
+  // recibida. idPropio descarta este tick si, mientras esperaba la
+  // respuesta, un "Reintentar" (u onDestroy) ya invalidó este sondeo.
+  async function comprobarSondeoFuente(idPropio: number) {
+    await cargarPagina(true)
+    if (idPropio !== idSondeoActual) return
+    if (total > 0) {
+      sondeandoFuenteNueva = false
+      return
+    }
+    intentosSondeo++
+    if (intentosSondeo >= sondeoFuenteIntentosMax) {
+      sondeandoFuenteNueva = false
+      sondeoAgotado = true
+      return
+    }
+    temporizadorSondeo = setTimeout(() => comprobarSondeoFuente(idPropio), sondeoFuenteIntervaloMs)
+  }
+
+  function iniciarSondeoFuente() {
+    detenerSondeoFuente()
+    const idPropio = ++idSondeoActual
+    intentosSondeo = 0
+    sondeandoFuenteNueva = true
+    sondeoAgotado = false
+    // Primer intento INMEDIATO (sin esperar el primer intervalo): mismo
+    // patrón que el comprobar()+setInterval de Sincronizando.svelte — para
+    // listas pequeñas, el backend puede haber terminado de sincronizar ya
+    // cuando anadirFuente* devolvió.
+    comprobarSondeoFuente(idPropio)
+  }
+
+  function reintentarSondeoFuente() {
+    iniciarSondeoFuente()
+  }
+
+  // Fix final-review (F2): salida real del estado "agotado". Sin esto, la
+  // rama sondeo/agotado (primera del <main> de abajo) gana PARA SIEMPRE una
+  // vez sondeoAgotado queda en true — el botón «Fuentes» de la cabecera
+  // seguía "funcionando" (ponía vistaFuentes=true) pero no se notaba: esa
+  // rama sigue evaluándose ANTES que vistaFuentes, así que nada cambiaba en
+  // pantalla y quien añadió una fuente rota (typo, lista vacía) se quedaba
+  // repitiendo "Reintentar" cada ~90s sin poder llegar nunca a borrarla.
+  // Limpiar sondeoAgotado aquí es lo que deja que vistaFuentes gane de
+  // verdad (fuentes.length ya no es 0 — la fuente rota SÍ se añadió del lado
+  // del backend — así que sinFuentes tampoco se interpone).
+  function irAGestionarFuentes() {
+    sondeoAgotado = false
+    vistaStats = false
+    vistaFuentes = true
+    location.hash = 'fuentes'
+  }
+
+  // Tarea 6 (P0.7) — fix round 1: Onboarding ya recibió la Fuente creada
+  // como valor de retorno de anadirFuente*/fuentesSugeridas (el propio
+  // backend la crea al sincronizar) — no hace falta un fetch adicional a
+  // fuente.fuentes() para saber que ya no está vacía. Lo que SÍ falta es el
+  // CATÁLOGO: el backend sincroniza la fuente nueva de forma asíncrona (el
+  // gate real en Chrome del controlador cazó esto: un solo refetch
+  // inmediato casi siempre ve total=0 todavía, y nada volvía a mirar). La
+  // fase 'sincronizando' NO sirve aquí — Sincronizando.svelte hace polling
+  // de /health, que refleja la sincronización INICIAL del catálogo entero,
+  // no si ESTA fuente concreta ya tiene canales — así que se sondea el
+  // catálogo directamente (ver iniciarSondeoFuente).
+  function alFuenteAnadida(f: Fuente) {
+    fuentes = [...fuentes, f]
+    iniciarSondeoFuente()
+  }
+
+  onDestroy(() => {
+    detenerSondeoFuente()
+  })
+
   onMount(() => {
     comprobarSalud()
     ;(async () => {
       try {
-        const [p, c, q, f] = await Promise.all([
+        const [p, c, q, f, fu] = await Promise.all([
           fuente.paises(),
           fuente.categorias(),
           fuente.calidades(),
           fuente.frescura(),
+          fuente.fuentes(),
         ])
         paises = p
         categorias = c
         calidades = q
         frescura = f
+        fuentes = fu
+        // fuentesCargadas se marca SOLO en el camino de éxito, dentro del
+        // try: si la petición falla no sabemos si hay fuentes o no, y es más
+        // seguro no mostrar el onboarding "sin fuentes" por un fallo de red
+        // pasajero que mostrarlo de más (ver el comentario de `fuentes`).
+        fuentesCargadas = true
       } catch {
         // Sin facetas los selectores se quedan solo con "Todos"; no es motivo
         // para tumbar el resto de la app.
@@ -328,12 +531,66 @@
   // RejillaCanales.svelte: `canales.length === 0 && !cargando`), con
   // 'listo'/sin error/fuera del panel de stats añadidos porque esta cadena
   // vive en App, que ve más fases que RejillaCanales.
+  // vistaFuentes (Tarea 7): mismo motivo que vistaStats — con esa vista
+  // encima, <main> no monta Vacio.svelte, así que la región persistente no
+  // debe anunciar su mensaje.
   let catalogoVacio = $derived(
-    fase.tipo === 'listo' && !vistaStats && !errorCatalogo && !cargando && canales.length === 0,
+    fase.tipo === 'listo' && !vistaStats && !vistaFuentes && !errorCatalogo && !cargando && canales.length === 0,
   )
 
+  // Tarea 6 (P0.7): onboarding cuando el catálogo está listo pero NO hay
+  // ninguna fuente añadida — a diferencia de catalogoVacio (un FILTRO deja el
+  // catálogo sin resultados), aquí el catálogo entero está vacío porque no
+  // hay de dónde sacarlo. `total === 0` además de `canales.length === 0`:
+  // con soloFavoritos ambos podrían discrepar si algún día hay favoritos sin
+  // fuente propia, y total es la fuente de verdad de "cuántos hay" en todo
+  // el resto de App (ver el comentario de `cargarPagina`).
+  // `!vistaFuentes` (fix final-review, F3): sin este guardián, navegar a
+  // #fuentes desde el propio onboarding (fuentes.length sigue en 0 hasta que
+  // se añade la primera) dejaba `vistaFuentes` en true PERO esta rama seguía
+  // ganando (va antes que vistaFuentes en el <main> de abajo) — el clic en
+  // «Fuentes» parecía no hacer nada, y al sincronizar la primera fuente
+  // añadida desde el propio Onboarding (que sigue montado, vistaFuentes
+  // stuck), sinFuentes pasaba a false y la rama vistaFuentes (nunca
+  // reseteada) ganaba: quien acababa de añadir su primera fuente aterrizaba
+  // en la vista de GESTIÓN en vez de en su catálogo recién sincronizado. Con
+  // el guardián, «Fuentes» siempre abre la vista de gestión de verdad
+  // (incluida su propia AnadirFuente, aunque la lista esté vacía) en cuanto
+  // se pulsa — nunca un clic que no hace nada visible.
+  let sinFuentes = $derived(
+    fase.tipo === 'listo' &&
+      fuentesCargadas &&
+      fuentes.length === 0 &&
+      !vistaStats &&
+      !vistaFuentes &&
+      !errorCatalogo &&
+      !cargando &&
+      canales.length === 0 &&
+      total === 0,
+  )
+
+  // `catalogoVacio && !sinFuentes`: cuando NO hay fuentes, App renderiza
+  // Onboarding en vez de RejillaCanales/Vacio (ver el <main> más abajo) — sin
+  // este guardián, esta región seguiría anunciando "Ningún canal casa con el
+  // filtro" (el texto de Vacio.svelte, pensado para un FILTRO demasiado
+  // estrecho) encima de una pantalla que en realidad pide una fuente, un
+  // mensaje falso para quien lo escucha por lector de pantalla.
+  //
+  // Fix round 1 (Tarea 6, P0.7): sondeandoFuenteNueva/sondeoAgotado se
+  // añaden a esta MISMA cadena derivada (nunca una región nueva, mismo
+  // invariante que el resto de este bloque) — cubren la transición "fuente
+  // añadida, sincronizando…" y, si se agota el tope, el aviso de que
+  // todavía no hay canales.
   let mensajePoliteAccesible = $derived(
-    fase.tipo === 'sincronizando' ? t('estado.sincronizando') : catalogoVacio ? t('catalogo.vacio') : '',
+    fase.tipo === 'sincronizando'
+      ? t('estado.sincronizando')
+      : sondeandoFuenteNueva
+        ? t('onboarding.sondeo.titulo')
+        : sondeoAgotado
+          ? t('onboarding.sondeo.agotado')
+          : catalogoVacio && !sinFuentes
+            ? t('catalogo.vacio')
+            : '',
   )
   let mensajeErrorAccesible = $derived(
     fase.tipo === 'error'
@@ -409,6 +666,13 @@
              indicador honesto de señal, con el estado REAL derivado más
              arriba de la misma fase que gobierna <main> — nunca decorativo. -->
         <IndicadorSenal estado={estadoSenal} />
+        <!-- Tarea 7 (P0.7): punto de acceso a la gestión de fuentes — en la
+             cabecera (siempre visible, en cualquier fase/vista), no escondido
+             en el pie como #stats: es una función primaria del producto
+             bring-your-own, no una vista de depuración. -->
+        <button type="button" class="fuentes-link" onclick={abrirFuentes}>
+          {t('fuentes.abrir')}
+        </button>
         <button type="button" class="idioma" onclick={alternarIdioma}>
           {idioma.actual === 'es' ? t('idioma.en') : t('idioma.es')}
         </button>
@@ -459,30 +723,74 @@
         {:else if fase.tipo === 'error'}
           <MensajeError clase={fase.clase} />
         {:else if fase.tipo === 'listo'}
-          <!-- Tarea 10 (P0.6): héroe "Continuar viendo", ENCIMA de
-               BarraAcciones — se renderiza compacto o nada, según el
-               historial (ver ContinuarViendo.svelte). -->
-          <ContinuarViendo alAbrir={abrirDesdeHistorial} />
+          {#if sondeandoFuenteNueva || sondeoAgotado}
+            <!-- Fix round 1 (Tarea 6, P0.7): tras añadir una fuente, ANTES de
+                 volver al Onboarding o al shell normal — se comprueba
+                 primero que sinFuentes (justo abajo), porque fuentes ya deja
+                 de estar vacío en cuanto alFuenteAnadida la añade, pero el
+                 catálogo (total) todavía puede seguir en 0 mientras el
+                 backend sincroniza. Sin esta rama PRIMERO, sinFuentes pasaría
+                 a false y se vería la rejilla vacía de siempre — exactamente
+                 el bug real que cazó el gate en Chrome del controlador. -->
+            <SincronizandoFuente
+              agotado={sondeoAgotado}
+              alReintentar={reintentarSondeoFuente}
+              alGestionarFuentes={irAGestionarFuentes}
+            />
+          {:else if sinFuentes}
+            <!-- Tarea 6 (P0.7): catálogo listo pero sin ninguna fuente
+                 bring-your-own — primer arranque en limpio. Sustituye TODO
+                 el bloque de abajo (héroe/acciones/pista de surf/rejilla): no
+                 tiene sentido ofrecer "Canal al azar" o una rejilla sobre un
+                 catálogo que se sabe vacío por falta de fuente, no por un
+                 filtro. El aside de facetas (arriba) se deja tal cual —
+                 vacío hasta que haya canales, pero sin recablear su propio
+                 inert/layout por este caso.
 
-          <!-- Tarea 7 (P0.6): buscador/facetas/señal viven en el aside
-               (BarraLateralFacetas, Tarea 6); "Solo favoritos", "Canal al
-               azar", el conmutador de vista, los chips de filtro removibles
-               y el conteo viven aquí, en BarraAcciones. -->
-          <BarraAcciones {total} {frescura} {alAleatorio} />
-
-          <!-- Afordancia del gesto "surf" (Tarea 11): sin esto, la barra
-               espaciadora sería un atajo invisible que nadie descubre. El
-               cursor ámbar parpadeante es puramente decorativo (el texto ya
-               dice lo mismo), de ahí aria-hidden en el propio glifo. -->
-          <p class="pista-surf">
-            <span class="cursor-surf" aria-hidden="true">&lt;_</span>
-            {t('accion.surf')}
-          </p>
-
-          {#if errorCatalogo}
-            <MensajeError clase={errorCatalogo} />
+                 Tarea 7 (P0.7): esta rama va ANTES que vistaFuentes (justo
+                 abajo) a propósito — si se quita la última fuente desde la
+                 vista de gestión, sinFuentes pasa a true y esta rama gana,
+                 así que el Onboarding "vuelve solo" sin que Fuentes.svelte
+                 tenga que saber nada de eso (ver alFuentesCambiaron). -->
+            <Onboarding {fuente} {alFuenteAnadida} />
+          {:else if vistaFuentes}
+            <!-- Tarea 7 (P0.7): vista de gestión de fuentes, alcanzada por
+                 #fuentes (botón de la cabecera). alFuenteAnadida está
+                 envuelta (alFuenteAnadidaDesdeFuentes) para que "añadir desde
+                 aquí" cierre esta vista y dispare el MISMO sondeo que el
+                 onboarding — nunca una segunda lógica de sondeo. -->
+            <Fuentes
+              {fuente}
+              alVolver={volverDeFuentes}
+              alFuenteAnadida={alFuenteAnadidaDesdeFuentes}
+              {alFuentesCambiaron}
+            />
           {:else}
-            <RejillaCanales {canales} vista={$filtros.vista} {cargando} {alPedirMas} alAbrir={abrirCanal} />
+            <!-- Tarea 10 (P0.6): héroe "Continuar viendo", ENCIMA de
+                 BarraAcciones — se renderiza compacto o nada, según el
+                 historial (ver ContinuarViendo.svelte). -->
+            <ContinuarViendo alAbrir={abrirDesdeHistorial} />
+
+            <!-- Tarea 7 (P0.6): buscador/facetas/señal viven en el aside
+                 (BarraLateralFacetas, Tarea 6); "Solo favoritos", "Canal al
+                 azar", el conmutador de vista, los chips de filtro removibles
+                 y el conteo viven aquí, en BarraAcciones. -->
+            <BarraAcciones {total} {frescura} {alAleatorio} />
+
+            <!-- Afordancia del gesto "surf" (Tarea 11): sin esto, la barra
+                 espaciadora sería un atajo invisible que nadie descubre. El
+                 cursor ámbar parpadeante es puramente decorativo (el texto ya
+                 dice lo mismo), de ahí aria-hidden en el propio glifo. -->
+            <p class="pista-surf">
+              <span class="cursor-surf" aria-hidden="true">&lt;_</span>
+              {t('accion.surf')}
+            </p>
+
+            {#if errorCatalogo}
+              <MensajeError clase={errorCatalogo} />
+            {:else}
+              <RejillaCanales {canales} vista={$filtros.vista} {cargando} {alPedirMas} alAbrir={abrirCanal} />
+            {/if}
           {/if}
         {/if}
       </main>
@@ -495,6 +803,12 @@
     {#if !vistaStats}
       <p><a class="stats" href="#stats" onclick={abrirStats}>{t('pie.stats')}</a></p>
     {/if}
+    <!-- Tarea 10 (P0.7): pie de crédito de marca, INTEGRADO en este mismo
+         <footer> (no un segundo <footer> compitiendo) — comparte el mismo
+         boundary inert de arriba y el mismo contenedor .fondo. El propio
+         componente aporta su borde superior hairline para separarse
+         visualmente de las líneas de arriba. -->
+    <PieDeMarca />
   </footer>
 </div>
 
@@ -545,6 +859,12 @@
     letter-spacing: var(--tracking-mono);
   }
   .cabecera-derecha { display: flex; align-items: center; gap: var(--space-3, 12px); }
+  /* Mismo estilo neutro que .idioma (constraint global: ámbar solo para el
+     acento/acción activa — esto es navegación, no una CTA). */
+  .fuentes-link {
+    background: none; border: 1px solid var(--border-default); color: var(--text-body);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer;
+  }
   .idioma {
     background: none; border: 1px solid var(--border-default); color: var(--text-body);
     border-radius: 6px; padding: 4px 10px; cursor: pointer;

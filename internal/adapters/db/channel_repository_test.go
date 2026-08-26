@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -12,6 +13,21 @@ import (
 	"github.com/gdberysan/open-tv/internal/ports"
 )
 
+// seedProviderOpensource da de alta el provider "opensource" que estos tests
+// dan por hecho al guardar canales. Desde que se retiró el seed de IPTV-org
+// (SourceRepository, P0.7) una DB nueva arranca sin providers, y
+// channels.provider_id tiene FK contra providers(id): sin esta fila, guardar
+// cualquier canal con ProviderID "opensource" viola la FK.
+func seedProviderOpensource(t *testing.T, sqlDB *sql.DB) {
+	t.Helper()
+	if _, err := sqlDB.Exec(`
+		INSERT INTO providers (id, type, base_url, priority, is_active, created_at, updated_at)
+		VALUES ('opensource', 'opensource', 'http://test.invalid/index.m3u', 100, 1, 0, 0)
+	`); err != nil {
+		t.Fatalf("seedProviderOpensource: %v", err)
+	}
+}
+
 func openTestDB(t *testing.T) *db.SQLiteChannelRepository {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.db")
@@ -20,6 +36,7 @@ func openTestDB(t *testing.T) *db.SQLiteChannelRepository {
 		t.Fatalf("db.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = sqlDB.Close() })
+	seedProviderOpensource(t, sqlDB)
 	return db.NewChannelRepository(sqlDB)
 }
 
