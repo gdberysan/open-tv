@@ -154,7 +154,7 @@ jobs:
 
   seguridad:
     name: Seguridad
-    uses: gdberysan/.github/.github/workflows/security.yml@main
+    uses: gdberysan/.github/.github/workflows/security.yml@v1
     permissions:
       contents: read
       # gitleaks-action llama a la API de PR commits cuando el evento es
