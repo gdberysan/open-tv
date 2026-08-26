@@ -54,10 +54,10 @@ export const es = {
   'canal.geo': 'Puede estar bloqueado en tu región',
   'canal.soloApp': 'Este canal se ve en la app instalada o en Safari',
 
-  // Reutilizadas por el punto de salud de TarjetaCanal (Tarea 8, P0.6) además
-  // de por BarrasSenal en la vista lista: mismo estado, mismo texto en
-  // ambas vistas. 'senal.muerta' pasa de "No responde" a "Sin respuesta"
-  // para casar con el texto exacto del brief.
+  // Usadas por SenalCanal.svelte (Tarea 8, P0.6, extraído en el fix 1):
+  // mismo componente en la insignia de la rejilla y en la fila de lista, así
+  // que mismo estado, mismo texto en ambas vistas. 'senal.muerta' pasa de
+  // "No responde" a "Sin respuesta" para casar con el texto exacto del brief.
   'senal.viva': 'Señal viva',
   'senal.muerta': 'Sin respuesta',
   'senal.sinDatos': 'Sin comprobar',

@@ -2,11 +2,11 @@
   import type { Canal } from '../datos/catalogo'
   import MarcaWeb from './MarcaWeb.svelte'
   import LogoCanal from './LogoCanal.svelte'
+  import SenalCanal from './SenalCanal.svelte'
   import { pareceGeoBloqueado } from '../lib/geo'
   import { parsearResolucion } from '../lib/resolucion'
   import { favoritos } from '../estado/favoritos'
   import { t } from '../i18n'
-  import type { ClaveMensaje } from '../i18n/es'
 
   // indice/focoActivo (Tarea 18, roving tabindex): opcionales y con
   // focoActivo por defecto en true para no romper a nadie que use esta
@@ -28,24 +28,6 @@
   // (fix final, hallazgo 1) — compartido con la fila de RejillaCanales en
   // modo lista, que antes se quedaba sin él.
 
-  // Tarea 8 (P0.6): punto de salud + ms sustituye a BarrasSenal en la
-  // tarjeta (RejillaCanales.svelte, vista lista, sigue usando BarrasSenal —
-  // no se retira, sigue en uso ahí). Mapa único vivo→{clase,clave}: la
-  // clase gobierna el color del punto vía CSS y clave el aria-label — el
-  // color NUNCA es la única señal (mismo principio que IndicadorSenal.svelte
-  // en la cabecera). Se reutilizan las claves senal.viva/muerta/sinDatos que
-  // ya existían para BarrasSenal: mismo estado, mismo texto en ambas vistas.
-  type EstadoSalud = 'vivo' | 'muerta' | 'desconocido'
-  const MAPA_SALUD: Record<EstadoSalud, ClaveMensaje> = {
-    vivo: 'senal.viva',
-    muerta: 'senal.muerta',
-    desconocido: 'senal.sinDatos',
-  }
-  const estadoSalud = $derived<EstadoSalud>(
-    canal.vivo === true ? 'vivo' : canal.vivo === false ? 'muerta' : 'desconocido',
-  )
-  const claveSalud = $derived(MAPA_SALUD[estadoSalud])
-
   // Resolución parseada del nombre (lib/resolucion.ts): el catálogo no trae
   // un campo propio. Sin match, sin badge — no se inventa un dato que el
   // nombre no dice.
@@ -64,13 +46,12 @@
     <div class="logo">
       <LogoCanal logoUrl={canal.logoUrl} nombre={canal.nombre} />
 
-      <!-- Arriba-izq: punto de salud + ms, sobre --scrim-strong. El punto
-           lleva role=img + aria-label con el estado (mismo patrón que tenía
-           BarrasSenal): el color nunca es la única pista, el ms tampoco es
-           color, es texto. -->
+      <!-- Arriba-izq: punto de salud + ms, sobre --scrim-strong. SenalCanal
+           (fix 1, compartido con la fila de lista en RejillaCanales) pone el
+           punto + el ms; esta insignia solo aporta el badge/scrim, que es
+           cosa del llamador, no de SenalCanal. -->
       <span class="insignia insignia-salud">
-        <i class="punto {estadoSalud}" role="img" aria-label={t(claveSalud)}></i>
-        {#if canal.latenciaMs > 0}<span class="ms">{canal.latenciaMs} ms</span>{/if}
+        <SenalCanal vivo={canal.vivo} latenciaMs={canal.latenciaMs} />
       </span>
 
       <!-- Abajo-der: resolución, si el nombre la trae. -->
@@ -127,12 +108,6 @@
   }
   .insignia-salud { top: 4px; left: 4px; }
   .insignia-resolucion { bottom: 4px; right: 4px; }
-
-  .punto { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  /* vivo: pine, NUNCA ámbar — el ámbar queda reservado al favorito activo. */
-  .punto.vivo { background: var(--signal-ok); }
-  .punto.muerta { background: var(--signal-error); }
-  .punto.desconocido { background: var(--text-faint); }
 
   .fila-nombre { display: flex; align-items: center; gap: 6px; }
   .nombre { font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

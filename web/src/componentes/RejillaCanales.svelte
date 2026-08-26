@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Canal } from '../datos/catalogo'
   import RejillaVirtual from './RejillaVirtual.svelte'
-  import BarrasSenal from './BarrasSenal.svelte'
+  import SenalCanal from './SenalCanal.svelte'
   import MarcaWeb from './MarcaWeb.svelte'
   import LogoCanal from './LogoCanal.svelte'
   import { favoritos } from '../estado/favoritos'
@@ -47,7 +47,11 @@
           <span class="nombre">{canal.nombre}</span>
         </button>
         {#if canal.pais}<span class="pais">{canal.pais}</span>{/if}
-        <BarrasSenal vivo={canal.vivo} latenciaMs={canal.latenciaMs} />
+        <!-- Fix 1 (Tarea 8): mismo componente que la insignia de la rejilla
+             (TarjetaCanal), sin scrim/badge — aquí es una fila con su propio
+             fondo (--surface-card), no una miniatura. Rejilla y lista ya
+             hablan el mismo lenguaje de señal. -->
+        <SenalCanal vivo={canal.vivo} latenciaMs={canal.latenciaMs} />
         <MarcaWeb webOk={canal.webOk} />
         <button
           class="favorito"

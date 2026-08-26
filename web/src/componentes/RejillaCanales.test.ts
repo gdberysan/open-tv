@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, render } from '@testing-library/svelte'
 import RejillaCanales from './RejillaCanales.svelte'
 import type { Canal } from '../datos/catalogo'
+import { idioma } from '../i18n'
 
 // Mismo doble que RejillaVirtual.test.ts / App.integracion.test.ts: jsdom no
 // implementa IntersectionObserver, y RejillaCanales lo usa para el scroll
@@ -30,6 +31,35 @@ const canal: Canal = {
 }
 
 describe('RejillaCanales — modo lista', () => {
+  // El idioma inicial sale de navigator.language (jsdom suele reportar
+  // en-US); se fija a 'es' para que la etiqueta esperada de SenalCanal no
+  // dependa del entorno de test (mismo patrón que TarjetaCanal.test.ts).
+  beforeEach(() => {
+    idioma.actual = 'es'
+  })
+
+  // Fix 1 (Tarea 8): la fila de lista usaba BarrasSenal (el medidor de 3
+  // barras) mientras la rejilla ya hablaba en punto+ms — dos lenguajes de
+  // señal distintos para el mismo dato. Falsable contra el código de antes
+  // (BarrasSenal en la fila): ese componente no pinta ningún .punto ni
+  // aria-label de estado, y SÍ marca su nivel con [data-nivel] en las tres
+  // barras — justo lo que este test comprueba que ya no está.
+  it('muestra el punto de SenalCanal en la fila (no las barras de BarrasSenal)', () => {
+    const { container } = render(RejillaCanales, {
+      canales: [canal], vista: 'lista', cargando: false, alPedirMas: () => {}, alAbrir: () => {},
+    })
+
+    const punto = container.querySelector('article.fila .punto')
+    expect(punto?.classList.contains('vivo')).toBe(true)
+    expect(punto?.getAttribute('role')).toBe('img')
+    expect(punto?.getAttribute('aria-label')).toBe('Señal viva')
+    expect(container.querySelector('article.fila .ms')?.textContent).toBe('100 ms')
+    // BarrasSenal (retirado) marcaba su nivel con data-nivel en un <span
+    // class="senal">: su ausencia confirma que la fila ya no lo usa.
+    expect(container.querySelector('article.fila [data-nivel]')).toBeNull()
+    expect(container.querySelector('article.fila .senal')).toBeNull()
+  })
+
   it('cae al fallback de iniciales cuando la imagen de una fila falla', async () => {
     const { container } = render(RejillaCanales, {
       canales: [canal], vista: 'lista', cargando: false, alPedirMas: () => {}, alAbrir: () => {},

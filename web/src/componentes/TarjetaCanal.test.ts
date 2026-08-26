@@ -19,9 +19,10 @@ describe('TarjetaCanal', () => {
     idioma.actual = 'es'
   })
 
-  // Tarea 8 (P0.6): el punto de salud + ms sustituye a BarrasSenal. Falsable
-  // porque BarrasSenal (la tarjeta vieja) no tenía ningún punto con
-  // aria-label por estado — solo tres barras sin nombre accesible propio.
+  // Tarea 8 (P0.6): el punto de salud + ms (vía SenalCanal.svelte, fix 1)
+  // sustituye a BarrasSenal. Falsable porque BarrasSenal (la tarjeta vieja)
+  // no tenía ningún punto con aria-label por estado — solo tres barras sin
+  // nombre accesible propio.
   it('vivo===true: punto con clase "vivo" y etiqueta "Señal viva"', () => {
     const { container } = render(TarjetaCanal, { canal: base, alAbrir: () => {} })
     const punto = container.querySelector('.punto')
