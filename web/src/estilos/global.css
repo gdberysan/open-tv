@@ -16,9 +16,22 @@ html, body {
   font-family: var(--font-body, system-ui, sans-serif);
 }
 
+/* Tarea 7 (P0.8): anillo de foco con transición suave — outline-offset (el
+   "settle" del anillo) y box-shadow (--ring-focus, puesto por
+   tokens/base.css sobre este mismo :focus-visible) se animan juntos con los
+   tokens de movimiento existentes. Es la ÚNICA declaración global de
+   :focus-visible con transition — nunca por-componente, para no tener dos
+   fuentes de verdad del anillo de foco. */
 :focus-visible {
   outline: 2px solid var(--amber-500);
   outline-offset: 2px;
+  transition: outline-offset var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :focus-visible {
+    transition: none;
+  }
 }
 
 /* Visualmente oculto pero legible por lectores de pantalla (Tarea 18, fix

@@ -104,8 +104,21 @@
     color: var(--amber-500);
     font: var(--type-body-sm, inherit);
     cursor: pointer;
+    /* Aparición (Tarea 7, P0.8): cada chip es un {#each ... (chip.clave)}
+       keyed — monta una vez cuando el filtro se activa, nunca en un bucle
+       de scroll (esta lista, a lo sumo, tiene un puñado de chips: nada que
+       ver con la rejilla virtualizada). opacity+transform son
+       compositables en GPU. */
+    animation: entrada-chip var(--dur-fast) var(--ease-out);
+  }
+  @keyframes entrada-chip {
+    from { opacity: 0; transform: scale(0.9); }
+    to { opacity: 1; transform: scale(1); }
   }
   .chip .x {
     font-size: 11px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chip { animation: none; }
   }
 </style>

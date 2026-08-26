@@ -106,6 +106,15 @@
     gap: var(--space-4, 1rem);
     max-width: 34rem;
     margin: 0 auto;
+    /* Entrada de panel (Tarea 7, P0.8): monta una vez (App.svelte la mete/
+       saca con un {#if vistaAjustes}), nunca en un bucle — no es la rejilla
+       virtualizada, así que un @keyframes aquí es barato. opacity+
+       translateY(pequeño) son compositables en GPU. */
+    animation: entrada-panel var(--dur-base) var(--ease-out);
+  }
+  @keyframes entrada-panel {
+    from { opacity: 0; transform: translateY(var(--space-1, 4px)); }
+    to { opacity: 1; transform: translateY(0); }
   }
   .volver {
     all: unset;
@@ -191,5 +200,9 @@
     color: var(--text-faint);
     font-size: 12px;
     line-height: 1.5;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ajustes { animation: none; }
   }
 </style>

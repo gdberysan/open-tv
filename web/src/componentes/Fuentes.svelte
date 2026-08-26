@@ -277,6 +277,13 @@
     gap: var(--space-4, 1rem);
     max-width: 44rem;
     margin: 0 auto;
+    /* Entrada de panel (Tarea 7, P0.8): mismo tratamiento que Ajustes.svelte
+       — monta una vez (App.svelte la mete/saca con {#if vistaFuentes}). */
+    animation: entrada-panel var(--dur-base) var(--ease-out);
+  }
+  @keyframes entrada-panel {
+    from { opacity: 0; transform: translateY(var(--space-1, 4px)); }
+    to { opacity: 1; transform: translateY(0); }
   }
   .volver {
     all: unset;
@@ -412,5 +419,9 @@
     color: var(--text-faint);
     font-size: 12px;
     line-height: 1.5;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fuentes { animation: none; }
   }
 </style>

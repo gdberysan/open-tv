@@ -391,6 +391,13 @@
     align-items: flex-start;
     justify-content: center;
     padding-top: 12vh;
+    /* Entrada (Tarea 7, P0.8): monta/desmonta una vez con {#if paletaAbierta}
+       en App.svelte, nunca en bucle — un fundido corto del velo. */
+    animation: entrada-capa var(--dur-fast) var(--ease-out);
+  }
+  @keyframes entrada-capa {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   .paleta {
@@ -403,6 +410,13 @@
     border-radius: var(--radius-md, 8px);
     box-shadow: var(--shadow-panel);
     overflow: hidden;
+    /* El propio diálogo entra con un pequeño "settle" además del fundido
+       del velo — opacity+translateY, compositables en GPU. */
+    animation: entrada-paleta var(--dur-base) var(--ease-out);
+  }
+  @keyframes entrada-paleta {
+    from { opacity: 0; transform: translateY(calc(-1 * var(--space-2, 8px))); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   .campo {
@@ -470,5 +484,9 @@
     font: var(--type-mono-label, inherit);
     letter-spacing: var(--tracking-mono);
     flex-shrink: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .capa, .paleta { animation: none; }
   }
 </style>

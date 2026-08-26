@@ -766,6 +766,14 @@
     background: var(--graphite-900);
     display: flex;
     flex-direction: column;
+    /* Entrada (Tarea 7, P0.8): monta una vez con {#if canalAbierto} en
+       App.svelte — un fundido corto, nunca un slide (el vídeo ya trae su
+       propio movimiento con .estado/.overlay). */
+    animation: entrada-reproductor var(--dur-base) var(--ease-out);
+  }
+  @keyframes entrada-reproductor {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
   .lienzo {
     position: relative;
@@ -823,6 +831,7 @@
   .overlay.oculto { opacity: 0; }
   @media (prefers-reduced-motion: reduce) {
     .overlay { transition: none; }
+    .reproductor { animation: none; }
   }
   .overlay-arriba { display: flex; align-items: center; gap: var(--space-3); }
   .insignia-vivo {

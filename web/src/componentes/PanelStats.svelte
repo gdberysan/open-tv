@@ -123,6 +123,13 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4, 1rem);
+    /* Entrada de panel (Tarea 7, P0.8): mismo tratamiento que Ajustes/
+       Fuentes — monta una vez (App.svelte la mete/saca con {#if vistaStats}). */
+    animation: entrada-panel var(--dur-base) var(--ease-out);
+  }
+  @keyframes entrada-panel {
+    from { opacity: 0; transform: translateY(var(--space-1, 4px)); }
+    to { opacity: 1; transform: translateY(0); }
   }
   .volver {
     all: unset;
@@ -160,4 +167,8 @@
   li { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--text-body); }
   .clave { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .valor { color: var(--text-muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .panel-stats { animation: none; }
+  }
 </style>

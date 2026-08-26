@@ -96,7 +96,34 @@
 </article>
 
 <style>
-  .tarjeta { background: var(--surface-card); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  /* Hover-lift (Tarea 7, P0.8): UN solo sitio para el "lift" de tarjeta —
+     nunca se duplica en RejillaCanales (modo lista) ni en ningún otro
+     lugar. `transition` vive en la clase base, pero SOLO se dispara en
+     :hover — nunca corre durante el scroll de la rejilla virtualizada,
+     porque nada cambia el valor de transform/box-shadow mientras se
+     reciclan filas (restricción de rendimiento del brief). transform/
+     box-shadow son las dos únicas propiedades compositables en GPU sin
+     tocar layout — jamás width/height/top/left aquí. */
+  .tarjeta {
+    background: var(--surface-card);
+    border-radius: 8px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  }
+  .tarjeta:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* Anula la ANIMACIÓN, no el efecto: el lift sigue siendo una pista
+       visual útil al pasar el ratón, solo que ya no se anima — aparece de
+       golpe, como el resto de transiciones ya existentes en el repo
+       (Reproductor.svelte .overlay, App.svelte .facetas). */
+    .tarjeta { transition: none; }
+  }
   /* Densidad compacta (Tarea 5, P0.8): menos padding/gap y nombre más
      pequeño — la miniatura (16:9, ver .logo) ya encoge sola porque la
      tarjeta es más angosta (más columnas, mismo ancho de contenedor). Las
