@@ -90,6 +90,12 @@ export const es = {
   'reproductor.error.formato': 'Tu navegador no puede reproducir este formato. Prueba en Safari o en la app instalada.',
   'reproductor.error.caducado': 'La dirección del canal caducó.',
 
+  // Tarea 14 (P0.6): CTA del error de reproducción cuando el canal SÍ tenía
+  // mirrors (más allá del destino único de compatibilidad) — reanuda el
+  // mismo failover de P0.5 en vez de dejar un callejón sin salida.
+  'reproductor.error.mirrorsDisponibles': 'Hay {n} mirrors con mejor salud.',
+  'reproductor.error.probarSiguienteMirror': 'Probar el siguiente mirror',
+
   'estado.sincronizando': 'Sincronizando el catálogo…',
   'estado.sincronizandoDetalle': 'La primera vez tarda unos segundos: se descargan unos 13 000 canales.',
   'estado.gatewayCaido': 'No se pudo contactar con Open TV. ¿Sigue abierto?',

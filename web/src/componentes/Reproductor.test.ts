@@ -234,6 +234,64 @@ describe('Reproductor — failover entre mirrors', () => {
     expect(screen.queryByText(t('reproductor.error.noArranco'))).toBeNull()
   })
 
+  // Tarea 14 (P0.6): el error terminal de agotar el failover, cuando el
+  // canal SÍ tenía mirrors, ofrece un CTA que reanuda el MISMO mecanismo
+  // (reproducir()) en vez de ser un callejón sin salida.
+  it('agotados los mirrors, el error ofrece «Probar el siguiente mirror» y el clic reanuda el failover', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [
+      { url: 'https://muerto/x.m3u8', vivo: true, latenciaMs: 100, webOk: true },
+      { url: 'https://tambien-muerto/x.m3u8', vivo: true, latenciaMs: 200, webOk: true },
+    ]
+    const fuente = {
+      mirrors: vi.fn(async () => mirrors),
+      proxyDisponible: vi.fn(async () => false),
+    }
+
+    render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    hlsState.instancias[0].fallar('manifestLoadError')
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(2))
+    hlsState.instancias[1].fallar('manifestLoadError')
+
+    await vi.waitFor(() => expect(screen.queryAllByText(t('reproductor.error.noArranco')).length).toBeGreaterThan(0))
+
+    // El texto informativo cuenta los mirrors que traía ESTE intento (2).
+    // getByText ya lanza si no lo encuentra — no hace falta un matcher aparte.
+    screen.getByText(t('reproductor.error.mirrorsDisponibles', { n: 2 }))
+    const boton = screen.getByRole('button', { name: t('reproductor.error.probarSiguienteMirror') })
+
+    hlsState.instancias.length = 0
+    boton.click()
+
+    // Reanuda el MISMO mecanismo: vuelve a pedir mirrors() (2ª vez) y
+    // arranca de nuevo desde el primer intento de la cadena.
+    await vi.waitFor(() => expect(fuente.mirrors).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    expect(hlsState.instancias[0].url).toBe('https://muerto/x.m3u8')
+  })
+
+  // Sin mirrors (fallback de compatibilidad al destino único): no hay
+  // failover que reanudar, así que el CTA no debe aparecer.
+  it('sin mirrors, el error NO ofrece el CTA de mirror', async () => {
+    hlsState.instancias.length = 0
+    const fuente = {
+      mirrors: vi.fn(async () => []),
+      destino: vi.fn(async () => ({ url: 'https://unico/x.m3u8', airplayOk: null })),
+      proxyDisponible: vi.fn(async () => false),
+    }
+
+    render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    hlsState.instancias[0].fallar('manifestLoadError')
+
+    await vi.waitFor(() => expect(screen.queryAllByText(t('reproductor.error.noArranco')).length).toBeGreaterThan(0))
+    expect(screen.queryByRole('button', { name: t('reproductor.error.probarSiguienteMirror') })).toBeNull()
+    expect(screen.queryByText(t('reproductor.error.mirrorsDisponibles', { n: 1 }))).toBeNull()
+  })
+
   // Ronda 2 de revisión (gate manual en Chrome real): el <video> de la app se
   // quedaba en readyState 0 para siempre en motor nativo — un <video> suelto
   // con la MISMA url y un load() explícito sí cargaba. jsdom no decodifica

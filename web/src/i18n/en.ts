@@ -60,6 +60,9 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.error.formato': 'Your browser cannot play this format. Try Safari or the installed app.',
   'reproductor.error.caducado': "The channel's address expired.",
 
+  'reproductor.error.mirrorsDisponibles': 'There are {n} mirrors with better health.',
+  'reproductor.error.probarSiguienteMirror': 'Try the next mirror',
+
   'estado.sincronizando': 'Syncing the catalogue…',
   'estado.sincronizandoDetalle': 'The first run takes a few seconds: about 13,000 channels are downloaded.',
   'estado.gatewayCaido': 'Could not reach Open TV. Is it still running?',

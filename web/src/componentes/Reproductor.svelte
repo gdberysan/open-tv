@@ -35,6 +35,12 @@
   let video: HTMLVideoElement | undefined = $state()
   let cargando = $state(true)
   let mensajeError = $state<string | null>(null)
+  // >0 SOLO junto al mensajeError de agotar el failover (claveDeClase más
+  // abajo): cuántos mirrors tenía este canal cuando se pidieron. Sirve para
+  // ofrecer el CTA "Probar el siguiente mirror" — 0 en cualquier otro
+  // mensajeError (canal.soloApp, el catch de mirrors()/destino(), un corte
+  // tras confirmar) porque ninguno de esos tiene un failover que reanudar.
+  let numMirrorsDisponibles = $state(0)
   let silenciado = $state(false)
 
   // Foco del diálogo modal (Tarea 18, orden de foco): este componente se
@@ -256,15 +262,21 @@
     const miId = ++intentoId
     cargando = true
     mensajeError = null
+    numMirrorsDisponibles = 0
 
     const motor = motorDelNavegador(video)
     let intentos: Intento[]
+    // Cuántos mirrors traía ESTE intento de reproducir(): 0 en el camino de
+    // compatibilidad sin mirrors (más abajo). Se lee solo si el bucle acaba
+    // agotando todos los intentos (ver el mensajeError final).
+    let totalMirrors = 0
 
     try {
       const mirrors = await fuente.mirrors(canal.id)
       if (destruido || miId !== intentoId) return
 
       if (mirrors.length > 0) {
+        totalMirrors = mirrors.length
         const proxyDisp = await fuente.proxyDisponible()
         if (destruido || miId !== intentoId) return
         intentos = planDeFailover(mirrors, motor, proxyDisp)
@@ -354,6 +366,19 @@
     limpiarIntento()
     cargando = false
     mensajeError = t(claveDeClase(ultimaClase))
+    numMirrorsDisponibles = totalMirrors
+  }
+
+  /** CTA "Probar el siguiente mirror": reanuda EXACTAMENTE el mismo mecanismo
+   *  que el failover automático (P0.5) usó para llegar hasta aquí — la misma
+   *  reproducir(), no una ruta de reintento paralela. Vuelve a pedir
+   *  mirrors() (la salud pudo cambiar desde el último intento) y recorre la
+   *  cadena de nuevo desde el principio; limpiarIntento() es el mismo
+   *  defensivo que ya usa el $effect de cambio de canal, aunque el bucle ya
+   *  se limpió a sí mismo al agotarse. */
+  function probarSiguienteMirror() {
+    limpiarIntento()
+    reproducir()
   }
 
   // Reacciona a cambiar de canal (flechas ← →) igual que a la apertura
@@ -482,7 +507,15 @@
     {#if cargando}
       <p class="estado">{t('reproductor.cargando')}</p>
     {:else if mensajeError}
-      <p class="estado error">{mensajeError}</p>
+      <div class="estado error">
+        <p class="mensaje">{mensajeError}</p>
+        {#if numMirrorsDisponibles > 0}
+          <p class="mirrors">{t('reproductor.error.mirrorsDisponibles', { n: numMirrorsDisponibles })}</p>
+          <button type="button" class="probar-mirror" onclick={probarSiguienteMirror}>
+            {t('reproductor.error.probarSiguienteMirror')}
+          </button>
+        {/if}
+      </div>
     {/if}
 
     <!-- Regiones aria-live PERSISTENTES (fix round 1, Hallazgo 1): los <p>
@@ -531,8 +564,28 @@
     background: rgba(14, 19, 27, 0.85);
     padding: var(--space-3) var(--space-5);
     border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    max-width: 32rem;
+    text-align: center;
   }
-  .estado.error { color: var(--signal-error); }
+  .estado.error .mensaje { color: var(--signal-error); margin: 0; }
+  .estado.error .mirrors { color: var(--text-muted); margin: 0; }
+  /* Ámbar = CTA primaria de un estado, mismo tratamiento "relleno" que
+     .sugerida en Vacio.svelte (misma familia de estados con una acción
+     concreta que sacar de un error). */
+  .probar-mirror {
+    background: var(--tint-amber-weak);
+    border: 1px solid var(--tint-amber-line);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-4);
+    color: var(--amber-500);
+    cursor: pointer;
+    font: inherit;
+  }
+  .probar-mirror:hover { background: var(--tint-amber-line); }
   .controles {
     display: flex;
     align-items: center;
