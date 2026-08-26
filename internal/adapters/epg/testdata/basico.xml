@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="cnn.us">
+    <display-name>CNN</display-name>
+  </channel>
+  <programme start="20260826200000 +0000" stop="20260826210000 +0000" channel="cnn.us">
+    <title>The Lead</title>
+    <sub-title>Breaking News</sub-title>
+    <desc>Cobertura de las noticias del día.</desc>
+  </programme>
+  <programme start="20260826210000 +0000" stop="20260826220000 +0000" channel="cnn.us">
+    <title>Anderson Cooper 360</title>
+  </programme>
+</tv>
