@@ -4,7 +4,8 @@
   import { filtros } from '../estado/filtros'
   import { debounce } from '../lib/debounce'
   import { idioma, t } from '../i18n'
-  import { nombreDePais } from '../lib/paises'
+  import { banderaDePais, nombreDePais } from '../lib/paises'
+  import { iconoDeCategoria } from '../lib/categorias'
 
   // Los facetas vienen de App (el único que habla con CatalogSource); este
   // componente solo las pinta y escribe en el store de filtros. Reemplaza a
@@ -158,6 +159,7 @@
           aria-pressed={$filtros.pais === f.valor}
           onclick={() => alternarPais(f.valor)}
         >
+          <span class="emoji-faceta" aria-hidden="true">{banderaDePais(f.valor)}</span>
           <span class="valor">{nombrePais(f.valor)}</span>
           <span class="pais-codigo">{f.valor}</span>
           <span class="conteo">{f.total}</span>
@@ -186,6 +188,7 @@
           aria-pressed={$filtros.categoria === f.valor}
           onclick={() => alternarCategoria(f.valor)}
         >
+          <span class="emoji-faceta" aria-hidden="true">{iconoDeCategoria(f.valor)}</span>
           <span class="valor">{f.valor}</span>
           <span class="conteo">{f.total}</span>
         </button>
@@ -304,7 +307,6 @@
   .fila {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 8px;
     background: none;
     border: 1px solid transparent;
@@ -324,15 +326,33 @@
   .fila:hover {
     background: var(--surface-raised);
   }
+  /* La bandera (país) o el icono (categoría) van en una columna de ancho fijo
+     al inicio de la fila: así los nombres arrancan todos en la misma x, aunque
+     una bandera no se renderice (Windows) o falte el emoji. */
+  .fila .emoji-faceta {
+    flex-shrink: 0;
+    width: 1.4em;
+    text-align: center;
+    font-size: 0.95em;
+    line-height: 1;
+  }
+  /* El nombre crece para ocupar el hueco y empuja código+conteo a la derecha
+     en posiciones consistentes fila a fila (antes `space-between` los movía
+     según el largo del nombre, de ahí el desalineado de los códigos). */
   .fila .valor {
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-align: left;
   }
   .fila .conteo {
     flex-shrink: 0;
+    min-width: 3ch;
+    text-align: right;
     font: var(--type-mono-label, inherit);
+    font-variant-numeric: tabular-nums;
     color: var(--text-muted);
   }
   /* Código ISO discreto junto al nombre del país (fix round 1, Tarea 9,
@@ -340,6 +360,8 @@
      referencia mínima, en el mismo tratamiento mono/atenuado que el conteo. */
   .fila .pais-codigo {
     flex-shrink: 0;
+    width: 2.4ch;
+    text-align: right;
     font: var(--type-mono-label, inherit);
     color: var(--text-muted);
   }
