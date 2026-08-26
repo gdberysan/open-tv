@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,6 +23,7 @@ import (
 	"github.com/gdberysan/open-tv/internal/api"
 	"github.com/gdberysan/open-tv/internal/datadir"
 	"github.com/gdberysan/open-tv/internal/netx"
+	"github.com/gdberysan/open-tv/internal/ports"
 	"github.com/gdberysan/open-tv/internal/services"
 	"github.com/gdberysan/open-tv/internal/stats"
 )
@@ -145,15 +148,37 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 	channelRepoRO := db.NewChannelRepository(lecturaDB)
 	streamRepoRO := db.NewStreamRepository(lecturaDB)
 
-	iptvOrgURL := os.Getenv("IPTV_ORG_URL")
-	if iptvOrgURL == "" {
-		iptvOrgURL = "https://iptv-org.github.io/iptv/index.m3u"
-	}
-	provider := opensource.NewProvider("opensource", iptvOrgURL, nil)
+	sourceRepo := db.NewSourceRepository(sqlDB)
 
-	// 4. Sync periódico en background: reintenta con backoff si el proveedor
-	// falla y persiste los streams para que /channels/stream sobreviva reinicios.
-	syncer := services.NewSyncer(logger, provider, channelRepo, streamRepo, services.Config{
+	// Directorio permitido para fuentes file:// (ficheros M3U subidos por el
+	// usuario, guardado a cargo de la Tarea 4). Se deriva del propio path de
+	// la DB —y no de datadir.Default()— para que respete DB_PATH cuando algo
+	// (tests, una instalación con datos en otro sitio) lo fija a mano.
+	fuentesDir := filepath.Join(filepath.Dir(dbPath), "fuentes")
+	if err := os.MkdirAll(fuentesDir, 0o700); err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("creando el directorio de fuentes: %w", err)
+	}
+
+	// IPTV_ORG_URL es un atajo de dev, opt-in: solo si está fijada se da de
+	// alta esa fuente antes de arrancar (mismo INSERT ... ON CONFLICT DO
+	// NOTHING del viejo seed, ahora vía SourceRepository.Add). Sin la
+	// variable, una instalación limpia arranca con cero fuentes: el catálogo
+	// depende por completo de lo que el usuario dé de alta.
+	if iptvOrgURL := os.Getenv("IPTV_ORG_URL"); iptvOrgURL != "" {
+		err := sourceRepo.Add(context.Background(), ports.Source{
+			URL: iptvOrgURL, Label: "IPTV-org (dev)", Kind: "url", IsActive: true,
+		})
+		if err != nil && !errors.Is(err, ports.ErrFuenteDuplicada) {
+			_ = ln.Close()
+			return fmt.Errorf("dando de alta IPTV_ORG_URL: %w", err)
+		}
+	}
+
+	// 4. Sync periódico en background: itera las fuentes activas, reintenta
+	// con backoff si el ciclo falla y persiste los streams para que
+	// /channels/stream sobreviva reinicios.
+	syncer := services.NewSyncer(logger, sourceRepo, channelRepo, streamRepo, fuentesDir, services.Config{
 		Interval: durationEnv(logger, "SYNC_INTERVAL", 12*time.Hour),
 	})
 
@@ -193,10 +218,20 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 	// nadie.
 	agregador := stats.NuevoAgregador()
 
+	// api.NewRouter todavía pide un ports.ProviderPort fijo: lo usa
+	// ChannelHandler.GetStreamURL como último recurso para un canal que la DB
+	// no conoce (arranque en frío antes del primer sync). Con N fuentes ya no
+	// hay UN provider que sirva de fallback natural, y resolver eso de verdad
+	// es tarea de la Tarea 4 (que retira este parámetro de router.go). Hasta
+	// entonces, un provider nunca sincronizado (URL vacía, caché de streams
+	// siempre vacío) es un shim inocuo: GetStreamURL sigue devolviendo el
+	// mismo "canal no encontrado" que ya devolvía antes de tener catálogo.
+	providerFallback := opensource.NewProvider("legacy-fallback", "", nil)
+
 	// 5. Router y servidor HTTP, sobre el listener ya resuelto en el paso 1.
 	url := "http://" + ln.Addr().String()
 	srv := &http.Server{
-		Handler: api.NewRouter(logger, channelRepoRO, provider, streamRepoRO, lecturaDB, syncer, api.Options{
+		Handler: api.NewRouter(logger, channelRepoRO, providerFallback, streamRepoRO, lecturaDB, syncer, api.Options{
 			ProxyActivo:              esLoopback(ln),
 			Version:                  version,
 			HostsPermitidos:          hostsPermitidos(ln),
