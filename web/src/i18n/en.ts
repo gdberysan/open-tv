@@ -57,6 +57,10 @@ export const en: Record<ClaveMensaje, string> = {
   'frescura.comprobado': 'Checked {horas} h ago',
   'frescura.envivo': 'Checked live',
 
+  'indicador.vivo': 'Checked live',
+  'indicador.sincronizando': 'Syncing…',
+  'indicador.sinGateway': 'No connection to Open TV',
+
   'pie.fuente': 'The source is the public free-to-air list from iptv-org. Korven broadcasts nothing.',
   'pie.postura': 'No premium channels, no VPN, no geo-block circumvention.',
   'pie.codigo': 'View the code',

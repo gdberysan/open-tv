@@ -15,6 +15,7 @@
   import MensajeError from './componentes/MensajeError.svelte'
   import Frescura from './componentes/Frescura.svelte'
   import PanelStats from './componentes/PanelStats.svelte'
+  import IndicadorSenal from './componentes/IndicadorSenal.svelte'
 
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
@@ -253,6 +254,22 @@
         ? mensajeDeClaseAccesible(errorCatalogo)
         : '',
   )
+
+  // Tarea 5 (P0.6): estado del IndicadorSenal de la cabecera, derivado de la
+  // MISMA fase que ya gobierna qué se pinta en <main> — nunca un estado
+  // paralelo inventado. 'comprobando' (el instante antes de que /health
+  // conteste por primera vez) cuenta como 'sincronizando': todavía no hay
+  // nada que confirmar como vivo. 'error' (fase.tipo, cualquier clase:
+  // gateway/red/servidor) y un errorCatalogo posterior a un 'listo' cuentan
+  // los dos como 'sin-gateway' — en ambos casos el cliente dejó de poder
+  // contactar con Open TV, que es justo lo que ese estado comunica.
+  let estadoSenal = $derived<'vivo' | 'sincronizando' | 'sin-gateway'>(
+    fase.tipo === 'sincronizando' || fase.tipo === 'comprobando'
+      ? 'sincronizando'
+      : fase.tipo === 'error' || (fase.tipo === 'listo' && !!errorCatalogo)
+        ? 'sin-gateway'
+        : 'vivo',
+  )
 </script>
 
 <!-- inert (Tarea 18, orden de foco; fix round 1, Hallazgo 1): mientras el
@@ -290,8 +307,10 @@
         <p class="subtitulo">{t('app.lema')}</p>
       </div>
       <div class="cabecera-derecha">
-        <!-- Hueco para IndicadorSenal (Tarea 5): esta tarea solo prepara el
-             layout, el indicador honesto de señal llega en la siguiente. -->
+        <!-- Tarea 5 (P0.6): sustituye el hueco de layout de la Tarea 4 por el
+             indicador honesto de señal, con el estado REAL derivado más
+             arriba de la misma fase que gobierna <main> — nunca decorativo. -->
+        <IndicadorSenal estado={estadoSenal} />
         <button type="button" class="idioma" onclick={alternarIdioma}>
           {idioma.actual === 'es' ? t('idioma.en') : t('idioma.es')}
         </button>

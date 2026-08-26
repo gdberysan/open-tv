@@ -67,6 +67,13 @@ export const es = {
   'frescura.comprobado': 'Comprobado hace {horas} h',
   'frescura.envivo': 'Comprobado en vivo',
 
+  // Tarea 5 (P0.6): IndicadorSenal en la cabecera. El texto es la fuente de
+  // verdad del estado, no el color del punto (accesibilidad: el color solo
+  // refuerza lo que el texto ya dice).
+  'indicador.vivo': 'Comprobado en vivo',
+  'indicador.sincronizando': 'Sincronizando…',
+  'indicador.sinGateway': 'Sin conexión con Open TV',
+
   'pie.fuente': 'La fuente es la lista pública de televisión abierta de iptv-org. Korven no retransmite nada.',
   'pie.postura': 'Sin canales premium, sin VPN, sin elusión de geobloqueo.',
   'pie.codigo': 'Ver el código',
