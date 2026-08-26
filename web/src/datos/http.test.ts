@@ -107,6 +107,21 @@ describe('HttpCatalog', () => {
     await expect(crearHttpCatalog('').canales({})).rejects.toThrow(/red|gateway/i)
   })
 
+  // El endpoint emite ports.Faceta de Go SIN json tags: en el cable es
+  // {Valor, Count} con V mayúscula, no {valor,total}. calidades() debe
+  // adaptar la forma igual que paises()/categorias().
+  it('calidades traduce {Valor,Count} del cable a {valor,total}', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      respuesta([{ Valor: 'hd', Count: 123 }, { Valor: 'sd', Count: 45 }]),
+    ))
+
+    const facetas = await crearHttpCatalog('').calidades()
+    expect(facetas).toEqual([
+      { valor: 'hd', total: 123 },
+      { valor: 'sd', total: 45 },
+    ])
+  })
+
   it('mirrors traduce las claves del cable', async () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
       respuesta([

@@ -105,6 +105,12 @@ export function crearHttpCatalog(base = ''): CatalogSource {
       return (crudas ?? []).map((f) => ({ valor: f.Valor, total: f.Count }))
     },
 
+    async calidades(): Promise<Faceta[]> {
+      const resp = await pedir(`${base}/channels/qualities`)
+      const crudas = (await resp.json()) as Array<{ Valor: string; Count: number }> | null
+      return (crudas ?? []).map((f) => ({ valor: f.Valor, total: f.Count }))
+    },
+
     async aleatorio(c: ConsultaCatalogo): Promise<Canal> {
       const resp = await pedir(`${base}/channels/random?${query(c)}`)
       return aCanal((await resp.json()) as CanalCable)

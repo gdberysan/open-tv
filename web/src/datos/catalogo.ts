@@ -62,6 +62,7 @@ export interface CatalogSource {
   canales(c: ConsultaCatalogo): Promise<PaginaCanales>
   paises(): Promise<Faceta[]>
   categorias(): Promise<Faceta[]>
+  calidades(): Promise<Faceta[]>
   aleatorio(c: ConsultaCatalogo): Promise<Canal>
   destino(id: string): Promise<DestinoStream>
   /** Los mirrors del canal, ordenados por salud (vivo y menor latencia primero). */

@@ -67,6 +67,7 @@ function fuenteFalsa(overrides: Partial<CatalogSource> = {}): CatalogSource {
     canales,
     paises: vi.fn(async () => []),
     categorias: vi.fn(async () => []),
+    calidades: vi.fn(async () => []),
     aleatorio: vi.fn(async () => canalDePrueba('random')),
     destino: vi.fn(async () => ({ url: '', airplayOk: null })),
     mirrors: vi.fn(async () => []),
