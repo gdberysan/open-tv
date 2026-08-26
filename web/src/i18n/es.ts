@@ -24,6 +24,12 @@ export const es = {
   // de macOS (mobile/lib/presentation/widgets/console_bar.dart).
   'filtro.mostrarOffline': 'Mostrar los que no responden',
 
+  // Shell de dos columnas (Tarea 4): el botón de cajón alterna la barra
+  // lateral de facetas en pantallas estrechas; el mismo texto etiqueta el
+  // encabezado (accesible, oculto visualmente) del propio aside mientras su
+  // contenido real (Tarea 6) todavía no existe.
+  'shell.facetas': 'Facetas',
+
   'accion.aleatorio': 'Canal al azar',
   'accion.favoritos': 'Solo favoritos',
   'accion.rejilla': 'Ver en rejilla',

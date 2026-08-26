@@ -20,6 +20,7 @@ export const en: Record<ClaveMensaje, string> = {
   'filtro.todos': 'All',
   'filtro.limpiar': 'Clear filters',
   'filtro.mostrarOffline': 'Show the ones not responding',
+  'shell.facetas': 'Facets',
 
   'accion.aleatorio': 'Random channel',
   'accion.favoritos': 'Favourites only',

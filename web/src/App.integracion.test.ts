@@ -191,4 +191,14 @@ describe('App — invariantes de integración (los que dejaron pasar los peores 
     await screen.findByText('7 channels')
     await screen.findByRole('button', { name: 'Español' })
   })
+
+  it('el shell tiene aside de facetas y area principal, y el cajon alterna', async () => {
+    const { container, getByRole } = render(App, { fuente: fuenteFalsa() })
+    expect(container.querySelector('aside.facetas')).not.toBeNull()
+    expect(container.querySelector('main')).not.toBeNull()
+    const boton = getByRole('button', { name: /facetas|filtros/i })
+    const abiertoAntes = container.querySelector('aside.facetas')?.getAttribute('data-abierto')
+    await fireEvent.click(boton)
+    expect(container.querySelector('aside.facetas')?.getAttribute('data-abierto')).not.toBe(abiertoAntes)
+  })
 })

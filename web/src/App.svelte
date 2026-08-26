@@ -52,6 +52,17 @@
   // necesita saber QUÉ canal está abierto, no resolverle antes una URL.
   let canalAbierto = $state<Canal | null>(null)
 
+  // Shell de dos columnas (Tarea 4 de P0.6): true = barra de facetas visible.
+  // En escritorio (>900px) es simplemente la columna izquierda del grid; bajo
+  // ~900px la misma bandera gobierna el cajón (aside fijo con translateX).
+  // El contenido REAL de las facetas llega en la Tarea 6 — aquí el aside es
+  // un hueco mínimo, a propósito (alcance de esta tarea: solo el layout).
+  let lateralAbierto = $state(true)
+
+  function alternarLateral() {
+    lateralAbierto = !lateralAbierto
+  }
+
   // vistaStats: vista de depuración local, sin ruta de servidor propia. NO se
   // puede usar el PATH /stats para esto: el router (Tarea 13) ya registra
   // GET /stats como el endpoint JSON de verdad, ANTES del fallback SPA — un
@@ -251,43 +262,78 @@
      del reproductor — un lector de pantalla o un usuario de teclado podía
      "salirse" del modal sin cerrarlo. inert saca todo <main>/<footer> del
      árbol de accesibilidad y del orden de tabulación de una sola vez, sin
-     tener que enumerar a mano cada control de fuera. -->
+     tener que enumerar a mano cada control de fuera. Con el shell de dos
+     columnas (Tarea 4) esto no cambia: <main> sigue siendo el mismo nodo,
+     solo que ahora vive dentro de <div class="cuerpo"> junto al aside. -->
 <!-- Persistentes (fix round 1, Hallazgo 1): ver el comentario largo en el
      <script> sobre por qué NO son los <p aria-live> que se montan dentro de
      Sincronizando/MensajeError. Vacías en catálogo normal; su texto es lo
-     único que cambia. -->
+     único que cambia. Se quedan aquí, en la raíz, ANTES del shell — un solo
+     nodo persistente cada una, nunca duplicadas. -->
 <div class="sr-only" aria-live="polite" aria-atomic="true">{mensajeSincronizandoAccesible}</div>
 <div class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">{mensajeErrorAccesible}</div>
 
-<main inert={!!canalAbierto}>
-  <header>
-    <h1>{t('app.titulo')}</h1>
-    <p class="lema">{t('app.lema')}</p>
-    <button type="button" class="idioma" onclick={alternarIdioma}>
-      {idioma.actual === 'es' ? t('idioma.en') : t('idioma.es')}
-    </button>
+<div class="sala">
+  <header class="cabecera">
+    <div class="marca">
+      <h1 class="wordmark">KORVEN <span class="acento">OPEN TV</span></h1>
+      <p class="subtitulo">{t('app.lema')}</p>
+    </div>
+    <div class="cabecera-derecha">
+      <!-- Hueco para IndicadorSenal (Tarea 5): esta tarea solo prepara el
+           layout, el indicador honesto de señal llega en la siguiente. -->
+      <button type="button" class="idioma" onclick={alternarIdioma}>
+        {idioma.actual === 'es' ? t('idioma.en') : t('idioma.es')}
+      </button>
+    </div>
   </header>
 
-  {#if vistaStats}
-    <PanelStats alVolver={volverDelPanel} />
-  {:else if fase.tipo === 'sincronizando'}
-    <Sincronizando alListo={alSincronizado} />
-  {:else if fase.tipo === 'error'}
-    <MensajeError clase={fase.clase} />
-  {:else if fase.tipo === 'listo'}
-    <BarraFiltros {paises} {categorias} {alAleatorio} />
+  <div class="cuerpo">
+    <!-- Botón de cajón: solo tiene sentido visualmente bajo el breakpoint de
+         ~900px (CSS lo oculta en escritorio, donde el aside ya es la columna
+         fija de siempre); se deja siempre montado para que aria-controls /
+         aria-expanded describan un control real y estable. -->
+    <button
+      type="button"
+      class="boton-cajon"
+      aria-controls="panel-facetas"
+      aria-expanded={lateralAbierto}
+      onclick={alternarLateral}
+    >
+      {t('shell.facetas')}
+    </button>
 
-    {#if errorCatalogo}
-      <MensajeError clase={errorCatalogo} />
-    {:else}
-      <div class="resumen">
-        <p class="total">{t('catalogo.total', { n: total })}</p>
-        {#if frescura}<Frescura {frescura} />{/if}
-      </div>
-      <RejillaCanales {canales} vista={$filtros.vista} {cargando} {alPedirMas} alAbrir={abrirCanal} />
-    {/if}
-  {/if}
-</main>
+    <aside class="facetas" id="panel-facetas" data-abierto={lateralAbierto}>
+      <!-- Contenido real de las facetas: Tarea 6 (BarraLateralFacetas). Por
+           ahora solo un encabezado accesible que nombra la región; los
+           desplegables actuales (país/categoría/calidad) se quedan de
+           momento en <main>, sin migrar su lógica todavía. -->
+      <h2 class="sr-only">{t('shell.facetas')}</h2>
+    </aside>
+
+    <main inert={!!canalAbierto}>
+      {#if vistaStats}
+        <PanelStats alVolver={volverDelPanel} />
+      {:else if fase.tipo === 'sincronizando'}
+        <Sincronizando alListo={alSincronizado} />
+      {:else if fase.tipo === 'error'}
+        <MensajeError clase={fase.clase} />
+      {:else if fase.tipo === 'listo'}
+        <BarraFiltros {paises} {categorias} {alAleatorio} />
+
+        {#if errorCatalogo}
+          <MensajeError clase={errorCatalogo} />
+        {:else}
+          <div class="resumen">
+            <p class="total">{t('catalogo.total', { n: total })}</p>
+            {#if frescura}<Frescura {frescura} />{/if}
+          </div>
+          <RejillaCanales {canales} vista={$filtros.vista} {cargando} {alPedirMas} alAbrir={abrirCanal} />
+        {/if}
+      {/if}
+    </main>
+  </div>
+</div>
 
 {#if canalAbierto}
   <Reproductor
@@ -309,19 +355,75 @@
 </footer>
 
 <style>
-  main {
-    max-width: 72rem;
-    margin: 0 auto;
-    padding: var(--space-6, 2rem);
+  /* Shell de dos columnas (Tarea 4 de P0.6). El fondo --surface-abyss es más
+     profundo que --surface-base (body): así se nota dónde empieza la "sala
+     de control" frente al resto de la página (footer incluido). */
+  .sala {
+    background: var(--surface-abyss);
+    /* overflow-x nunca desborda (constraint global): el cajón fijo de
+       abajo de 900px se posiciona respecto a este contenedor, y ningún hijo
+       (rejilla, tarjetas) puede forzar scroll horizontal de la página. */
+    overflow-x: hidden;
   }
-  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 12px; }
-  .lema { color: var(--text-muted); flex: 1; }
+
+  .cabecera {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3, 12px);
+    padding: var(--space-4, 1rem) var(--space-6, 2rem);
+    border-bottom: 1px solid var(--border-default);
+  }
+  .marca { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .wordmark {
+    margin: 0;
+    font: var(--type-h4);
+    letter-spacing: var(--tracking-snug);
+    color: var(--text-strong);
+  }
+  .wordmark .acento { color: var(--text-accent); }
+  .subtitulo {
+    margin: 0;
+    color: var(--text-muted);
+    font: var(--type-mono-label);
+    letter-spacing: var(--tracking-mono);
+  }
+  .cabecera-derecha { display: flex; align-items: center; gap: var(--space-3, 12px); }
   .idioma {
     background: none; border: 1px solid var(--border-default); color: var(--text-body);
     border-radius: 6px; padding: 4px 10px; cursor: pointer;
   }
+
+  /* Cuerpo: dos columnas — aside de facetas (248px) + main (resto). minmax(0,
+     1fr), no 1fr a secas: sin el mínimo explícito, un hijo ancho (rejilla,
+     tabla) puede forzar la columna a crecer más allá del hueco disponible y
+     desbordar horizontalmente toda la página. */
+  .cuerpo {
+    display: grid;
+    grid-template-columns: 248px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .boton-cajon {
+    /* Solo tiene sentido bajo el breakpoint responsive: en escritorio el
+       aside ya es la columna fija, visible siempre. */
+    display: none;
+  }
+
+  .facetas {
+    padding: var(--space-4, 1rem);
+    border-right: 1px solid var(--border-default);
+    min-height: 100%;
+  }
+
+  main {
+    padding: var(--space-6, 2rem);
+    min-width: 0;
+  }
   .resumen { display: flex; align-items: baseline; gap: 12px; margin: 4px 0 12px; }
   .total { color: var(--text-muted); font-size: 13px; margin: 0; }
+
   .pie {
     max-width: 72rem;
     margin: 0 auto;
@@ -339,4 +441,48 @@
   .pie a.stats { color: var(--text-muted); text-decoration: underline; }
   .pie a.stats:hover { color: var(--text-body); }
   .pie p { margin: 0; }
+
+  /* Responsive: bajo ~900px el aside se convierte en un cajón (fixed +
+     translate) gobernado por data-abierto, y main pasa a ocupar todo el
+     ancho. El botón de cajón solo aparece en este breakpoint: en escritorio
+     el aside ya está siempre visible como columna, así que el botón sería
+     redundante. */
+  @media (max-width: 900px) {
+    .cuerpo {
+      grid-template-columns: 1fr;
+    }
+    .boton-cajon {
+      display: inline-flex;
+      align-self: flex-start;
+      margin: var(--space-3, 12px) var(--space-3, 12px) 0;
+      background: none;
+      border: 1px solid var(--border-default);
+      color: var(--text-body);
+      border-radius: 6px;
+      padding: 4px 10px;
+      cursor: pointer;
+    }
+    .facetas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 248px;
+      max-width: 80vw;
+      background: var(--surface-abyss);
+      box-shadow: var(--shadow-panel);
+      transform: translateX(-100%);
+      transition: transform var(--dur-base, 200ms) var(--ease-out, ease-out);
+      z-index: 20;
+      overflow-y: auto;
+    }
+    .facetas[data-abierto='true'] {
+      transform: translateX(0);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .facetas {
+        transition: none;
+      }
+    }
+  }
 </style>
