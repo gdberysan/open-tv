@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { Faceta } from '../datos/catalogo'
   import { filtros } from '../estado/filtros'
   import { debounce } from '../lib/debounce'
@@ -16,16 +17,39 @@
 
   let busqueda = $state($filtros.q ?? '')
 
+  // Último valor de `q` que ESTE componente empujó al store (al disparar el
+  // debounce). Distingue el eco de nuestro propio empuje de un cambio que
+  // llegó de fuera (chip "q", "Quitar «busqueda»", "Limpiar filtros"): ver el
+  // $effect de más abajo.
+  let ultimoEmpujado = $state($filtros.q ?? '')
+
   // Mismo debounce que usaba BarraFiltros: sin él, cada tecla dispararía una
   // consulta al catálogo.
   const buscarConRetardo = debounce((valor: string) => {
     $filtros.q = valor
+    ultimoEmpujado = valor
   }, 300)
 
   function alEscribir(evento: Event) {
     busqueda = (evento.target as HTMLInputElement).value
     buscarConRetardo(busqueda)
   }
+
+  // Re-sincroniza `busqueda` cuando `filtros.q` cambia DESDE FUERA. Un
+  // `$effect(() => busqueda = $filtros.q)` a secas borraría lo que el usuario
+  // está tecleando dentro de la ventana de debounce (300ms): cada tecla no
+  // toca el store todavía, así que un efecto ingenuo pisaría el input con el
+  // `q` viejo del store en cada re-render. Comparando contra `ultimoEmpujado`
+  // solo reaccionamos cuando el cambio NO fue el eco de nuestro propio
+  // empuje. `untrack` evita que la escritura a `ultimoEmpujado` haga que este
+  // mismo efecto se re-dispare por leerse a sí mismo.
+  $effect(() => {
+    const qActual = $filtros.q ?? ''
+    if (qActual !== untrack(() => ultimoEmpujado)) {
+      busqueda = qActual
+      ultimoEmpujado = qActual
+    }
+  })
 
   // Alternar: pulsar la faceta ya seleccionada la limpia (vuelve a '').
   function alternarPais(valor: string) {

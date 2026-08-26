@@ -134,6 +134,55 @@ describe('BarraLateralFacetas — búsqueda con debounce', () => {
   })
 })
 
+describe('BarraLateralFacetas — resincronización con filtros.q externo', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('un cambio externo de filtros.q (chip/Limpiar filtros) vacía la caja de búsqueda', async () => {
+    vi.useFakeTimers()
+    render(BarraLateralFacetas, { paises, categorias, calidades })
+
+    const campo = screen.getByLabelText(t('catalogo.buscar')) as HTMLInputElement
+
+    await fireEvent.input(campo, { target: { value: 'sport' } })
+    vi.advanceTimersByTime(300)
+    expect(get(filtros).q).toBe('sport')
+    expect(campo.value).toBe('sport')
+
+    // Simula el chip "q" / "Quitar «sport»" / "Limpiar filtros": ninguno de
+    // ellos toca este componente, solo el store.
+    filtros.update((f) => ({ ...f, q: '' }))
+    await Promise.resolve()
+
+    expect(campo.value).toBe('')
+  })
+
+  it('el eco de nuestro propio empuje (mismo valor) no borra texto local sin empujar aún', async () => {
+    vi.useFakeTimers()
+    render(BarraLateralFacetas, { paises, categorias, calidades })
+
+    const campo = screen.getByLabelText(t('catalogo.buscar')) as HTMLInputElement
+
+    await fireEvent.input(campo, { target: { value: 'bbc' } })
+    vi.advanceTimersByTime(300)
+    expect(get(filtros).q).toBe('bbc')
+
+    // El usuario sigue tecleando ANTES de que el próximo debounce dispare:
+    // el store todavía no sabe nada de esto.
+    await fireEvent.input(campo, { target: { value: 'bbc2' } })
+    expect(campo.value).toBe('bbc2')
+
+    // Un re-set del store al MISMO valor que ya empujamos (p. ej. otro
+    // suscriptor forzando el mismo `q`) es indistinguible de nuestro propio
+    // eco: no debe pisar lo que el usuario está tecleando.
+    filtros.update((f) => ({ ...f, q: 'bbc' }))
+    await Promise.resolve()
+
+    expect(campo.value).toBe('bbc2')
+  })
+})
+
 describe('BarraLateralFacetas — país largo', () => {
   it('colapsa la lista de país y «Ver los N países» la expande', async () => {
     const paisesLargos: Faceta[] = Array.from({ length: 15 }, (_, i) => ({ valor: `P${i}`, total: i + 1 }))

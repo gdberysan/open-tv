@@ -21,7 +21,6 @@ export const es = {
   'filtro.calidad.hd': 'HD (720p o más)',
   'filtro.calidad.fhd': 'Full HD (1080p o más)',
   'filtro.calidad.4k': '4K',
-  'filtro.todos': 'Todos',
   'filtro.limpiar': 'Limpiar filtros',
   // El nombre de la clave y la etiqueta siguen la semántica de mostrarOffline
   // (http.ts: true → ?alive=all). El gateway YA oculta los muertos por

@@ -19,7 +19,6 @@ export const en: Record<ClaveMensaje, string> = {
   'filtro.calidad.hd': 'HD (720p or higher)',
   'filtro.calidad.fhd': 'Full HD (1080p or higher)',
   'filtro.calidad.4k': '4K',
-  'filtro.todos': 'All',
   'filtro.limpiar': 'Clear filters',
   'filtro.mostrarOffline': 'Show the ones not responding',
   'filtro.verPaises': 'See all {n} countries',
