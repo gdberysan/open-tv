@@ -78,11 +78,18 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      # ffmpeg genera el fixture HLS del e2e. Ya viene en la imagen de
-      # ubuntu-latest, pero fijarlo evita que un cambio de imagen rompa el
-      # e2e con un error que no dice nada.
+      # ffmpeg genera el fixture HLS del e2e. La imagen ubuntu-latest dejó de
+      # traerlo preinstalado (runner-images#9526), así que se instala
+      # explícito en vez de asumirlo: sin este paso, global-setup.ts falla
+      # con "spawnSync ffmpeg ENOENT" y el paso "ffmpeg -version | head -1"
+      # de antes lo escondía, porque sin `pipefail` el exit code del `head`
+      # (0) tapaba el de `ffmpeg` (127, "command not found") y el step
+      # aparecía en verde aunque el binario no existiera.
       - name: ffmpeg
-        run: ffmpeg -version | head -1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -1
 
       - name: npm ci
         working-directory: web

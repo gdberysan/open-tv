@@ -92,6 +92,20 @@ func TestTablaDeRutas(t *testing.T) {
 	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{},
 		streamsVacio{}, sqlDB, syncVacio{}, api.Options{})
 
+	// El fallback SPA solo existe cuando internal/ui/dist tiene un cliente
+	// construido (ui.Handler() ok=true): eso pasa en el job "Cliente web" de
+	// CI (que construye web/ antes de este test) y en un checkout local
+	// donde alguien ya corrió el build a mano, pero NO en un checkout limpio
+	// ni en el job "Gateway (Go)" de CI, que nunca construye el cliente. Sin
+	// esta comprobación el caso de /epg/now es no determinista: pasa o falla
+	// según el estado del working tree, no según el código. Mismo patrón que
+	// TestProxyApagadoNoRompeFallbackSPA en internal/ui/ui_test.go.
+	_, hayClienteWeb := ui.Handler()
+	epgNowQuiero := http.StatusNotFound
+	if hayClienteWeb {
+		epgNowQuiero = http.StatusOK
+	}
+
 	casos := []struct {
 		ruta   string
 		quiero int
@@ -106,9 +120,10 @@ func TestTablaDeRutas(t *testing.T) {
 		{"/channels/loquesea/health", http.StatusNotFound},
 		// La guía se retiró. Ya no es 404 de API: el cliente web (Tarea 9) se
 		// monta como NotFound del router, así que cualquier ruta que ninguna
-		// API reclame cae al fallback SPA (200 con el index). El 404 de
-		// verdad para un fichero inexistente lo prueba internal/ui.
-		{"/epg/now", http.StatusOK},
+		// API reclame cae al fallback SPA (200 con el index) SI hay cliente
+		// construido; si no, chi no tiene NotFound propio y responde 404. El
+		// 404 de verdad para un fichero inexistente lo prueba internal/ui.
+		{"/epg/now", epgNowQuiero},
 	}
 	for _, c := range casos {
 		rr := httptest.NewRecorder()
