@@ -75,9 +75,19 @@
   // en vez de pintar la guía del canal anterior sobre el nuevo.
   let epgPeticionId = 0
 
-  async function cargarEpg(idCanal: string) {
+  // Cada cuánto se re-consulta la guía del canal abierto para que "Ahora" no
+  // envejezca en una sesión larga (ver un canal >1h): el programa en curso
+  // cambia en los bordes (típico 30-60 min), así que refrescar cada par de
+  // minutos basta. La tarjeta ya hace lo propio vía el store; el overlay del
+  // reproductor lo replica para su superficie.
+  const REFRESCO_EPG_MS = 2 * 60_000
+
+  // esRefresco=true (el tick del intervalo) NO limpia epgLinea al empezar:
+  // mantiene el texto vigente hasta que llega el nuevo, sin parpadeo. Solo el
+  // cambio de canal (esRefresco=false) vuelve al estado neutro mientras carga.
+  async function cargarEpg(idCanal: string, esRefresco = false) {
     const miId = ++epgPeticionId
-    epgLinea = null
+    if (!esRefresco) epgLinea = null
     try {
       const r = await fuente.epgDeCanal(idCanal)
       if (destruido || miId !== epgPeticionId) return
@@ -107,7 +117,13 @@
   // el CTA de "probar el siguiente mirror" y el failover automático reusan
   // el MISMO canal.id, así que no disparan una nueva petición de guía.
   $effect(() => {
-    void cargarEpg(canal.id)
+    const id = canal.id
+    void cargarEpg(id)
+    // Mientras el overlay siga en ESTE canal, refresca la guía por intervalo
+    // (mantiene "Ahora" fresco). El cleanup del $effect corre al cambiar de
+    // canal o al desmontar → sin fuga de intervalo ni guía obsoleta.
+    const intervalo = setInterval(() => void cargarEpg(id, true), REFRESCO_EPG_MS)
+    return () => clearInterval(intervalo)
   })
 
   // Auto-ocultar del overlay: visible por defecto (también durante

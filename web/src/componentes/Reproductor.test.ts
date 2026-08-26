@@ -682,4 +682,27 @@ describe('Reproductor — EPG ahora/después en el overlay', () => {
     await vi.waitFor(() => expect(container.textContent).toContain('Programa Dos'))
     expect(container.textContent).not.toContain('Programa Uno')
   })
+
+  it('mientras el overlay sigue en el mismo canal, refresca la guía por intervalo (Ahora no envejece en una sesión larga)', async () => {
+    vi.useFakeTimers()
+    try {
+      const fuente = fuenteConEpg(async () => ({
+        ahora: { titulo: 'En directo', inicioSeg: 1_700_000_000, finSeg: 1_700_003_000 },
+        proximos: [],
+      }))
+      render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+
+      // Deja resolver la petición inicial (al abrir el canal).
+      await vi.advanceTimersByTimeAsync(0)
+      const inicial = fuente.epgDeCanal.mock.calls.length
+      expect(inicial).toBeGreaterThanOrEqual(1)
+
+      // Avanza un intervalo de refresco (2 min): se vuelve a pedir la guía del
+      // MISMO canal, sin que el usuario haga nada.
+      await vi.advanceTimersByTimeAsync(2 * 60_000)
+      expect(fuente.epgDeCanal.mock.calls.length).toBeGreaterThan(inicial)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
