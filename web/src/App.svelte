@@ -13,9 +13,9 @@
   import Reproductor from './componentes/Reproductor.svelte'
   import Sincronizando from './componentes/Sincronizando.svelte'
   import MensajeError from './componentes/MensajeError.svelte'
-  import Frescura from './componentes/Frescura.svelte'
   import PanelStats from './componentes/PanelStats.svelte'
   import IndicadorSenal from './componentes/IndicadorSenal.svelte'
+  import BarraAcciones from './componentes/BarraAcciones.svelte'
 
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
@@ -353,42 +353,15 @@
         {:else if fase.tipo === 'error'}
           <MensajeError clase={fase.clase} />
         {:else if fase.tipo === 'listo'}
-          <!-- Tarea 6 (P0.6): buscador/facetas/señal ya viven en el aside
-               (BarraLateralFacetas). "Solo favoritos", "Canal al azar" y el
-               conmutador de vista aún no tienen hogar propio — la Tarea 7
-               (BarraAcciones) se los lleva; hasta entonces se quedan aquí,
-               funcionando. -->
-          <div class="acciones-temporales">
-            <button
-              type="button"
-              class:activo={$filtros.soloFavoritos}
-              aria-pressed={$filtros.soloFavoritos}
-              onclick={() => ($filtros.soloFavoritos = !$filtros.soloFavoritos)}
-            >{t('accion.favoritos')}</button>
-            <button type="button" onclick={alAleatorio}>{t('accion.aleatorio')}</button>
-            <div class="vista">
-              <button
-                type="button"
-                class:activo={$filtros.vista === 'rejilla'}
-                aria-pressed={$filtros.vista === 'rejilla'}
-                onclick={() => ($filtros.vista = 'rejilla')}
-              >{t('accion.rejilla')}</button>
-              <button
-                type="button"
-                class:activo={$filtros.vista === 'lista'}
-                aria-pressed={$filtros.vista === 'lista'}
-                onclick={() => ($filtros.vista = 'lista')}
-              >{t('accion.lista')}</button>
-            </div>
-          </div>
+          <!-- Tarea 7 (P0.6): buscador/facetas/señal viven en el aside
+               (BarraLateralFacetas, Tarea 6); "Solo favoritos", "Canal al
+               azar", el conmutador de vista, los chips de filtro removibles
+               y el conteo viven aquí, en BarraAcciones. -->
+          <BarraAcciones {total} {frescura} {alAleatorio} />
 
           {#if errorCatalogo}
             <MensajeError clase={errorCatalogo} />
           {:else}
-            <div class="resumen">
-              <p class="total">{t('catalogo.total', { n: total })}</p>
-              {#if frescura}<Frescura {frescura} />{/if}
-            </div>
             <RejillaCanales {canales} vista={$filtros.vista} {cargando} {alPedirMas} alAbrir={abrirCanal} />
           {/if}
         {/if}
@@ -483,26 +456,6 @@
     padding: var(--space-6, 2rem);
     min-width: 0;
   }
-  .resumen { display: flex; align-items: baseline; gap: 12px; margin: 4px 0 12px; }
-  .total { color: var(--text-muted); font-size: 13px; margin: 0; }
-
-  /* Tarea 6 (P0.6): hogar temporal de "Canal al azar" y el conmutador de
-     vista, hasta que la Tarea 7 (BarraAcciones) se los lleve. */
-  .acciones-temporales {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 8px 0;
-  }
-  .acciones-temporales button {
-    background: var(--surface-raised); color: var(--text-body); border: 1px solid var(--border-default);
-    border-radius: 6px; padding: 6px 10px; cursor: pointer;
-  }
-  /* Ámbar = filtro/vista activo. */
-  .acciones-temporales button.activo { border-color: var(--amber-500); color: var(--amber-500); }
-  .acciones-temporales .vista { display: flex; gap: 4px; }
 
   .pie {
     max-width: 72rem;

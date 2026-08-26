@@ -28,6 +28,9 @@ export const en: Record<ClaveMensaje, string> = {
   'accion.rejilla': 'Grid view',
   'accion.lista': 'List view',
 
+  'chip.quitarFiltro': 'Remove {valor} filter',
+  'chip.quitarBusqueda': 'Remove search “{valor}”',
+
   'rejilla.etiquetaLista': 'Channel list',
 
   'canal.favorito.anadir': 'Add to favourites',

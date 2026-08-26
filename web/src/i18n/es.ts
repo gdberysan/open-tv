@@ -39,6 +39,12 @@ export const es = {
   'accion.rejilla': 'Ver en rejilla',
   'accion.lista': 'Ver en lista',
 
+  // Tarea 7 (P0.6): chips removibles de la barra de acciones — uno por
+  // dimensión de filtro activa (país/categoría/calidad/favoritos comparten la
+  // misma redacción; la búsqueda de texto lleva la suya, entre comillas).
+  'chip.quitarFiltro': 'Quitar filtro {valor}',
+  'chip.quitarBusqueda': 'Quitar búsqueda «{valor}»',
+
   // Tarea 18 (auditoría de accesibilidad): nombre del rol de lista de la
   // rejilla/lista de canales, para quien navega con lector de pantalla.
   'rejilla.etiquetaLista': 'Lista de canales',
