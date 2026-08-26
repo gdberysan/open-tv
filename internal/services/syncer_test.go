@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,9 +25,10 @@ import (
 // mano (Add no lo necesita para lo que estos tests ejercitan): lo que importa
 // es que Syncer solo hable con el repo a través de la interfaz.
 type fakeSourceRepo struct {
-	mu      sync.Mutex
-	fuentes []ports.Source
-	touched map[string][]int64
+	mu           sync.Mutex
+	fuentes      []ports.Source
+	touched      map[string][]int64
+	epgRefreshed map[string]int64
 }
 
 func (f *fakeSourceRepo) List(context.Context) ([]ports.Source, error) {
@@ -80,6 +83,26 @@ func (f *fakeSourceRepo) touchCount(id string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.touched[id])
+}
+
+// EpgRefreshedAt/SetEpgRefreshedAt implementan cadenciaEPG (ver syncer.go):
+// fakeSourceRepo se comporta igual que db.SQLiteSourceRepository de cara al
+// type-assert que hace Syncer, así que los tests de cadencia pueden sembrar
+// (o comprobar) la marca sin tocar SQLite.
+func (f *fakeSourceRepo) EpgRefreshedAt(_ context.Context, id string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.epgRefreshed[id], nil
+}
+
+func (f *fakeSourceRepo) SetEpgRefreshedAt(_ context.Context, id string, cuando int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.epgRefreshed == nil {
+		f.epgRefreshed = make(map[string]int64)
+	}
+	f.epgRefreshed[id] = cuando
+	return nil
 }
 
 type fakeChannelRepo struct {
@@ -200,6 +223,127 @@ func (f *fakeStreamRepo) batchCount() int {
 	return len(f.batches)
 }
 
+// fakeEPGRepo implementa ports.EPGRepository en memoria, más los dos métodos
+// de cadenciaEPG (ver syncer.go) que db.SQLiteEPGRepository NO tiene — esos
+// viven en fakeSourceRepo, igual que en producción (providers.epg_refreshed_at).
+// Solo ReemplazarVentana y Podar importan a estos tests; AhoraDespuesPorCanales
+// y ProximosDeCanal no los ejercita el Syncer.
+type fakeEPGRepo struct {
+	mu       sync.Mutex
+	ventanas map[string][]domain.Programa
+	podas    []int64
+}
+
+func (f *fakeEPGRepo) ReemplazarVentana(_ context.Context, providerID string, programas []domain.Programa) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ventanas == nil {
+		f.ventanas = make(map[string][]domain.Programa)
+	}
+	f.ventanas[providerID] = append([]domain.Programa(nil), programas...)
+	return nil
+}
+
+func (f *fakeEPGRepo) Podar(_ context.Context, antesDe int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.podas = append(f.podas, antesDe)
+	return nil
+}
+
+func (f *fakeEPGRepo) AhoraDespuesPorCanales(context.Context, []string, int64) (map[string]domain.AhoraDespues, error) {
+	return nil, nil
+}
+
+func (f *fakeEPGRepo) ProximosDeCanal(context.Context, string, int64, int) ([]domain.Programa, error) {
+	return nil, nil
+}
+
+func (f *fakeEPGRepo) ventana(providerID string) []domain.Programa {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]domain.Programa(nil), f.ventanas[providerID]...)
+}
+
+// fakeFetcher implementa el `descargador` mínimo que Syncer necesita (ver
+// syncer.go): un espía que cuenta llamadas y devuelve un XML fijo, o un
+// error fijo si err != nil — nunca los dos a la vez.
+type fakeFetcher struct {
+	mu       sync.Mutex
+	llamadas int
+	xml      string
+	err      error
+}
+
+func (f *fakeFetcher) Descargar(context.Context, string) (io.ReadCloser, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.llamadas++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return io.NopCloser(strings.NewReader(f.xml)), nil
+}
+
+func (f *fakeFetcher) llamadaCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.llamadas
+}
+
+// recordingHandler es un slog.Handler mínimo que guarda cada Record: lo
+// justo para que un test compruebe que un fallo de EPG SE REGISTRÓ (nunca
+// que se propague al resultado del sync, ver refrescarEPG en syncer.go) sin
+// depender del formato de salida de ningún handler real.
+type recordingHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (h *recordingHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *recordingHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, r)
+	return nil
+}
+func (h *recordingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *recordingHandler) WithGroup(string) slog.Handler      { return h }
+
+func (h *recordingHandler) hasLevel(level slog.Level) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, r := range h.records {
+		if r.Level == level {
+			return true
+		}
+	}
+	return false
+}
+
+// progFixture describe un <programme> de prueba para xmltvDoc.
+type progFixture struct {
+	titulo      string
+	inicio, fin time.Time
+}
+
+// xmltvDoc arma un documento XMLTV real y mínimo (no un fake de
+// epg.ParsearXMLTV: T4 ya se probó a fondo por su cuenta, aquí solo se
+// ejercita la integración a través del `descargador` fake) con un
+// <programme> por cada entrada.
+func xmltvDoc(channel string, programas ...progFixture) string {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?><tv>`)
+	for _, p := range programas {
+		fmt.Fprintf(&b, `<programme start="%s" stop="%s" channel="%s"><title>%s</title></programme>`,
+			p.inicio.UTC().Format("20060102150405 -0700"),
+			p.fin.UTC().Format("20060102150405 -0700"),
+			channel, p.titulo)
+	}
+	b.WriteString(`</tv>`)
+	return b.String()
+}
+
 // waitFor sondea cond hasta que sea cierta o venza el deadline.
 func waitFor(t *testing.T, timeout time.Duration, cond func() bool, msg string) {
 	t.Helper()
@@ -223,6 +367,23 @@ func m3uServer(t *testing.T, names ...string) *httptest.Server {
 	t.Helper()
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n")
+	for _, n := range names {
+		fmt.Fprintf(&b, "#EXTINF:-1,%s\nhttp://stream.example/%s.m3u8\n", n, n)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(b.String()))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// m3uServerConTvg es como m3uServer pero declara url-tvg en la cabecera
+// #EXTM3U, tal y como opensource.Provider.TvgURLs la espera (ver
+// extractTvgURLs en internal/adapters/providers/opensource/provider.go).
+func m3uServerConTvg(t *testing.T, tvgURL string, names ...string) *httptest.Server {
+	t.Helper()
+	var b strings.Builder
+	fmt.Fprintf(&b, "#EXTM3U url-tvg=\"%s\"\n", tvgURL)
 	for _, n := range names {
 		fmt.Fprintf(&b, "#EXTINF:-1,%s\nhttp://stream.example/%s.m3u8\n", n, n)
 	}
@@ -269,7 +430,7 @@ func TestSyncOnce_DosFuentesActivas_SincronizaAmbasYFusiona(t *testing.T) {
 	chRepo := &fakeChannelRepo{}
 	stRepo := &fakeStreamRepo{}
 
-	s := NewSyncer(nil, sources, chRepo, stRepo, "", Config{})
+	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{})
 	if err := s.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce: %v", err)
 	}
@@ -312,7 +473,7 @@ func TestSyncOnce_CeroFuentes_NoOpSinError(t *testing.T) {
 	chRepo := &fakeChannelRepo{}
 	stRepo := &fakeStreamRepo{}
 
-	s := NewSyncer(nil, sources, chRepo, stRepo, "", Config{})
+	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{})
 	if err := s.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce con 0 fuentes debería ser un no-op, no un error: %v", err)
 	}
@@ -334,7 +495,7 @@ func TestSyncOnce_FuenteInactiva_SeOmite(t *testing.T) {
 		{ID: "src-a", URL: srv.URL, Kind: "url", IsActive: false},
 	}}
 	chRepo := &fakeChannelRepo{}
-	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, "", Config{})
+	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, nil, nil, "", Config{})
 
 	if err := s.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce: %v", err)
@@ -366,7 +527,7 @@ func TestSyncOnce_UnaFuenteFallaOtraSincroniza_CicloEsExito(t *testing.T) {
 	chRepo := &fakeChannelRepo{}
 	stRepo := &fakeStreamRepo{}
 
-	s := NewSyncer(nil, sources, chRepo, stRepo, "", Config{})
+	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{})
 	if err := s.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce con éxito parcial debería devolver nil, no: %v", err)
 	}
@@ -400,7 +561,7 @@ func TestSyncer_UnaFuenteFallaOtraSincroniza_EstampaLastSuccessYCierraFirstSyncD
 		fuente("src-buena", srvBuena.URL),
 	}}
 
-	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, "", Config{
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, nil, nil, "", Config{
 		Interval:  time.Hour, // que no re-sincronice durante el test
 		RetryBase: time.Millisecond,
 		RetryMax:  time.Millisecond,
@@ -454,7 +615,7 @@ func TestSyncOnce_UnaFuenteCuelga_TimeoutPorFuenteDejaSincronizarALasDemas(t *te
 	chRepo := &fakeChannelRepo{}
 	stRepo := &fakeStreamRepo{}
 
-	s := NewSyncer(nil, sources, chRepo, stRepo, "", Config{
+	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{
 		PerSourceTimeout: 30 * time.Millisecond,
 		SyncTimeout:      2 * time.Second, // no debe hacer falta: PerSourceTimeout corta antes
 	})
@@ -494,7 +655,7 @@ func TestSyncer_UnaFuenteCuelga_TimeoutPorFuenteCierraFirstSyncDone(t *testing.T
 		fuente("src-buena", srvBuena.URL),
 	}}
 
-	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, "", Config{
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, nil, nil, "", Config{
 		Interval:         time.Hour,
 		RetryBase:        time.Millisecond,
 		RetryMax:         time.Millisecond,
@@ -527,7 +688,7 @@ func TestSyncOnce_TodasLasFuentesFallan_DevuelveError(t *testing.T) {
 		fuente("src-a", srvMalaA.URL),
 		fuente("src-b", srvMalaB.URL),
 	}}
-	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, "", Config{})
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, nil, nil, "", Config{})
 
 	if err := s.SyncOnce(context.Background()); err == nil {
 		t.Fatal("SyncOnce debería devolver error si TODAS las fuentes fallaron")
@@ -546,7 +707,7 @@ func TestSyncer_TodasLasFuentesFallan_SinLastSuccessNiFirstSyncDone(t *testing.T
 		fuente("src-b", srvMalaB.URL),
 	}}
 
-	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, "", Config{
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, nil, nil, "", Config{
 		Interval:  time.Hour,
 		RetryBase: time.Millisecond,
 		RetryMax:  5 * time.Millisecond,
@@ -581,7 +742,7 @@ func TestSyncOne_SincronizaSoloEsaFuente(t *testing.T) {
 	chRepo := &fakeChannelRepo{}
 	stRepo := &fakeStreamRepo{}
 
-	s := NewSyncer(nil, sources, chRepo, stRepo, "", Config{})
+	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{})
 	if err := s.SyncOne(context.Background(), "src-a"); err != nil {
 		t.Fatalf("SyncOne: %v", err)
 	}
@@ -612,7 +773,7 @@ func TestSyncOne_SincronizaAunqueLaFuenteEsteInactiva(t *testing.T) {
 		{ID: "src-a", URL: srv.URL, Kind: "url", IsActive: false},
 	}}
 	chRepo := &fakeChannelRepo{}
-	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, "", Config{})
+	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, nil, nil, "", Config{})
 
 	if err := s.SyncOne(context.Background(), "src-a"); err != nil {
 		t.Fatalf("SyncOne: %v", err)
@@ -627,7 +788,7 @@ func TestSyncOne_SincronizaAunqueLaFuenteEsteInactiva(t *testing.T) {
 func TestSyncOne_IDDesconocido_DevuelveErrorReconocible(t *testing.T) {
 	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("src-a", "http://a.example/x.m3u")}}
 	chRepo := &fakeChannelRepo{}
-	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, "", Config{})
+	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, nil, nil, "", Config{})
 
 	err := s.SyncOne(context.Background(), "no-existe")
 	if !errors.Is(err, ErrFuenteNoEncontrada) {
@@ -655,7 +816,7 @@ func TestSyncOnce_PersisteCanalesYStreamsConProtocoloInferido(t *testing.T) {
 	chRepo := &fakeChannelRepo{}
 	stRepo := &fakeStreamRepo{}
 
-	s := NewSyncer(nil, sources, chRepo, stRepo, "", Config{})
+	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{})
 	if err := s.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce: %v", err)
 	}
@@ -694,7 +855,7 @@ func TestSyncOnce_StreamIDsDeterministas(t *testing.T) {
 	chRepo := &fakeChannelRepo{}
 	stRepo := &fakeStreamRepo{}
 
-	s := NewSyncer(nil, sources, chRepo, stRepo, "", Config{})
+	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{})
 	if err := s.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce 1: %v", err)
 	}
@@ -739,7 +900,7 @@ func TestSyncer_Run_ReintentaConBackoffTrasFallo(t *testing.T) {
 
 	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("fake", srv.URL)}}
 	chRepo := &fakeChannelRepo{}
-	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, "", Config{
+	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, nil, nil, "", Config{
 		Interval:  time.Hour, // que no re-sincronice durante el test
 		RetryBase: time.Millisecond,
 		RetryMax:  5 * time.Millisecond,
@@ -765,7 +926,7 @@ func TestSyncer_Run_ResincronizaPeriodicamente(t *testing.T) {
 	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("fake", srv.URL)}}
 	chRepo := &fakeChannelRepo{}
 
-	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, "", Config{
+	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, nil, nil, "", Config{
 		Interval:  5 * time.Millisecond,
 		RetryBase: time.Millisecond,
 		RetryMax:  time.Millisecond,
@@ -798,7 +959,7 @@ func TestSyncer_FirstSyncDone_SeCierraTrasElPrimerCicloExitoso(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("fake", srv.URL)}}
-	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, "", Config{
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, nil, nil, "", Config{
 		Interval:  time.Hour,
 		RetryBase: time.Millisecond,
 		RetryMax:  time.Millisecond,
@@ -825,7 +986,7 @@ func TestSyncer_FirstSyncDone_SeCierraTrasElPrimerCicloExitoso(t *testing.T) {
 // fuentes: si no, el health-worker de una instalación limpia se cuelga para
 // siempre esperando un catálogo que nunca llega.
 func TestSyncer_FirstSyncDone_ConCeroFuentes(t *testing.T) {
-	s := NewSyncer(nil, &fakeSourceRepo{}, &fakeChannelRepo{}, &fakeStreamRepo{}, "", Config{
+	s := NewSyncer(nil, &fakeSourceRepo{}, &fakeChannelRepo{}, &fakeStreamRepo{}, nil, nil, "", Config{
 		Interval: time.Hour,
 	})
 
@@ -844,7 +1005,7 @@ func TestSyncer_Run_TerminaAlCancelarContexto(t *testing.T) {
 	srv := m3uServer(t, "Uno")
 	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("fake", srv.URL)}}
 
-	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, "", Config{
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, nil, nil, "", Config{
 		Interval: time.Hour,
 	})
 
@@ -871,7 +1032,7 @@ func TestSincronizarFuente_PodaCanalesObsoletos(t *testing.T) {
 	srv := m3uServer(t, "a", "b")
 	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("fake", srv.URL)}}
 	chRepo := &fakeChannelRepo{}
-	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, "", Config{})
+	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, nil, nil, "", Config{})
 
 	antes := time.Now()
 	if err := s.SyncOnce(context.Background()); err != nil {
@@ -897,7 +1058,7 @@ func TestSincronizarFuente_NoPodaSiLaFuenteFalla(t *testing.T) {
 	srv := failingServer(t)
 	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("fake", srv.URL)}}
 	chRepo := &fakeChannelRepo{}
-	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, "", Config{})
+	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, nil, nil, "", Config{})
 
 	if err := s.SyncOnce(context.Background()); err == nil {
 		t.Fatal("SyncOnce debería fallar si la fuente falla")
@@ -931,7 +1092,7 @@ func TestSincronizarFuente_RechazaUnCatalogoAnomalamentePequeno(t *testing.T) {
 
 	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("fake", srv.URL)}}
 	chRepo := &fakeChannelRepo{}
-	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, "", Config{})
+	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, nil, nil, "", Config{})
 
 	if err := s.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("primer SyncOnce: %v", err)
@@ -959,7 +1120,7 @@ func TestSincronizarFuente_RechazaUnCatalogoAnomalamentePequeno(t *testing.T) {
 func TestSincronizarFuente_PrimerSyncSiempreSeAcepta(t *testing.T) {
 	srv := m3uServer(t, "uno")
 	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("fake", srv.URL)}}
-	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, "", Config{})
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, nil, nil, "", Config{})
 
 	if err := s.SyncOnce(context.Background()); err != nil {
 		t.Errorf("el primer sync no tiene referencia previa; debe aceptarse: %v", err)
@@ -977,7 +1138,7 @@ func TestSyncer_SyncOneConcurrenteConElCicloPeriodico_SinCarreras(t *testing.T) 
 	chRepo := &fakeChannelRepo{}
 	stRepo := &fakeStreamRepo{}
 
-	s := NewSyncer(nil, sources, chRepo, stRepo, "", Config{
+	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{
 		Interval:  2 * time.Millisecond,
 		RetryBase: time.Millisecond,
 		RetryMax:  time.Millisecond,
@@ -1005,5 +1166,165 @@ func TestSyncer_SyncOneConcurrenteConElCicloPeriodico_SinCarreras(t *testing.T) 
 
 	if n := erroresInesperados.Load(); n != 0 {
 		t.Errorf("SyncOne concurrente devolvió %d errores inesperados", n)
+	}
+}
+
+// ── EPG: refresco de guía por fuente dentro del Syncer (Tarea 5, P2) ───────
+
+// Una fuente que declara url-tvg en su cabecera M3U: tras sincronizarFuente,
+// su guía tiene los programas que trajo el XMLTV (dentro de la ventana) y
+// tvg_url queda sellada con esa URL.
+func TestSincronizarFuente_ConTvgURL_RefrescaGuiaYSellaTvgURL(t *testing.T) {
+	const tvgURL = "http://epg.example/guide.xml"
+	srv := m3uServerConTvg(t, tvgURL, "Uno")
+
+	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("fake", srv.URL)}}
+	epgRepo := &fakeEPGRepo{}
+	ahora := time.Now()
+	doc := xmltvDoc("Uno",
+		progFixture{"Programa A", ahora.Add(10 * time.Minute), ahora.Add(40 * time.Minute)},
+		progFixture{"Programa B", ahora.Add(50 * time.Minute), ahora.Add(80 * time.Minute)},
+	)
+	fetcher := &fakeFetcher{xml: doc}
+
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, epgRepo, fetcher, "", Config{})
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+
+	if n := fetcher.llamadaCount(); n != 1 {
+		t.Fatalf("Fetcher.Descargar llamado %d veces, quiero 1", n)
+	}
+	if got := len(epgRepo.ventana("fake")); got != 2 {
+		t.Fatalf("programas guardados = %d, quiero 2", got)
+	}
+
+	fuentes, err := sources.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if fuentes[0].TvgURL != tvgURL {
+		t.Errorf("TvgURL sellada = %q, quiero %q", fuentes[0].TvgURL, tvgURL)
+	}
+}
+
+// Una fuente SIN url-tvg: no se toca la guía (0 filas), Fetcher no se llama
+// y no hay error — es una fuente que simplemente no ofrece EPG.
+func TestSincronizarFuente_SinTvgURL_NoTocaEPG(t *testing.T) {
+	srv := m3uServer(t, "Uno") // sin url-tvg en la cabecera
+
+	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("fake", srv.URL)}}
+	epgRepo := &fakeEPGRepo{}
+	fetcher := &fakeFetcher{xml: xmltvDoc("Uno", progFixture{"X", time.Now(), time.Now().Add(time.Hour)})}
+
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, epgRepo, fetcher, "", Config{})
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+
+	if n := fetcher.llamadaCount(); n != 0 {
+		t.Errorf("Fetcher.Descargar llamado %d veces, quiero 0 (sin url-tvg)", n)
+	}
+	if got := len(epgRepo.ventana("fake")); got != 0 {
+		t.Errorf("programas guardados = %d, quiero 0", got)
+	}
+
+	fuentes, err := sources.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if fuentes[0].TvgURL != "" {
+		t.Errorf("TvgURL = %q, quiero \"\" (la fuente no declaró url-tvg)", fuentes[0].TvgURL)
+	}
+}
+
+// Con la guía ya fresca (epg_refreshed_at reciente), el ciclo NO refetchea:
+// ni Fetcher se llama ni se reescribe la ventana. El sync de canales, en
+// cambio, corre igual (la cadencia es solo del EPG).
+func TestSincronizarFuente_GuiaFresca_NoRefetchea(t *testing.T) {
+	srv := m3uServerConTvg(t, "http://epg.example/guide.xml", "Uno")
+
+	sources := &fakeSourceRepo{
+		fuentes:      []ports.Source{fuente("fake", srv.URL)},
+		epgRefreshed: map[string]int64{"fake": time.Now().Unix()}, // recién refrescada
+	}
+	epgRepo := &fakeEPGRepo{}
+	fetcher := &fakeFetcher{xml: xmltvDoc("Uno", progFixture{"X", time.Now(), time.Now().Add(time.Hour)})}
+	chRepo := &fakeChannelRepo{}
+
+	s := NewSyncer(nil, sources, chRepo, &fakeStreamRepo{}, epgRepo, fetcher, "", Config{})
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+
+	if n := fetcher.llamadaCount(); n != 0 {
+		t.Errorf("Fetcher.Descargar llamado %d veces, quiero 0 (guía fresca, no debía refetchear)", n)
+	}
+	if got := len(epgRepo.ventana("fake")); got != 0 {
+		t.Errorf("programas guardados = %d, quiero 0 (no se refrescó nada)", got)
+	}
+	if n := chRepo.batchCount(); n != 1 {
+		t.Errorf("el sync de canales debe seguir corriendo aunque el EPG esté fresco; batches = %d", n)
+	}
+}
+
+// Si el fetch de la guía falla, el sync de canales de esa fuente SIGUE en
+// éxito (TouchSync incluido) — el fallo de EPG nunca tumba el ciclo — y el
+// error queda registrado vía slog.
+func TestSincronizarFuente_FetchDeGuiaFalla_SyncDeCanalesSigueEnExito(t *testing.T) {
+	srv := m3uServerConTvg(t, "http://epg.example/guide.xml", "Uno")
+
+	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("fake", srv.URL)}}
+	epgRepo := &fakeEPGRepo{}
+	fetcher := &fakeFetcher{err: errors.New("epg caída a propósito")}
+	chRepo := &fakeChannelRepo{}
+	rec := &recordingHandler{}
+
+	s := NewSyncer(slog.New(rec), sources, chRepo, &fakeStreamRepo{}, epgRepo, fetcher, "", Config{})
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce con fallo de EPG debería devolver nil (éxito parcial): %v", err)
+	}
+
+	if n := chRepo.batchCount(); n != 1 {
+		t.Errorf("el sync de canales debe completarse pese al fallo de EPG; batches = %d", n)
+	}
+	if n := sources.touchCount("fake"); n != 1 {
+		t.Errorf("TouchSync debe sellarse igual: el fallo es solo del EPG; llamadas = %d", n)
+	}
+	if got := len(epgRepo.ventana("fake")); got != 0 {
+		t.Errorf("con el fetch fallando no debe haberse guardado ninguna ventana; guardados = %d", got)
+	}
+	if !rec.hasLevel(slog.LevelError) {
+		t.Error("el fallo de EPG debería haberse registrado con logger.Error")
+	}
+}
+
+// Los programas fuera de la ventana now-2h..now+48h (muy viejos, muy
+// futuros) se descartan antes de guardar; solo el que cae dentro persiste.
+func TestSincronizarFuente_FiltraProgramasFueraDeVentana(t *testing.T) {
+	srv := m3uServerConTvg(t, "http://epg.example/guide.xml", "Uno")
+
+	sources := &fakeSourceRepo{fuentes: []ports.Source{fuente("fake", srv.URL)}}
+	epgRepo := &fakeEPGRepo{}
+
+	ahora := time.Now()
+	doc := xmltvDoc("Uno",
+		progFixture{"Viejo", ahora.Add(-72 * time.Hour), ahora.Add(-70 * time.Hour)},      // terminó hace mucho
+		progFixture{"Vigente", ahora.Add(-10 * time.Minute), ahora.Add(20 * time.Minute)}, // dentro de la ventana
+		progFixture{"Futuro", ahora.Add(72 * time.Hour), ahora.Add(74 * time.Hour)},       // más allá de +48h
+	)
+	fetcher := &fakeFetcher{xml: doc}
+
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, epgRepo, fetcher, "", Config{})
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+
+	guardados := epgRepo.ventana("fake")
+	if len(guardados) != 1 {
+		t.Fatalf("programas guardados = %d, quiero 1 (solo el vigente): %+v", len(guardados), guardados)
+	}
+	if guardados[0].Titulo != "Vigente" {
+		t.Errorf("programa guardado = %q, quiero %q", guardados[0].Titulo, "Vigente")
 	}
 }

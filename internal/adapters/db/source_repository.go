@@ -124,3 +124,29 @@ func (r *SQLiteSourceRepository) SetTvgURL(ctx context.Context, id string, tvgUR
 	}
 	return nil
 }
+
+// EpgRefreshedAt devuelve providers.epg_refreshed_at para la fuente id: el
+// Unix epoch del último refresco EPG exitoso, o 0 si nunca (incluye fuentes
+// dadas de alta antes de esta columna, ver alterMigrations). Vive SOLO en
+// este tipo concreto, no en ports.SourceRepository: la cadencia de refresco
+// de guía es una decisión del Syncer (Tarea 5 de P2), no del contrato
+// genérico de fuentes — el Syncer accede a este método por type-assert
+// (ver services.cadenciaEPG).
+func (r *SQLiteSourceRepository) EpgRefreshedAt(ctx context.Context, id string) (int64, error) {
+	var t int64
+	if err := r.db.QueryRowContext(ctx,
+		"SELECT epg_refreshed_at FROM providers WHERE id = ?", id).Scan(&t); err != nil {
+		return 0, fmt.Errorf("db.SourceRepository.EpgRefreshedAt (id=%s): %w", id, err)
+	}
+	return t, nil
+}
+
+// SetEpgRefreshedAt sella providers.epg_refreshed_at tras un refresco de
+// guía EPG exitoso (ver services.Syncer.descargarYGuardarGuia).
+func (r *SQLiteSourceRepository) SetEpgRefreshedAt(ctx context.Context, id string, cuando int64) error {
+	if _, err := r.db.ExecContext(ctx,
+		"UPDATE providers SET epg_refreshed_at = ? WHERE id = ?", cuando, id); err != nil {
+		return fmt.Errorf("db.SourceRepository.SetEpgRefreshedAt (id=%s): %w", id, err)
+	}
+	return nil
+}

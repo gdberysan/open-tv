@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gdberysan/open-tv/internal/adapters/db"
+	"github.com/gdberysan/open-tv/internal/adapters/epg"
 	"github.com/gdberysan/open-tv/internal/adapters/providers/opensource"
 	"github.com/gdberysan/open-tv/internal/adapters/validator"
 	"github.com/gdberysan/open-tv/internal/api"
@@ -150,6 +151,13 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 
 	sourceRepo := db.NewSourceRepository(sqlDB)
 
+	// Repositorio de EPG y descargador de guías XMLTV (Tarea 5 de P2): el
+	// mismo *sql.DB de escritura que channelRepo/streamRepo/sourceRepo
+	// arriba, y un epg.Fetcher con su cliente HTTP propio (mismo nivel de
+	// confianza que el fetch del M3U, ver el doc de Fetcher).
+	epgRepo := db.NewEPGRepository(sqlDB)
+	epgFetcher := epg.NewFetcher(nil)
+
 	// Directorio permitido para fuentes file:// (ficheros M3U subidos por el
 	// usuario, guardado a cargo de la Tarea 4). Se deriva del propio path de
 	// la DB —y no de datadir.Default()— para que respete DB_PATH cuando algo
@@ -178,7 +186,7 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 	// 4. Sync periódico en background: itera las fuentes activas, reintenta
 	// con backoff si el ciclo falla y persiste los streams para que
 	// /channels/stream sobreviva reinicios.
-	syncer := services.NewSyncer(logger, sourceRepo, channelRepo, streamRepo, fuentesDir, services.Config{
+	syncer := services.NewSyncer(logger, sourceRepo, channelRepo, streamRepo, epgRepo, epgFetcher, fuentesDir, services.Config{
 		Interval: durationEnv(logger, "SYNC_INTERVAL", 12*time.Hour),
 	})
 

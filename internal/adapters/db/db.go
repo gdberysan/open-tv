@@ -110,6 +110,9 @@ func alterMigrations(db *sql.DB) error {
 		// url-tvg declarada en la cabecera M3U de la fuente (ver
 		// opensource.Provider.TvgURLs); '' = la fuente no la declaró.
 		"ALTER TABLE providers ADD COLUMN tvg_url TEXT NOT NULL DEFAULT ''",
+		// Cadencia de refresco EPG por fuente (Tarea 5 de P2); 0 = nunca
+		// refrescada. Ver services.Syncer.guiaEstaFresca.
+		"ALTER TABLE providers ADD COLUMN epg_refreshed_at INTEGER NOT NULL DEFAULT 0",
 	}
 	for _, stmt := range alters {
 		if _, err := db.Exec(stmt); err != nil {

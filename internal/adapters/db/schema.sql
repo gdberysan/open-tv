@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS providers (
     kind         TEXT    NOT NULL DEFAULT 'url',
     -- url-tvg declarada en la cabecera M3U de la fuente; '' = sin guía.
     tvg_url      TEXT    NOT NULL DEFAULT '',
+    -- Unix epoch del último refresco EPG exitoso de esta fuente (Syncer,
+    -- Tarea 5 de P2); 0 = nunca. Marca de cadencia para no refetchear el
+    -- XMLTV en cada ciclo cuando la guía sigue fresca — ver
+    -- services.Syncer.guiaEstaFresca.
+    epg_refreshed_at INTEGER NOT NULL DEFAULT 0,
     priority     INTEGER NOT NULL DEFAULT 100,
     is_active    INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
     created_at   INTEGER NOT NULL,
