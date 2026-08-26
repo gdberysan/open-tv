@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nombreDePais } from './paises'
+import { banderaDePais, nombreDePais } from './paises'
 
 describe('nombreDePais', () => {
   it('traduce un código ISO conocido al nombre en el locale pedido', () => {
@@ -27,5 +27,23 @@ describe('nombreDePais', () => {
       for (let i = 0; i < 50; i++) nombreDePais('US', 'es')
     }).not.toThrow()
     expect(nombreDePais('US', 'es')).toBe('Estados Unidos')
+  })
+})
+
+describe('banderaDePais', () => {
+  it('convierte un código ISO de dos letras a su bandera emoji', () => {
+    expect(banderaDePais('US')).toBe('🇺🇸')
+    expect(banderaDePais('MX')).toBe('🇲🇽')
+  })
+
+  it('acepta minúsculas y las normaliza', () => {
+    expect(banderaDePais('es')).toBe('🇪🇸')
+  })
+
+  it('devuelve "" para cualquier cosa que no sean dos letras ASCII', () => {
+    expect(banderaDePais('')).toBe('')
+    expect(banderaDePais('U')).toBe('')
+    expect(banderaDePais('USA')).toBe('')
+    expect(banderaDePais('12')).toBe('')
   })
 })

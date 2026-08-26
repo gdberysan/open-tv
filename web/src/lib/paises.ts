@@ -39,3 +39,22 @@ export function nombreDePais(codigo: string, locale: string): string {
     return codigo
   }
 }
+
+/**
+ * Devuelve la bandera emoji de un código ISO 3166-1 alpha-2 ("US" → 🇺🇸)
+ * combinando los dos símbolos indicadores regionales (U+1F1E6..U+1F1FF). Es
+ * una función pura sin dependencias ni assets.
+ *
+ * Devuelve "" para cualquier cosa que no sea exactamente dos letras ASCII
+ * (códigos vacíos, "XX", números): así la fila nunca muestra un carácter roto
+ * y el nombre/código siguen ahí. Nota: Windows no trae fuente de banderas, así
+ * que ahí el navegador cae a mostrar las dos letras indicadoras — degradación
+ * aceptable, y el código ISO ya aparece aparte en la fila.
+ */
+export function banderaDePais(codigo: string): string {
+  if (!/^[a-zA-Z]{2}$/.test(codigo)) return ''
+  const base = 0x1f1e6
+  const a = 'A'.charCodeAt(0)
+  const cc = codigo.toUpperCase()
+  return String.fromCodePoint(base + (cc.charCodeAt(0) - a), base + (cc.charCodeAt(1) - a))
+}
