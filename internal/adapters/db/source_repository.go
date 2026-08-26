@@ -43,7 +43,7 @@ func sourceID(url string) string {
 // ver Add): no hace falta una columna nueva solo para ese timestamp.
 func (r *SQLiteSourceRepository) List(ctx context.Context) ([]ports.Source, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT p.id, p.label, p.base_url, p.kind, p.is_active, p.updated_at,
+		SELECT p.id, p.label, p.base_url, p.kind, p.is_active, p.updated_at, p.tvg_url,
 		       (SELECT COUNT(*) FROM channels c WHERE c.provider_id = p.id) AS canales
 		FROM providers p
 		ORDER BY p.created_at, p.id
@@ -59,7 +59,7 @@ func (r *SQLiteSourceRepository) List(ctx context.Context) ([]ports.Source, erro
 			s        ports.Source
 			isActive int
 		)
-		if err := rows.Scan(&s.ID, &s.Label, &s.URL, &s.Kind, &isActive, &s.UltimoSync, &s.Canales); err != nil {
+		if err := rows.Scan(&s.ID, &s.Label, &s.URL, &s.Kind, &isActive, &s.UltimoSync, &s.TvgURL, &s.Canales); err != nil {
 			return nil, fmt.Errorf("db.SourceRepository.List (scan): %w", err)
 		}
 		s.IsActive = isActive == 1
@@ -111,6 +111,42 @@ func (r *SQLiteSourceRepository) TouchSync(ctx context.Context, id string, cuand
 	if _, err := r.db.ExecContext(ctx,
 		"UPDATE providers SET updated_at = ? WHERE id = ?", cuando, id); err != nil {
 		return fmt.Errorf("db.SourceRepository.TouchSync (id=%s): %w", id, err)
+	}
+	return nil
+}
+
+// SetTvgURL fija la url-tvg que la fuente declaró en su cabecera M3U (ver
+// opensource.Provider.TvgURLs). List la refleja después en Source.TvgURL.
+func (r *SQLiteSourceRepository) SetTvgURL(ctx context.Context, id string, tvgURL string) error {
+	if _, err := r.db.ExecContext(ctx,
+		"UPDATE providers SET tvg_url = ? WHERE id = ?", tvgURL, id); err != nil {
+		return fmt.Errorf("db.SourceRepository.SetTvgURL (id=%s): %w", id, err)
+	}
+	return nil
+}
+
+// EpgRefreshedAt devuelve providers.epg_refreshed_at para la fuente id: el
+// Unix epoch del último refresco EPG exitoso, o 0 si nunca (incluye fuentes
+// dadas de alta antes de esta columna, ver alterMigrations). Vive SOLO en
+// este tipo concreto, no en ports.SourceRepository: la cadencia de refresco
+// de guía es una decisión del Syncer (Tarea 5 de P2), no del contrato
+// genérico de fuentes — el Syncer accede a este método por type-assert
+// (ver services.cadenciaEPG).
+func (r *SQLiteSourceRepository) EpgRefreshedAt(ctx context.Context, id string) (int64, error) {
+	var t int64
+	if err := r.db.QueryRowContext(ctx,
+		"SELECT epg_refreshed_at FROM providers WHERE id = ?", id).Scan(&t); err != nil {
+		return 0, fmt.Errorf("db.SourceRepository.EpgRefreshedAt (id=%s): %w", id, err)
+	}
+	return t, nil
+}
+
+// SetEpgRefreshedAt sella providers.epg_refreshed_at tras un refresco de
+// guía EPG exitoso (ver services.Syncer.descargarYGuardarGuia).
+func (r *SQLiteSourceRepository) SetEpgRefreshedAt(ctx context.Context, id string, cuando int64) error {
+	if _, err := r.db.ExecContext(ctx,
+		"UPDATE providers SET epg_refreshed_at = ? WHERE id = ?", cuando, id); err != nil {
+		return fmt.Errorf("db.SourceRepository.SetEpgRefreshedAt (id=%s): %w", id, err)
 	}
 	return nil
 }

@@ -1,5 +1,6 @@
 import type {
-  Canal, CatalogSource, ConsultaCatalogo, DestinoStream, Faceta, Frescura, Fuente, Mirror, PaginaCanales,
+  AhoraDespues, Canal, CatalogSource, ConsultaCatalogo, DestinoStream, Faceta, Frescura, Fuente, Mirror,
+  PaginaCanales, Programa,
 } from './catalogo'
 
 /**
@@ -62,6 +63,30 @@ interface MirrorCable {
   is_alive?: boolean
   latency_ms?: number
   web_ok?: boolean | null
+}
+
+/** Forma de cable de un domain.Programa (internal/api/handlers/epg_handler.go):
+ * solo título e inicio/fin en epoch UTC segundos, sin transformar. */
+interface ProgramaCable {
+  titulo: string
+  inicio: number
+  fin: number
+}
+
+interface AhoraDespuesCable {
+  ahora: ProgramaCable | null
+  siguiente: ProgramaCable | null
+}
+
+function aPrograma(p: ProgramaCable): Programa {
+  return { titulo: p.titulo, inicioSeg: p.inicio, finSeg: p.fin }
+}
+
+function aAhoraDespues(a: AhoraDespuesCable): AhoraDespues {
+  return {
+    ahora: a.ahora ? aPrograma(a.ahora) : null,
+    siguiente: a.siguiente ? aPrograma(a.siguiente) : null,
+  }
 }
 
 function query(c: ConsultaCatalogo): URLSearchParams {
@@ -206,6 +231,29 @@ export function crearHttpCatalog(base = ''): CatalogSource {
     async fuentesSugeridas(): Promise<{ label: string; url: string }[]> {
       const resp = await pedir(`${base}/sources/sugeridas`)
       return ((await resp.json()) as { label: string; url: string }[] | null) ?? []
+    },
+
+    async epgDeCanales(ids: string[]): Promise<Map<string, AhoraDespues>> {
+      // Centinela del conjunto vacío, igual que canales(): sin ids no hay
+      // nada que pedir, y el propio gateway ya devuelve {} en ese caso — pero
+      // no vale la pena ni el viaje de red.
+      if (ids.length === 0) return new Map()
+
+      const resp = await pedir(`${base}/channels/epg?ids=${ids.map(encodeURIComponent).join(',')}`)
+      const crudo = (await resp.json()) as Record<string, AhoraDespuesCable> | null
+      const mapa = new Map<string, AhoraDespues>()
+      for (const [id, v] of Object.entries(crudo ?? {})) mapa.set(id, aAhoraDespues(v))
+      return mapa
+    },
+
+    async epgDeCanal(id: string, limite?: number): Promise<{ ahora: Programa | null; proximos: Programa[] }> {
+      const qs = limite != null ? `?limit=${limite}` : ''
+      const resp = await pedir(`${base}/channels/${encodeURIComponent(id)}/epg${qs}`)
+      const crudo = (await resp.json()) as { ahora: ProgramaCable | null; proximos: ProgramaCable[] | null }
+      return {
+        ahora: crudo.ahora ? aPrograma(crudo.ahora) : null,
+        proximos: (crudo.proximos ?? []).map(aPrograma),
+      }
     },
   }
 }

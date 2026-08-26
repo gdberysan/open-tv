@@ -271,6 +271,38 @@ func TestSourceRepository_TouchSync(t *testing.T) {
 	}
 }
 
+// (g) SetTvgURL persiste la url-tvg declarada por la cabecera M3U de la
+// fuente; por defecto (sin fijarla) es "".
+func TestSourceRepository_SetTvgURL(t *testing.T) {
+	w := openSourceTestDB(t)
+	repo := db.NewSourceRepository(w)
+	ctx := context.Background()
+
+	if err := repo.Add(ctx, ports.Source{Label: "X", URL: "http://tvg.example/x.m3u", Kind: "url"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	fuentes, err := repo.List(ctx)
+	if err != nil || len(fuentes) != 1 {
+		t.Fatalf("List: %v / %+v", err, fuentes)
+	}
+	id := fuentes[0].ID
+	if fuentes[0].TvgURL != "" {
+		t.Errorf("TvgURL antes de SetTvgURL = %q, quiero \"\"", fuentes[0].TvgURL)
+	}
+
+	if err := repo.SetTvgURL(ctx, id, "https://e/g.xml"); err != nil {
+		t.Fatalf("SetTvgURL: %v", err)
+	}
+
+	fuentes, err = repo.List(ctx)
+	if err != nil || len(fuentes) != 1 {
+		t.Fatalf("List tras SetTvgURL: %v / %+v", err, fuentes)
+	}
+	if fuentes[0].TvgURL != "https://e/g.xml" {
+		t.Errorf("TvgURL = %q, quiero %q", fuentes[0].TvgURL, "https://e/g.xml")
+	}
+}
+
 // Canales en List refleja el recuento real de canales de esa fuente.
 func TestSourceRepository_ListCuentaCanales(t *testing.T) {
 	w := openSourceTestDB(t)

@@ -41,6 +41,10 @@ export const en: Record<ClaveMensaje, string> = {
   'canal.geo': 'May be geo-blocked in your region',
   'canal.soloApp': 'This channel plays in the installed app or in Safari',
 
+  'epg.ahora': 'Now',
+  'epg.siguiente': 'Next',
+  'epg.sinGuia': 'No guide for this source',
+
   'senal.viva': 'Live signal',
   'senal.muerta': 'Not responding',
   'senal.sinDatos': 'Not checked yet',

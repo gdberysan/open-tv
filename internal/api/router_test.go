@@ -82,10 +82,11 @@ func (syncVacio) SyncOne(context.Context, string) error { return nil }
 
 type sourcesVacio struct{}
 
-func (sourcesVacio) List(context.Context) ([]ports.Source, error)   { return nil, nil }
-func (sourcesVacio) Add(context.Context, ports.Source) error        { return nil }
-func (sourcesVacio) Remove(context.Context, string) error           { return nil }
-func (sourcesVacio) TouchSync(context.Context, string, int64) error { return nil }
+func (sourcesVacio) List(context.Context) ([]ports.Source, error)    { return nil, nil }
+func (sourcesVacio) Add(context.Context, ports.Source) error         { return nil }
+func (sourcesVacio) Remove(context.Context, string) error            { return nil }
+func (sourcesVacio) TouchSync(context.Context, string, int64) error  { return nil }
+func (sourcesVacio) SetTvgURL(context.Context, string, string) error { return nil }
 
 // Este test usa el router REAL, no una tabla de rutas duplicada en el test: si
 // el helper de los tests de handlers construye su propia tabla, puede derivar
@@ -98,7 +99,7 @@ func TestTablaDeRutas(t *testing.T) {
 	defer func() { _ = sqlDB.Close() }()
 
 	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{},
-		streamsVacio{}, sqlDB, syncVacio{}, sourcesVacio{}, t.TempDir(), api.Options{})
+		streamsVacio{}, sqlDB, syncVacio{}, sourcesVacio{}, t.TempDir(), nil, api.Options{})
 
 	// El fallback SPA solo existe cuando internal/ui/dist tiene un cliente
 	// construido (ui.Handler() ok=true): eso pasa en el job "Cliente web" de
@@ -153,7 +154,7 @@ func TestTablaDeRutas(t *testing.T) {
 // alguien reintroduce el middleware "porque el navegador se quejaba" y la
 // regresión no se ve: todo sigue funcionando, solo que para todos.
 func TestRouterNoAnunciaCORS(t *testing.T) {
-	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), api.Options{})
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), nil, api.Options{})
 
 	req := httptest.NewRequest(http.MethodGet, "/channels", nil)
 	req.Header.Set("Origin", "https://evil.example")
@@ -182,7 +183,7 @@ func TestProxySoloExisteEnLoopback(t *testing.T) {
 		{true, http.StatusBadRequest}, // montado: se queja de que falta u
 		{false, http.StatusNotFound},  // apagado: 404 explícito, no el índice del SPA
 	} {
-		r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), api.Options{ProxyActivo: c.activo})
+		r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), nil, api.Options{ProxyActivo: c.activo})
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy/hls", nil))
 		if rec.Code != c.quiero {
@@ -206,7 +207,7 @@ func TestProxyApagadoNoRompeFallbackSPA(t *testing.T) {
 		t.Skip("sin cliente web construido en internal/ui/dist: nada que distinguir")
 	}
 
-	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), api.Options{ProxyActivo: false})
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), nil, api.Options{ProxyActivo: false})
 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy/hls?u=x", nil))

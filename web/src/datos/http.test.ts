@@ -243,4 +243,70 @@ describe('HttpCatalog', () => {
       expect(sugeridas).toEqual([{ label: 'Ejemplo', url: 'https://ejemplo/lista.m3u8' }])
     })
   })
+
+  describe('epg', () => {
+    it('epgDeCanales() lee GET /channels/epg?ids=… y traduce inicio/fin a inicioSeg/finSeg', async () => {
+      const espia = vi.fn(async (..._args: unknown[]) => respuesta({
+        a: { ahora: { titulo: 'Noticias', inicio: 1787770800, fin: 1787774400 }, siguiente: null },
+      }))
+      vi.stubGlobal('fetch', espia)
+
+      const mapa = await crearHttpCatalog('').epgDeCanales(['a', 'b'])
+
+      expect(String(espia.mock.calls[0][0])).toBe('/channels/epg?ids=a,b')
+      expect(mapa.get('a')).toEqual({
+        ahora: { titulo: 'Noticias', inicioSeg: 1787770800, finSeg: 1787774400 },
+        siguiente: null,
+      })
+    })
+
+    // Ausente = sin guía posible: el handler serializa literalmente las
+    // claves que le da el repo, así que un id sin tvg_id no aparece como
+    // clave del objeto — y por tanto tampoco debe aparecer en el Map.
+    it('epgDeCanales() no añade una clave para un id ausente en la respuesta', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => respuesta({
+        a: { ahora: null, siguiente: null },
+      })))
+
+      const mapa = await crearHttpCatalog('').epgDeCanales(['a', 'b'])
+
+      expect(mapa.has('a')).toBe(true)
+      expect(mapa.has('b')).toBe(false)
+    })
+
+    it('epgDeCanales() con ids vacío no pide nada y devuelve un Map vacío', async () => {
+      const espia = vi.fn(async () => respuesta({}))
+      vi.stubGlobal('fetch', espia)
+
+      const mapa = await crearHttpCatalog('').epgDeCanales([])
+
+      expect(mapa.size).toBe(0)
+      expect(espia).not.toHaveBeenCalled()
+    })
+
+    it('epgDeCanal() lee GET /channels/{id}/epg?limit=… y traduce el cable', async () => {
+      const espia = vi.fn(async (..._args: unknown[]) => respuesta({
+        ahora: { titulo: 'Ahora', inicio: 1000, fin: 2000 },
+        proximos: [{ titulo: 'Luego', inicio: 2000, fin: 3000 }],
+      }))
+      vi.stubGlobal('fetch', espia)
+
+      const resultado = await crearHttpCatalog('').epgDeCanal('c1', 3)
+
+      expect(String(espia.mock.calls[0][0])).toBe('/channels/c1/epg?limit=3')
+      expect(resultado.ahora).toEqual({ titulo: 'Ahora', inicioSeg: 1000, finSeg: 2000 })
+      expect(resultado.proximos).toEqual([{ titulo: 'Luego', inicioSeg: 2000, finSeg: 3000 }])
+    })
+
+    it('epgDeCanal() sin limite explícito no manda el parámetro', async () => {
+      const espia = vi.fn(async (..._args: unknown[]) => respuesta({ ahora: null, proximos: [] }))
+      vi.stubGlobal('fetch', espia)
+
+      const resultado = await crearHttpCatalog('').epgDeCanal('c1')
+
+      expect(String(espia.mock.calls[0][0])).toBe('/channels/c1/epg')
+      expect(resultado.ahora).toBeNull()
+      expect(resultado.proximos).toEqual([])
+    })
+  })
 })

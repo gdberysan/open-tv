@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/gdberysan/open-tv/internal/adapters/epg"
 	"github.com/gdberysan/open-tv/internal/adapters/providers/opensource"
 	"github.com/gdberysan/open-tv/internal/domain"
 	"github.com/gdberysan/open-tv/internal/ports"
@@ -31,6 +33,28 @@ var ErrFuenteNoEncontrada = errors.New("fuente no encontrada")
 // un sync se rechaza. Los catálogos FTA fluctúan algo entre syncs; perder más
 // de la mitad de golpe es un fallo de la fuente, no una actualización.
 const minRatioCatalogo = 0.5
+
+// epgRefreshCadencia es cuánto se considera "fresca" la guía EPG de una
+// fuente antes de refetchear su XMLTV: evita re-descargar y re-parsear un
+// documento potencialmente grande en cada ciclo del Syncer (que corre mucho
+// más a menudo, ver Config.Interval) cuando la guía apenas cambia intradía.
+const epgRefreshCadencia = 6 * time.Hour
+
+// epgVentanaPasado / epgVentanaFuturo acotan la ventana de programas que se
+// conserva en cada refresco de guía: ni tan corta que deje fuera lo que el
+// cliente puede pedir (un programa que empezó hace más de 2h pero sigue en
+// antena) ni tan larga que guarde años de guía futura que nunca se sirve.
+const (
+	epgVentanaPasado = 2 * time.Hour
+	epgVentanaFuturo = 48 * time.Hour
+)
+
+// maxEPGBytes topa el tamaño del XMLTV descargado, análogo a
+// defaultMaxM3UBytes del provider M3U (ver
+// internal/adapters/providers/opensource/provider.go): una guía real cabe
+// holgadamente en 50MB; sin tope, una fuente rota o maliciosa agotaría
+// memoria en el parseo streaming de epg.ParsearXMLTV.
+const maxEPGBytes = 50 << 20
 
 // Config parametriza la cadencia del sync. Los ceros toman los defaults.
 type Config struct {
@@ -89,7 +113,13 @@ type Syncer struct {
 	allowedFileDir string
 	channels       ports.ChannelRepository
 	streams        ports.StreamRepository
-	cfg            Config
+	// epg y fetcher son las dependencias de EPG de la Tarea 5 (P2). Pueden
+	// ser nil (p. ej. en tests que no ejercitan EPG en absoluto): en ese
+	// caso refrescarEPG es un no-op — un Syncer sin ellas simplemente no
+	// mantiene guía, exactamente igual que antes de P2.
+	epg     ports.EPGRepository
+	fetcher descargador
+	cfg     Config
 
 	firstDone chan struct{}
 	firstOnce sync.Once
@@ -111,7 +141,7 @@ type Syncer struct {
 	ultimoConteo map[string]int
 }
 
-func NewSyncer(logger *slog.Logger, sources ports.SourceRepository, channels ports.ChannelRepository, streams ports.StreamRepository, allowedFileDir string, cfg Config) *Syncer {
+func NewSyncer(logger *slog.Logger, sources ports.SourceRepository, channels ports.ChannelRepository, streams ports.StreamRepository, epgRepo ports.EPGRepository, fetcher descargador, allowedFileDir string, cfg Config) *Syncer {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
@@ -121,10 +151,40 @@ func NewSyncer(logger *slog.Logger, sources ports.SourceRepository, channels por
 		allowedFileDir: allowedFileDir,
 		channels:       channels,
 		streams:        streams,
+		epg:            epgRepo,
+		fetcher:        fetcher,
 		cfg:            cfg.withDefaults(),
 		firstDone:      make(chan struct{}),
 		ultimoConteo:   make(map[string]int),
 	}
+}
+
+// proveedorConTvg expone las url-tvg que un provider concreto declaró en su
+// cabecera M3U (ver opensource.Provider.TvgURLs, Tarea 1). Vive SOLO en el
+// tipo concreto, no en ports.ProviderPort: el contrato genérico de un
+// provider no promete guía EPG, así que aquí se accede por type-assert y,
+// si no la implementa, el Syncer simplemente sigue sin EPG para esa fuente.
+type proveedorConTvg interface {
+	TvgURLs() []string
+}
+
+// descargador es el subconjunto mínimo de epg.Fetcher (Tarea 4) que Syncer
+// necesita: una interfaz local para poder inyectar un fake en tests sin
+// tocar red. *epg.Fetcher la satisface por estructura, sin declararlo.
+type descargador interface {
+	Descargar(ctx context.Context, url string) (io.ReadCloser, error)
+}
+
+// cadenciaEPG lee y sella cuándo se refrescó por última vez la guía de una
+// fuente (ver epgRefreshCadencia). Vive SOLO en el tipo concreto
+// (db.SQLiteSourceRepository, sobre providers.epg_refreshed_at), no en
+// ports.SourceRepository: la cadencia de refresco es una decisión de ESTE
+// Syncer, no parte del contrato genérico de fuentes. Sin ella (un
+// ports.SourceRepository de test que no la implemente) el Syncer refresca
+// en cada ciclo: más trabajo de más, nunca un dato incorrecto.
+type cadenciaEPG interface {
+	EpgRefreshedAt(ctx context.Context, id string) (int64, error)
+	SetEpgRefreshedAt(ctx context.Context, id string, cuando int64) error
 }
 
 // FirstSyncDone se cierra tras el primer ciclo exitoso (aunque no haya
@@ -358,11 +418,128 @@ func (s *Syncer) sincronizarFuente(ctx context.Context, fuente ports.Source) err
 
 	s.ultimoConteo[fuente.ID] = len(channels)
 
+	// El EPG es un extra sobre el sync de canales, ya completado con éxito
+	// arriba: refrescarEPG absorbe y registra sus propios errores, nunca
+	// los propaga (mismas reglas de éxito parcial que P0.7 / SyncOnce).
+	s.refrescarEPG(ctx, fuente, provider)
+
 	s.logger.Info("Fuente sincronizada",
 		slog.String("fuente", fuente.ID),
 		slog.Int("canales", len(channels)),
 		slog.Int("streams", len(streams)),
 		slog.Int64("podados", podados))
+	return nil
+}
+
+// refrescarEPG sella la url-tvg que la fuente declaró y, si corresponde por
+// cadencia, refresca su guía. INVARIANTE: nunca devuelve error ni lo
+// propaga — todo fallo de este bloque (tvg_url, descarga, parseo, guardado)
+// se registra vía logger y se descarta aquí mismo. Cuando esta función se
+// llama, el sync de canales de `fuente` YA tuvo éxito (ver
+// sincronizarFuente); una guía que no se pudo refrescar, o una fuente que
+// no ofrece EPG en absoluto, no debe tumbar ese éxito — mismas reglas de
+// éxito parcial que P0.7 / SyncOnce (ver su doc).
+func (s *Syncer) refrescarEPG(ctx context.Context, fuente ports.Source, provider *opensource.Provider) {
+	if s.epg == nil || s.fetcher == nil {
+		return // Syncer construido sin dependencias de EPG: no-op deliberado.
+	}
+
+	conTvg, ok := any(provider).(proveedorConTvg)
+	if !ok {
+		return
+	}
+	urls := conTvg.TvgURLs()
+	if len(urls) == 0 {
+		return // la fuente no declaró url-tvg: no hay guía que sincronizar.
+	}
+
+	// Simplificación deliberada: nos quedamos con la PRIMERA url-tvg
+	// declarada. La cabecera M3U puede repetir el atributo (una lista
+	// separada por comas, ver extractTvgURLs), pero en la práctica las
+	// fuentes que lo hacen apuntan a mirrors del mismo XMLTV — fusionar
+	// varias guías por fuente es complejidad que ningún caso real pide hoy.
+	primera := urls[0]
+	if err := s.sources.SetTvgURL(ctx, fuente.ID, primera); err != nil {
+		s.logger.Warn("No se pudo sellar tvg_url, se intenta refrescar la guía igualmente",
+			slog.String("fuente", fuente.ID), slog.Any("error", err))
+	}
+
+	if s.guiaEstaFresca(ctx, fuente.ID) {
+		return
+	}
+
+	if err := s.descargarYGuardarGuia(ctx, fuente.ID, primera); err != nil {
+		s.logger.Error("Fallo refrescando la guía EPG, el sync de canales sigue en éxito",
+			slog.String("fuente", fuente.ID), slog.Any("error", err))
+	}
+}
+
+// guiaEstaFresca decide si la guía de providerID se refrescó hace menos de
+// epgRefreshCadencia. Sin un cadenciaEPG disponible (el ports.SourceRepository
+// inyectado no la implementa, p. ej. un fake de test que no la ejercita) se
+// asume que NO está fresca: refrescar de más cuesta tiempo, pero nunca deja
+// un dato incorrecto.
+func (s *Syncer) guiaEstaFresca(ctx context.Context, providerID string) bool {
+	cad, ok := s.sources.(cadenciaEPG)
+	if !ok {
+		return false
+	}
+	ultima, err := cad.EpgRefreshedAt(ctx, providerID)
+	if err != nil {
+		s.logger.Warn("No se pudo leer la cadencia de EPG, se refresca por precaución",
+			slog.String("fuente", providerID), slog.Any("error", err))
+		return false
+	}
+	return ultima > 0 && time.Since(time.Unix(ultima, 0)) < epgRefreshCadencia
+}
+
+// descargarYGuardarGuia descarga el XMLTV de tvgURL, lo parsea, filtra sus
+// programas a la ventana now-epgVentanaPasado..now+epgVentanaFuturo y
+// reemplaza con ellos la guía de providerID. Solo si TODO eso tiene éxito se
+// sella la cadencia (vía cadenciaEPG, si está disponible): un fallo a medio
+// camino debe dejar la marca vieja, para que el PRÓXIMO ciclo reintente en
+// vez de esperar otras epgRefreshCadencia horas con una guía a medio escribir.
+func (s *Syncer) descargarYGuardarGuia(ctx context.Context, providerID, tvgURL string) error {
+	r, err := s.fetcher.Descargar(ctx, tvgURL)
+	if err != nil {
+		return fmt.Errorf("descargando %s: %w", tvgURL, err)
+	}
+	defer func() { _ = r.Close() }()
+
+	programas, err := epg.ParsearXMLTV(r, maxEPGBytes)
+	if err != nil {
+		return fmt.Errorf("parseando %s: %w", tvgURL, err)
+	}
+
+	ahora := time.Now()
+	desde := ahora.Add(-epgVentanaPasado).Unix()
+	hasta := ahora.Add(epgVentanaFuturo).Unix()
+
+	// Un programa que se solapa con la ventana se conserva aunque su
+	// principio o fin caiga fuera de ella (p. ej. uno que empezó justo
+	// antes de `desde` pero sigue en antena); solo se descarta el que ya
+	// terminó antes de `desde` o el que ni siquiera empieza dentro de
+	// `hasta` — "muy viejo" o "muy futuro" respectivamente.
+	filtrados := make([]domain.Programa, 0, len(programas))
+	for _, p := range programas {
+		if p.FinUTC < desde || p.InicioUTC > hasta {
+			continue
+		}
+		filtrados = append(filtrados, p)
+	}
+
+	if err := s.epg.ReemplazarVentana(ctx, providerID, filtrados); err != nil {
+		return fmt.Errorf("guardando ventana: %w", err)
+	}
+	if err := s.epg.Podar(ctx, desde); err != nil {
+		return fmt.Errorf("podando: %w", err)
+	}
+
+	if cad, ok := s.sources.(cadenciaEPG); ok {
+		if err := cad.SetEpgRefreshedAt(ctx, providerID, ahora.Unix()); err != nil {
+			return fmt.Errorf("sellando cadencia: %w", err)
+		}
+	}
 	return nil
 }
 

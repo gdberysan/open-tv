@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -17,6 +18,21 @@ const mockM3U = `#EXTM3U
 http://stream.com/news.m3u8
 #EXTINF:-1 tvg-id="2" tvg-logo="http://logo.com/2.png" group-title="Sports",Sports Channel
 http://stream.com/sports.m3u8
+`
+
+const mockM3UWithTvgURL = `#EXTM3U url-tvg="https://e/g.xml.gz"
+#EXTINF:-1 tvg-id="1",News Channel
+http://stream.com/news.m3u8
+`
+
+const mockM3UWithTvgURLList = `#EXTM3U url-tvg="https://a,https://b"
+#EXTINF:-1 tvg-id="1",News Channel
+http://stream.com/news.m3u8
+`
+
+const mockM3UWithXTvgURL = `#EXTM3U x-tvg-url="https://e/g.xml"
+#EXTINF:-1 tvg-id="1",News Channel
+http://stream.com/news.m3u8
 `
 
 func TestProvider_GetLiveChannels(t *testing.T) {
@@ -191,6 +207,85 @@ func TestProvider_GetLiveChannels_FileNotFound(t *testing.T) {
 	_, err := p.GetLiveChannels(context.Background())
 	if err == nil {
 		t.Fatal("Se esperaba error por fichero inexistente")
+	}
+}
+
+// ── url-tvg / x-tvg-url (guía EPG declarada en la cabecera) ────────────────
+
+func TestProvider_TvgURLs(t *testing.T) {
+	tests := []struct {
+		name string
+		m3u  string
+		want []string
+	}{
+		{
+			name: "una URL en url-tvg",
+			m3u:  mockM3UWithTvgURL,
+			want: []string{"https://e/g.xml.gz"},
+		},
+		{
+			name: "lista separada por comas en url-tvg",
+			m3u:  mockM3UWithTvgURLList,
+			want: []string{"https://a", "https://b"},
+		},
+		{
+			name: "alias x-tvg-url",
+			m3u:  mockM3UWithXTvgURL,
+			want: []string{"https://e/g.xml"},
+		},
+		{
+			name: "cabecera sin atributo de guia",
+			m3u:  mockM3U,
+			want: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(tt.m3u))
+			}))
+			defer server.Close()
+
+			p := NewProvider("prov_1", server.URL, server.Client())
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			if _, err := p.GetLiveChannels(ctx); err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			got := p.TvgURLs()
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("TvgURLs() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TvgURLs también debe poblarse por la vía file://, no solo HTTP.
+func TestProvider_TvgURLs_FileSource(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lista.m3u")
+	if err := os.WriteFile(path, []byte(mockM3UWithTvgURL), 0o600); err != nil {
+		t.Fatalf("no se pudo escribir el fixture: %v", err)
+	}
+
+	p := NewProvider("prov_1", "file://"+path, nil, WithAllowedFileDir(dir))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if _, err := p.GetLiveChannels(ctx); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	want := []string{"https://e/g.xml.gz"}
+	got := p.TvgURLs()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("TvgURLs() = %#v, want %#v", got, want)
 	}
 }
 

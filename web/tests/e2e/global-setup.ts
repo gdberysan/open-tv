@@ -40,7 +40,16 @@ function generarHLS(): void {
 function escribirM3U(): void {
   const base = `http://127.0.0.1:${PUERTO_FIXTURES}`
   writeFileSync(join(FIXTURES, 'catalogo.m3u'), [
-    '#EXTM3U',
+    // url-tvg en la cabecera (Tarea 10, e2e de la guía): apunta al XMLTV
+    // dinámico que servidor-fixtures.ts genera en /epg.xml. Es lo que
+    // ejercita el camino real de punta a punta — captura en el parser M3U
+    // (T1) → Syncer (T5) → join (T3) → endpoint (T6) → tarjeta (T7/T8) —
+    // sin tocar nada del catálogo que ya usan catalogo.spec.ts/
+    // reproduccion.spec.ts: la guía solo declara <channel id="ConCors.xx">
+    // (ver CHANNEL_ID_CON_GUIA en servidor-fixtures.ts), así que "Canal Con
+    // CORS" adquiere un ahora/después y "Canal Sin CORS" queda sin guía, tal
+    // cual pide el brief de la Tarea 10.
+    `#EXTM3U url-tvg="${base}/cors/epg.xml"`,
     `#EXTINF:-1 tvg-id="ConCors.xx" tvg-logo="" group-title="News",Canal Con CORS (1080p)`,
     `${base}/cors/hls/canal.m3u8`,
     `#EXTINF:-1 tvg-id="SinCors.xx" tvg-logo="" group-title="Movies",Canal Sin CORS (720p)`,

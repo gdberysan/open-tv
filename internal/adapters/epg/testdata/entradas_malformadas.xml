@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <programme start="20260826200000 +0000" stop="20260826210000 +0000" channel="cnn.us">
+    <title>Buena Entrada Uno</title>
+  </programme>
+  <programme start="20260826210000 +0000" channel="cnn.us">
+    <title>Sin Stop, Se Descarta</title>
+  </programme>
+  <programme start="fecha-basura" stop="20260826230000 +0000" channel="cnn.us">
+    <title>Fecha Ilegible, Se Descarta</title>
+  </programme>
+  <programme start="20260826230000 +0000" stop="20260827000000 +0000" channel="cnn.us">
+    <title>Buena Entrada Dos</title>
+  </programme>
+</tv>

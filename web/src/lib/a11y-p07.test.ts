@@ -49,6 +49,8 @@ function fuenteFalsa(overrides: Partial<CatalogSource> = {}): CatalogSource {
     quitarFuente: vi.fn(async () => {}),
     resyncFuente: vi.fn(async () => {}),
     fuentesSugeridas: vi.fn(async () => []),
+    epgDeCanales: vi.fn(async () => new Map()),
+    epgDeCanal: vi.fn(async () => ({ ahora: null, proximos: [] })),
     ...overrides,
   }
 }

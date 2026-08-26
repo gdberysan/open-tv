@@ -36,6 +36,11 @@ type Provider struct {
 	// es suficiente para MVP; no se necesita persistencia en DB.
 	mu         sync.RWMutex
 	streamURLs map[domain.ChannelID]string
+
+	// tvgURLs son las URLs de guía EPG (url-tvg / x-tvg-url) que la fuente
+	// declaró en la cabecera #EXTM3U de la última llamada a GetLiveChannels.
+	// Vacío si la fuente no declaró ninguna. Protegido por mu.
+	tvgURLs []string
 }
 
 // Option configura parámetros opcionales de Provider en su construcción.
@@ -106,17 +111,18 @@ func (p *Provider) getLiveChannelsFromHTTP(ctx context.Context) ([]domain.Channe
 		return nil, fmt.Errorf("opensource.GetLiveChannels (Status): HTTP %d", resp.StatusCode)
 	}
 
-	channels, newURLs, err := parseM3UStream(resp.Body, p.id, p.maxBodyBytes)
+	result, err := parseM3UStream(resp.Body, p.id, p.maxBodyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("opensource.GetLiveChannels: %w", err)
 	}
 
 	// Reemplazar caché completo al finalizar el parse
 	p.mu.Lock()
-	p.streamURLs = newURLs
+	p.streamURLs = result.streamURLs
+	p.tvgURLs = result.tvgURLs
 	p.mu.Unlock()
 
-	return channels, nil
+	return result.channels, nil
 }
 
 // getLiveChannelsFromFile lee un M3U local (baseURL "file://<ruta>") y lo
@@ -134,17 +140,18 @@ func (p *Provider) getLiveChannelsFromFile() ([]domain.Channel, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	channels, newURLs, err := parseM3UStream(f, p.id, p.maxBodyBytes)
+	result, err := parseM3UStream(f, p.id, p.maxBodyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("opensource.GetLiveChannels (file): %w", err)
 	}
 
 	// Reemplazar caché completo al finalizar el parse
 	p.mu.Lock()
-	p.streamURLs = newURLs
+	p.streamURLs = result.streamURLs
+	p.tvgURLs = result.tvgURLs
 	p.mu.Unlock()
 
-	return channels, nil
+	return result.channels, nil
 }
 
 // resolveFilePath valida que la ruta indicada en baseURL ("file://<ruta>")
@@ -180,10 +187,19 @@ func (p *Provider) resolveFilePath() (string, error) {
 	return pathAbs, nil
 }
 
+// m3uParseResult agrupa las tres salidas de parseM3UStream. Se usa un struct
+// (en vez de un tuple de 4 valores) porque es más legible en los call sites y
+// deja margen para que crezca sin volver a tocar todas las firmas.
+type m3uParseResult struct {
+	channels   []domain.Channel
+	streamURLs map[domain.ChannelID]string
+	tvgURLs    []string
+}
+
 // parseM3UStream parsea un M3U línea a línea desde r, con un cap de tamaño
 // de maxBytes (io.LimitReader con N+1 para distinguir "justo en el límite" de
 // "excedido"). Es el parser compartido entre la vía HTTP y la vía file://.
-func parseM3UStream(r io.Reader, providerID string, maxBytes int64) ([]domain.Channel, map[domain.ChannelID]string, error) {
+func parseM3UStream(r io.Reader, providerID string, maxBytes int64) (m3uParseResult, error) {
 	limited := &io.LimitedReader{R: r, N: maxBytes + 1}
 	scanner := bufio.NewScanner(limited)
 	buf := make([]byte, 0, 64*1024)
@@ -193,12 +209,22 @@ func parseM3UStream(r io.Reader, providerID string, maxBytes int64) ([]domain.Ch
 		channels       []domain.Channel
 		currentChannel *domain.Channel
 		newURLs        = make(map[domain.ChannelID]string)
+		tvgURLs        []string
+		firstLine      = true
 	)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
+		}
+
+		if firstLine {
+			firstLine = false
+			if strings.HasPrefix(line, "#EXTM3U") {
+				tvgURLs = extractTvgURLs(line)
+				continue
+			}
 		}
 
 		if strings.HasPrefix(line, "#EXTINF:") {
@@ -228,13 +254,13 @@ func parseM3UStream(r io.Reader, providerID string, maxBytes int64) ([]domain.Ch
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, nil, fmt.Errorf("fallo al escanear M3U: %w", err)
+		return m3uParseResult{}, fmt.Errorf("fallo al escanear M3U: %w", err)
 	}
 	if limited.N <= 0 {
-		return nil, nil, fmt.Errorf("M3U excede el tamaño máximo de %d bytes", maxBytes)
+		return m3uParseResult{}, fmt.Errorf("M3U excede el tamaño máximo de %d bytes", maxBytes)
 	}
 
-	return channels, newURLs, nil
+	return m3uParseResult{channels: channels, streamURLs: newURLs, tvgURLs: tvgURLs}, nil
 }
 
 // GetStreamURL retorna la URL del stream desde el caché poblado por GetLiveChannels.
@@ -246,6 +272,18 @@ func (p *Provider) GetStreamURL(_ context.Context, channelID domain.ChannelID) (
 		return "", fmt.Errorf("opensource.GetStreamURL: canal %s no encontrado (sync pendiente?)", channelID)
 	}
 	return u, nil
+}
+
+// TvgURLs devuelve las URLs de guía EPG (url-tvg / x-tvg-url) que la fuente
+// declaró en la cabecera #EXTM3U durante la última llamada a GetLiveChannels.
+// Se puebla tras GetLiveChannels; antes de la primera llamada (o si la fuente
+// no declaró guía) devuelve un slice vacío, nunca nil.
+func (p *Provider) TvgURLs() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	out := make([]string, len(p.tvgURLs))
+	copy(out, p.tvgURLs)
+	return out
 }
 
 func (p *Provider) HealthCheck(ctx context.Context) error {
@@ -299,6 +337,29 @@ func extractAfterComma(line string) string {
 		return strings.TrimSpace(line[i+1:])
 	}
 	return ""
+}
+
+// extractTvgURLs extrae las URLs de guía EPG que la cabecera #EXTM3U declara
+// en su atributo url-tvg (estándar) o, como alias, x-tvg-url. El valor puede
+// ser una lista separada por comas; cada elemento se recorta con TrimSpace y
+// los vacíos se descartan. Devuelve nil si no hay atributo de guía.
+func extractTvgURLs(headerLine string) []string {
+	raw := extractAttr(headerLine, "url-tvg")
+	if raw == "" {
+		raw = extractAttr(headerLine, "x-tvg-url")
+	}
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, ",")
+	urls := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if u := strings.TrimSpace(part); u != "" {
+			urls = append(urls, u)
+		}
+	}
+	return urls
 }
 
 func extractAttr(line, attr string) string {
