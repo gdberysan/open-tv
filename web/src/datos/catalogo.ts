@@ -54,6 +54,25 @@ export interface Mirror {
   webOk: boolean | null
 }
 
+/** Un programa de la guía EPG. inicioSeg/finSeg: epoch UTC en SEGUNDOS, tal
+ * cual los manda el cable (nombres propios para que quede claro que NO son
+ * milisegundos, a diferencia del resto del cliente). */
+export interface Programa {
+  titulo: string
+  inicioSeg: number
+  finSeg: number
+}
+
+/** "Ahora" y "siguiente" de un canal. Cualquiera de los dos puede ser null
+ * (p.ej. fuera de horario de emisión) sin que eso signifique "sin guía": un
+ * canal con tvg_id pero sin programa en curso ni futuro sigue teniendo
+ * entrada — la ausencia total de guía se modela con la clave ausente del
+ * Map que devuelve epgDeCanales, no con este tipo. */
+export interface AhoraDespues {
+  ahora: Programa | null
+  siguiente: Programa | null
+}
+
 /** Una fuente de canales añadida por el usuario (bring-your-own). */
 export interface Fuente {
   id: string
@@ -93,4 +112,10 @@ export interface CatalogSource {
   resyncFuente(id: string): Promise<void>
   /** Fuentes de ejemplo sugeridas para dar de alta rápido. */
   fuentesSugeridas(): Promise<{ label: string; url: string }[]>
+  /** Ahora/después en LOTE para varios canales (la vista de catálogo). Un id
+   * sin guía posible (sin tvg_id en ninguna fuente) NO aparece como clave del
+   * Map — ausente = sin guía, no un AhoraDespues con ambos campos a null. */
+  epgDeCanales(ids: string[]): Promise<Map<string, AhoraDespues>>
+  /** Ahora + los próximos programas de UN canal (el overlay). */
+  epgDeCanal(id: string, limite?: number): Promise<{ ahora: Programa | null; proximos: Programa[] }>
 }
