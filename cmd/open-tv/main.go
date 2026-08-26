@@ -231,7 +231,7 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 	// 5. Router y servidor HTTP, sobre el listener ya resuelto en el paso 1.
 	url := "http://" + ln.Addr().String()
 	srv := &http.Server{
-		Handler: api.NewRouter(logger, channelRepoRO, providerFallback, streamRepoRO, lecturaDB, syncer, api.Options{
+		Handler: api.NewRouter(logger, channelRepoRO, providerFallback, streamRepoRO, lecturaDB, syncer, sourceRepo, fuentesDir, api.Options{
 			ProxyActivo:              esLoopback(ln),
 			Version:                  version,
 			HostsPermitidos:          hostsPermitidos(ln),
