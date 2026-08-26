@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -42,7 +41,21 @@ type Config struct {
 	RetryBase time.Duration
 	RetryMax  time.Duration
 	// SyncTimeout acota cada intento completo (todas las fuentes). Default: 5min.
+	//
+	// Con varias fuentes esto es solo un techo agregado del ciclo — NO basta
+	// para aislar una fuente colgada de las demás (ver PerSourceTimeout).
 	SyncTimeout time.Duration
+	// PerSourceTimeout acota CADA llamada individual a sincronizarFuente.
+	// Default: 5min. Sin este límite por fuente, una primera fuente colgada
+	// (servidor que nunca responde ni cierra la conexión) agota ella sola todo
+	// el presupuesto de SyncTimeout: el ciclo entero expira por contexto antes
+	// de que las demás fuentes, sanas, lleguen siquiera a intentarse — un
+	// fallo de UNA fuente termina fallando a TODAS, justo lo que
+	// SyncOnce/sincronizarFuenteYMarcar quieren evitar (ver su doc: éxito
+	// parcial es éxito del ciclo). Con el timeout por fuente, esa primera
+	// fuente colgada agota SU cupo, se cuenta como una fuente fallida más, y
+	// el resto del ciclo sigue con el tiempo que le queda a SyncTimeout.
+	PerSourceTimeout time.Duration
 }
 
 func (c Config) withDefaults() Config {
@@ -58,6 +71,9 @@ func (c Config) withDefaults() Config {
 	if c.SyncTimeout <= 0 {
 		c.SyncTimeout = 5 * time.Minute
 	}
+	if c.PerSourceTimeout <= 0 {
+		c.PerSourceTimeout = 5 * time.Minute
+	}
 	return c
 }
 
@@ -71,7 +87,6 @@ type Syncer struct {
 	logger         *slog.Logger
 	sources        ports.SourceRepository
 	allowedFileDir string
-	httpClient     *http.Client
 	channels       ports.ChannelRepository
 	streams        ports.StreamRepository
 	cfg            Config
@@ -204,7 +219,7 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 			continue
 		}
 		intentos++
-		if err := s.sincronizarFuenteYMarcar(ctx, fuente); err != nil {
+		if err := s.sincronizarFuenteYMarcarConTimeout(ctx, fuente); err != nil {
 			s.logger.Error("Fallo sincronizando fuente, se continúa con las demás",
 				slog.String("fuente", fuente.ID), slog.Any("error", err))
 			errores = append(errores, err)
@@ -233,12 +248,29 @@ func (s *Syncer) SyncOne(ctx context.Context, id string) error {
 		if fuente.ID != id {
 			continue
 		}
-		if err := s.sincronizarFuenteYMarcar(ctx, fuente); err != nil {
+		if err := s.sincronizarFuenteYMarcarConTimeout(ctx, fuente); err != nil {
 			return fmt.Errorf("services.SyncOne (fuente=%s): %w", id, err)
 		}
 		return nil
 	}
 	return fmt.Errorf("services.SyncOne (id=%s): %w", id, ErrFuenteNoEncontrada)
+}
+
+// sincronizarFuenteYMarcarConTimeout envuelve sincronizarFuenteYMarcar con un
+// context.WithTimeout propio de ESTA fuente (PerSourceTimeout), en vez de
+// dejar que corra con el ctx a secas. Antes de este fix, SyncTimeout acotaba
+// solo el CICLO completo (todas las fuentes juntas): una primera fuente
+// colgada consumía ella sola todo ese presupuesto y el resto ni llegaba a
+// intentarse, con lo que un único servidor que nunca responde bastaba para
+// tumbar el ciclo entero. Con el timeout aquí, una fuente colgada expira SOLA
+// (se cuenta como esa fuente fallida, ver SyncOnce) y el resto del ciclo sigue
+// con lo que le quede de SyncTimeout — usado tanto desde el bucle de
+// SyncOnce como desde SyncOne (que no pasa por syncWithTimeout y de otro modo
+// no tendría ningún límite de tiempo).
+func (s *Syncer) sincronizarFuenteYMarcarConTimeout(ctx context.Context, fuente ports.Source) error {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.PerSourceTimeout)
+	defer cancel()
+	return s.sincronizarFuenteYMarcar(ctx, fuente)
 }
 
 // sincronizarFuenteYMarcar sincroniza una fuente y, solo si tuvo éxito, sella
@@ -269,7 +301,7 @@ func (s *Syncer) sincronizarFuente(ctx context.Context, fuente ports.Source) err
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
 
-	provider := opensource.NewProvider(fuente.ID, fuente.URL, s.httpClient,
+	provider := opensource.NewProvider(fuente.ID, fuente.URL, nil,
 		opensource.WithAllowedFileDir(s.allowedFileDir))
 
 	// Frontera de la poda: todo canal de esta fuente cuyo last_seen_at quede

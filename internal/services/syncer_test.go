@@ -413,6 +413,98 @@ func TestSyncer_UnaFuenteFallaOtraSincroniza_EstampaLastSuccessYCierraFirstSyncD
 	}
 }
 
+// hangingServer simula una fuente que jamás responde (ni cierra la conexión):
+// el handler se queda bloqueado hasta que el contexto de LA PETICIÓN se
+// cancele (por el timeout por-fuente del cliente) o el propio httptest.Server
+// se cierre. Antes de F4, una fuente así agotaba ella sola todo SyncTimeout
+// (el presupuesto del CICLO completo) y ninguna otra fuente llegaba siquiera
+// a intentarse.
+func hangingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// (F4) Con timeout por fuente, una fuente colgada expira SOLA (rápido, en el
+// orden de PerSourceTimeout) y no agota el presupuesto de las demás: la
+// fuente sana sincroniza igual y el ciclo, con éxito parcial, es éxito.
+func TestSyncOnce_UnaFuenteCuelga_TimeoutPorFuenteDejaSincronizarALasDemas(t *testing.T) {
+	srvColgada := hangingServer(t)
+	srvBuena := m3uServer(t, "Uno")
+
+	sources := &fakeSourceRepo{fuentes: []ports.Source{
+		fuente("src-colgada", srvColgada.URL),
+		fuente("src-buena", srvBuena.URL),
+	}}
+	chRepo := &fakeChannelRepo{}
+	stRepo := &fakeStreamRepo{}
+
+	s := NewSyncer(nil, sources, chRepo, stRepo, "", Config{
+		PerSourceTimeout: 30 * time.Millisecond,
+		SyncTimeout:      2 * time.Second, // no debe hacer falta: PerSourceTimeout corta antes
+	})
+
+	inicio := time.Now()
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce con éxito parcial debería devolver nil, no: %v", err)
+	}
+	if transcurrido := time.Since(inicio); transcurrido > time.Second {
+		t.Errorf("SyncOnce tardó %v; el timeout por fuente debería haber cortado la fuente colgada mucho antes", transcurrido)
+	}
+
+	if chRepo.batchCount() != 1 {
+		t.Fatalf("batches de canales = %d, quiero 1 (solo la fuente sana)", chRepo.batchCount())
+	}
+	ids := chRepo.allChannelIDs()
+	if !ids[channelID("src-buena", "Uno")] {
+		t.Errorf("la fuente sana no persistió su canal: %v", ids)
+	}
+	if n := sources.touchCount("src-colgada"); n != 0 {
+		t.Errorf("TouchSync(src-colgada) = %d, quiero 0 (expiró por timeout)", n)
+	}
+	if n := sources.touchCount("src-buena"); n != 1 {
+		t.Errorf("TouchSync(src-buena) = %d, quiero 1", n)
+	}
+}
+
+// (F4) El mismo escenario a través de Run(): el timeout por fuente tiene que
+// bastar para que FirstSyncDone se cierre y LastSuccess se estampe, exactamente
+// igual que con una fuente que falla por error HTTP (no solo por timeout).
+func TestSyncer_UnaFuenteCuelga_TimeoutPorFuenteCierraFirstSyncDone(t *testing.T) {
+	srvColgada := hangingServer(t)
+	srvBuena := m3uServer(t, "Uno")
+
+	sources := &fakeSourceRepo{fuentes: []ports.Source{
+		fuente("src-colgada", srvColgada.URL),
+		fuente("src-buena", srvBuena.URL),
+	}}
+
+	s := NewSyncer(nil, sources, &fakeChannelRepo{}, &fakeStreamRepo{}, "", Config{
+		Interval:         time.Hour,
+		RetryBase:        time.Millisecond,
+		RetryMax:         time.Millisecond,
+		PerSourceTimeout: 30 * time.Millisecond,
+		SyncTimeout:      2 * time.Second,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Run(ctx)
+
+	select {
+	case <-s.FirstSyncDone():
+	case <-time.After(2 * time.Second):
+		t.Fatal("FirstSyncDone no se cerró: el timeout por fuente debería haber dejado sincronizar a la fuente sana")
+	}
+
+	if s.LastSuccess().IsZero() {
+		t.Error("LastSuccess no se estampó tras un ciclo con éxito parcial por timeout de una fuente")
+	}
+}
+
 // (fix1) Si TODAS las fuentes intentadas fallan, el ciclo sí se reporta como
 // fallido: ahí, y solo ahí, tiene sentido que Run() aplique su backoff.
 func TestSyncOnce_TodasLasFuentesFallan_DevuelveError(t *testing.T) {

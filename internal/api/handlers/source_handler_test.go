@@ -363,6 +363,62 @@ func TestSourceHandler_PostMultipartSinCampoFichero(t *testing.T) {
 	}
 }
 
+// construirMultipartFicheroTruncadoTrasElPart arma un cuerpo multipart cuyo
+// primer part ("fichero") es perfectamente válido y completo — guardarFichero
+// lo guarda con éxito — pero cuyo cuerpo se corta a mitad SIN el boundary de
+// cierre final. mime/multipart trata eso como "unexpected EOF" leyendo el
+// segundo part (aquí tolerado, ver F6) y como error real (no io.EOF) en la
+// llamada a NextPart() INMEDIATAMENTE posterior: cubre F5, el caso en que
+// mr.NextPart() falla DESPUÉS de que el fichero ya se escribió en fuentesDir.
+func construirMultipartFicheroTruncadoTrasElPart(t *testing.T, contenido []byte) (*bytes.Buffer, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	fw, err := w.CreateFormFile("fichero", "mis-canales.m3u")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := fw.Write(contenido); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	boundary := w.Boundary()
+	buf.WriteString("\r\n--" + boundary + "\r\n")
+	buf.WriteString("Content-Disposition: form-data; name=\"label\"\r\n\r\n")
+	buf.WriteString("valor sin boundary de cierre")
+	// Deliberadamente SIN el boundary final "--boundary--": el stream
+	// multipart queda inconcluso.
+	return &buf, w.FormDataContentType()
+}
+
+// TestSourceHandler_PostMultipartFallaTrasElFichero_NoDejaHuerfano cubre F5:
+// un multipart malformado que falla DESPUÉS de que el part "fichero" ya se
+// guardó en disco tiene que responder 400 Y dejar fuentesDir vacío — antes de
+// este fix, el fichero ya escrito quedaba huérfano porque el único borrado
+// existente (en crearFuente) solo cubría un Add fallido, no un multipart que
+// ni siquiera llega a intentar el alta.
+func TestSourceHandler_PostMultipartFallaTrasElFichero_NoDejaHuerfano(t *testing.T) {
+	dir := t.TempDir()
+	r := setupSourceRouter(newFakeSourceRepo(), newSpySyncer(), dir)
+
+	body, ct := construirMultipartFicheroTruncadoTrasElPart(t, []byte(m3uEjemplo))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/sources", body)
+	req.Header.Set("Content-Type", ct)
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, quiero 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+
+	entradas, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entradas) != 0 {
+		t.Errorf("fuentesDir tiene ficheros huérfanos tras el multipart roto: %v", entradas)
+	}
+}
+
 func TestSourceHandler_PostMultipartExcedeElTamano(t *testing.T) {
 	dir := t.TempDir()
 	r := setupSourceRouter(newFakeSourceRepo(), newSpySyncer(), dir)

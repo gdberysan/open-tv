@@ -49,7 +49,7 @@ type FuenteSugerida struct {
 
 // fuentesSugeridas es la constante exacta acordada en la spec: 6 fuentes de
 // IPTV-org (github.com/iptv-org/iptv), global + 3 países + 2 categorías.
-var fuentesSugeridas = []*FuenteSugerida{
+var fuentesSugeridas = []FuenteSugerida{
 	{Label: "IPTV-org (global)", URL: "https://iptv-org.github.io/iptv/index.m3u"},
 	{Label: "IPTV-org · México", URL: "https://iptv-org.github.io/iptv/countries/mx.m3u"},
 	{Label: "IPTV-org · EE. UU.", URL: "https://iptv-org.github.io/iptv/countries/us.m3u"},
@@ -190,22 +190,40 @@ func (h *SourceHandler) postMultipart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var (
-		fuenteURL string
-		label     string
-		guardado  bool
+		fuenteURL    string
+		label        string
+		guardado     bool
+		rutaGuardada string // path del fichero ya escrito en fuentesDir, si lo hay
 	)
+	// limpiarSiHuerfano borra, si existe, el fichero que guardarFichero ya
+	// escribió en fuentesDir ANTES de llegar a crearFuente. Sin esto, un
+	// mr.NextPart() que falla DESPUÉS del part "fichero" (multipart truncado o
+	// mal formado a mitad) devolvía 400 dejando el fichero recién escrito sin
+	// ninguna fila que lo reclame — huérfano para siempre, porque el único
+	// borrado que existía (en crearFuente) cubre un Add fallido, no un
+	// multipart que ni siquiera llega a intentar el alta.
+	limpiarSiHuerfano := func(motivo string) {
+		if rutaGuardada != "" {
+			h.borrarFicheroSubido(rutaGuardada, motivo)
+			rutaGuardada = ""
+		}
+	}
 	for {
 		part, err := mr.NextPart()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
+			limpiarSiHuerfano("multipart inválido tras la subida del fichero")
 			h.writeError(w, http.StatusBadRequest, "multipart inválido")
 			return
 		}
 
 		switch part.FormName() {
 		case "fichero":
+			// Un segundo part "fichero" pisaría rutaGuardada sin que nadie
+			// reclame el primero: se borra el anterior antes de guardar este.
+			limpiarSiHuerfano("reemplazado por un segundo part 'fichero'")
 			path, err := h.guardarFichero(part)
 			_ = part.Close()
 			if err != nil {
@@ -219,11 +237,20 @@ func (h *SourceHandler) postMultipart(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			fuenteURL = "file://" + path
+			rutaGuardada = path
 			guardado = true
 		case "label":
-			buf, _ := io.ReadAll(io.LimitReader(part, 200))
+			buf, err := io.ReadAll(io.LimitReader(part, 200))
 			_ = part.Close()
-			label = strings.TrimSpace(string(buf))
+			if err != nil {
+				// No es motivo para tirar una subida que ya guardó un fichero
+				// válido: se cae al label por defecto más abajo.
+				h.logger.Warn("POST /sources: fallo leyendo el campo 'label', se usa el label por defecto",
+					slog.Any("error", err))
+				label = ""
+			} else {
+				label = strings.TrimSpace(string(buf))
+			}
 		default:
 			_ = part.Close()
 		}
