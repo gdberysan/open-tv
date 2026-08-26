@@ -260,6 +260,22 @@
   onDestroy(() => {
     const previo = elementoPrevio
     requestAnimationFrame(() => {
+      // Guard (M2 del pase de a11y, Tarea 8, P0.8): elegir un CANAL desde
+      // aquí llama a alAbrirCanal (App monta el Reproductor) Y a cerrar (esto
+      // se desmonta) en el mismo gesto de teclado/clic — ambos cambios de
+      // estado llegan al mismo flush de Svelte, así que este rAF puede
+      // acabar corriendo DESPUÉS de que el propio onMount del Reproductor ya
+      // haya enfocado su botón de cerrar (su tick() es un microtask; este
+      // rAF, un macrotask posterior). Sin este guard, restaurar el foco aquí
+      // se lo robaría de vuelta al botón "abrir" de la tarjeta de detrás —
+      // visible en jsdom porque aquí `inert` no bloquea .focus() (jsdom no
+      // implementa la semántica de foco de `inert`; en un navegador real
+      // main ya está inert en ese instante y el .focus() de más abajo sería
+      // un no-op de todos modos, pero no hay que depender de eso). Si nadie
+      // reclamó el foco mientras tanto, document.activeElement se quedó en
+      // <body> (el nodo enfocado se desmontó) — ese es el único caso en el
+      // que de verdad hace falta restaurarlo.
+      if (document.activeElement !== document.body) return
       if (previo && document.body.contains(previo)) previo.focus()
     })
   })

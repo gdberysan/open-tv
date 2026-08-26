@@ -10,7 +10,7 @@
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
   import { reportarDesenlace } from './estado/estadisticas'
   import { historial, type EntradaHistorial } from './estado/historial'
-  import { debeHacerSurf } from './lib/surf'
+  import { debeHacerSurf, esObjetivoInteractivo } from './lib/surf'
   import BarraLateralFacetas from './componentes/BarraLateralFacetas.svelte'
   import RejillaCanales from './componentes/RejillaCanales.svelte'
   import Reproductor from './componentes/Reproductor.svelte'
@@ -407,13 +407,14 @@
       // propio manejador de teclado, dentro de Paleta.svelte, es quien
       // gobierna el teclado mientras está montada).
       if (canalAbierto || paletaAbierta) return
-      // No robarle el atajo a un campo de texto AJENO (el buscador de
-      // facetas, la URL de una fuente, el propio buscador de la barra
-      // lateral…): con el foco ya tecleando ahí, ⌘K no hace nada — mismo
-      // espíritu de guarda que debeHacerSurf aplica más abajo a la barra
-      // espaciadora.
-      const objetivo = e.target
-      if (objetivo instanceof HTMLElement && (objetivo.tagName === 'INPUT' || objetivo.tagName === 'TEXTAREA')) return
+      // No robarle el atajo a un control AJENO ya interactivo (el buscador de
+      // facetas, un <select>, un <button> enfocado, contenido
+      // contenteditable…): con el foco ya ahí, ⌘K no hace nada — MISMO
+      // criterio que debeHacerSurf aplica más abajo a la barra espaciadora
+      // (esObjetivoInteractivo, compartido — Tarea 8, P0.8: antes este guard
+      // solo excluía INPUT/TEXTAREA, así que ⌘K con el foco en el segmentado
+      // de densidad de Ajustes, o en cualquier <button>, sí que la abría).
+      if (esObjetivoInteractivo(e.target)) return
       e.preventDefault()
       paletaAbierta = true
       return

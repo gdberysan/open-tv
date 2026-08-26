@@ -629,6 +629,64 @@ describe('App — paleta de comandos ⌘K', () => {
     expect(paletaDialogo()).toBeNull()
   })
 
+  // M1 del pase de a11y (Tarea 8, P0.8): el guard de arriba (INPUT/TEXTAREA)
+  // dejaba pasar ⌘K con el foco en un <button> real de la app — p. ej. el
+  // segmentado de densidad de Ajustes.svelte — o en un <select>/contenido
+  // contenteditable cualquiera. esObjetivoInteractivo (lib/surf.ts) es AHORA
+  // el único criterio, compartido con debeHacerSurf; estas tres pruebas
+  // habrían fallado con el guard viejo (ver surf.test.ts para el mismo
+  // criterio probado en aislamiento).
+  it('(M1) NO se abre con el foco en un <button> real de la app (p. ej. "Canal al azar")', async () => {
+    const fuente = fuenteFalsa()
+    render(App, { fuente })
+    const boton = await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    boton.focus()
+    expect(document.activeElement).toBe(boton)
+    await fireEvent.keyDown(boton, { key: 'k', metaKey: true })
+    await tick()
+
+    expect(paletaDialogo()).toBeNull()
+  })
+
+  it('(M1) NO se abre con el foco en un <select> ajeno', async () => {
+    const fuente = fuenteFalsa()
+    render(App, { fuente })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    const select = document.createElement('select')
+    document.body.appendChild(select)
+    select.focus()
+    expect(document.activeElement).toBe(select)
+    await fireEvent.keyDown(select, { key: 'k', metaKey: true })
+    await tick()
+
+    expect(paletaDialogo()).toBeNull()
+    select.remove()
+  })
+
+  it('(M1) NO se abre con el foco en contenido contenteditable', async () => {
+    const fuente = fuenteFalsa()
+    render(App, { fuente })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    const editable = document.createElement('div')
+    editable.setAttribute('contenteditable', 'true')
+    editable.tabIndex = 0
+    // jsdom no calcula isContentEditable a partir del atributo (mismo motivo
+    // que surf.test.ts): se fuerza para ejercitar la rama que sí lo comprueba
+    // en tiempo real de navegador.
+    Object.defineProperty(editable, 'isContentEditable', { value: true })
+    document.body.appendChild(editable)
+    editable.focus()
+    expect(document.activeElement).toBe(editable)
+    await fireEvent.keyDown(editable, { key: 'k', metaKey: true })
+    await tick()
+
+    expect(paletaDialogo()).toBeNull()
+    editable.remove()
+  })
+
   it('se INHIBE mientras el reproductor está abierto — RULING: un solo modal a la vez', async () => {
     const canales = [canalDePrueba('a')]
     const fuente = fuenteFalsa({ canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })) })
@@ -687,6 +745,43 @@ describe('App — paleta de comandos ⌘K', () => {
 
     await screen.findByRole('dialog', { name: 'a' }) // el Reproductor, no la paleta
     expect(paletaDialogo()).toBeNull()
+  })
+
+  // M2 del pase de a11y (Tarea 8, P0.8): abrir un canal DESDE la paleta hace
+  // que App cambie canalAbierto Y paletaAbierta EN EL MISMO gesto — la Paleta
+  // se desmonta y el Reproductor se monta en el mismo flush de Svelte. El
+  // onMount del Reproductor enfoca su botón "Cerrar" vía un microtask
+  // (tick().then...); el onDestroy de la Paleta restaura el foco al elemento
+  // previo-a-⌘K vía un macrotask (requestAnimationFrame) — sin guard, ese
+  // rAF corre DESPUÉS y le roba el foco de vuelta al botón "abrir" de la
+  // tarjeta de detrás. El guard de Paleta.svelte (sólo restaura si
+  // document.activeElement sigue en <body>) es lo que se prueba aquí: el
+  // foco correcto (el botón Cerrar del Reproductor) tiene que SOBREVIVIR más
+  // allá del primer rAF, no solo aparecer un instante.
+  it('(M2) tras abrir un canal desde la paleta, el foco queda y se QUEDA en "Cerrar" del Reproductor (no se lo roba el restore de la paleta)', async () => {
+    const canales = [canalDePrueba('a')]
+    const fuente = fuenteFalsa({ canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })) })
+    render(App, { fuente })
+    const abrirTarjeta = await screen.findByLabelText('a')
+    abrirTarjeta.focus()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+    await tick()
+    await fireEvent.click(screen.getByRole('option', { name: 'a' }))
+
+    const dialogoReproductor = await screen.findByRole('dialog', { name: 'a' })
+    const botonCerrar = within(dialogoReproductor).getByRole('button', { name: t('reproductor.cerrar') })
+    await tick()
+    expect(document.activeElement).toBe(botonCerrar)
+
+    // El "robo" ocurriría en el primer requestAnimationFrame tras el cierre
+    // de la paleta — se espera explícitamente esa vuelta del bucle de
+    // eventos y se reafirma que el foco SIGUE en Cerrar (no volvió a
+    // abrirTarjeta).
+    await new Promise<number>((resolve) => requestAnimationFrame(resolve))
+    await tick()
+    expect(document.activeElement).toBe(botonCerrar)
+    expect(document.activeElement).not.toBe(abrirTarjeta)
   })
 })
 
