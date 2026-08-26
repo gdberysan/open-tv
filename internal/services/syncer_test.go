@@ -1311,7 +1311,12 @@ func TestSincronizarFuente_FiltraProgramasFueraDeVentana(t *testing.T) {
 	doc := xmltvDoc("Uno",
 		progFixture{"Viejo", ahora.Add(-72 * time.Hour), ahora.Add(-70 * time.Hour)},      // terminó hace mucho
 		progFixture{"Vigente", ahora.Add(-10 * time.Minute), ahora.Add(20 * time.Minute)}, // dentro de la ventana
-		progFixture{"Futuro", ahora.Add(72 * time.Hour), ahora.Add(74 * time.Hour)},       // más allá de +48h
+		// EN CURSO cruzando el borde inferior: empezó ANTES de now-2h pero sigue
+		// emitiéndose ahora. El criterio de SOLAPE debe conservarlo (es "el ahora");
+		// un filtro ingenuo "inicio dentro de la ventana" lo descartaría — este es
+		// el caso que distingue una implementación de la otra.
+		progFixture{"EnCurso", ahora.Add(-3 * time.Hour), ahora.Add(1 * time.Hour)},
+		progFixture{"Futuro", ahora.Add(72 * time.Hour), ahora.Add(74 * time.Hour)}, // más allá de +48h
 	)
 	fetcher := &fakeFetcher{xml: doc}
 
@@ -1321,10 +1326,11 @@ func TestSincronizarFuente_FiltraProgramasFueraDeVentana(t *testing.T) {
 	}
 
 	guardados := epgRepo.ventana("fake")
-	if len(guardados) != 1 {
-		t.Fatalf("programas guardados = %d, quiero 1 (solo el vigente): %+v", len(guardados), guardados)
+	titulos := map[string]bool{}
+	for _, p := range guardados {
+		titulos[p.Titulo] = true
 	}
-	if guardados[0].Titulo != "Vigente" {
-		t.Errorf("programa guardado = %q, quiero %q", guardados[0].Titulo, "Vigente")
+	if len(guardados) != 2 || !titulos["Vigente"] || !titulos["EnCurso"] {
+		t.Fatalf("programas guardados = %+v, quiero exactamente {Vigente, EnCurso} (Viejo/Futuro fuera; EnCurso conservado por solape)", guardados)
 	}
 }
