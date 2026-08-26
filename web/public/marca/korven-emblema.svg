@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Korven emblem">
+  
+  <polygon points="64,12 110,38 110,90 64,116 18,90 18,38" fill="#171E29" stroke="#EFF3F8" stroke-width="3" stroke-linejoin="round"></polygon>
+  
+  <g stroke="#283142" stroke-width="2" stroke-linejoin="round">
+    <polyline points="64,12 64,64 110,38"></polyline>
+    <polyline points="64,64 110,90"></polyline>
+    <polyline points="64,64 18,90"></polyline>
+    <polyline points="64,64 18,38"></polyline>
+    <polyline points="64,64 64,116"></polyline>
+  </g>
+  
+  <polyline points="40,52 28,64 40,76" fill="none" stroke="#97A3B2" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>
+  
+  <circle cx="64" cy="64" r="9" fill="#FF8A2B"></circle>
+  <circle cx="64" cy="64" r="16" fill="none" stroke="#FF8A2B" stroke-opacity="0.30" stroke-width="2"></circle>
+</svg>
