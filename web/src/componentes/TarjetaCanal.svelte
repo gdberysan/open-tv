@@ -1,10 +1,12 @@
 <script lang="ts">
-  import type { Canal } from '../datos/catalogo'
+  import type { Readable } from 'svelte/store'
+  import type { AhoraDespues, Canal } from '../datos/catalogo'
   import MarcaWeb from './MarcaWeb.svelte'
   import LogoCanal from './LogoCanal.svelte'
   import SenalCanal from './SenalCanal.svelte'
   import { pareceGeoBloqueado } from '../lib/geo'
   import { parsearResolucion } from '../lib/resolucion'
+  import { formatearHoraLocal } from '../lib/hora'
   import { favoritos } from '../estado/favoritos'
   import { t } from '../i18n'
 
@@ -22,20 +24,45 @@
   // suelta (tests existentes incluidos). Solo cambia padding/tipografía vía
   // la clase .compacta (más abajo): el punto+ms+resolución (insignias) NO
   // encogen, para que sigan siendo legibles con la tarjeta más pequeña.
+  // epg (Tarea 8, P2): opcional, por el mismo motivo que focoActivo/densidad
+  // — no romper a nadie que use esta tarjeta suelta (tests existentes
+  // incluidos). Solo el store (T7) que App.svelte crea y RejillaVirtual
+  // reenvía; la tarjeta NUNCA pide datos (no llama a asegurar/ahoraDespuesDe
+  // como comando) — solo se SUSCRIBE para leer, así una misma instancia
+  // reciclada por la virtualización se entera sola de que su canal actual
+  // ya tiene guía cacheada, sin que nadie tenga que empujarle un nuevo prop
+  // por tarjeta.
   let {
     canal,
     alAbrir,
     indice,
     focoActivo = true,
     densidad = 'comoda',
+    epg,
   }: {
     canal: Canal
     alAbrir: (c: Canal) => void
     indice?: number
     focoActivo?: boolean
     densidad?: 'comoda' | 'compacta'
+    epg?: Readable<Map<string, AhoraDespues>>
   } = $props()
   const esFavorito = $derived($favoritos.has(canal.id))
+
+  // Sin epg (prop ausente): mapaEpg se queda en el Map vacío inicial para
+  // siempre — ahoraDespues da undefined y la línea de insignia (más abajo)
+  // queda vacía, exactamente el mismo resultado visible que "epg presente
+  // pero este canal sin guía". Con epg: el efecto se re-suscribe si la
+  // instancia del store cambiara (no pasa hoy — App crea una única
+  // instancia — pero es la forma correcta de tratar un prop reactivo).
+  let mapaEpg = $state<Map<string, AhoraDespues>>(new Map())
+  $effect(() => {
+    if (!epg) return
+    return epg.subscribe((m) => {
+      mapaEpg = m
+    })
+  })
+  const ahoraDespues = $derived(mapaEpg.get(canal.id))
   // El fallback img-o-iniciales (logoRoto/onerror) vive en LogoCanal.svelte
   // (fix final, hallazgo 1) — compartido con la fila de RejillaCanales en
   // modo lista, que antes se quedaba sin él.
@@ -92,6 +119,23 @@
       {/if}
       <MarcaWeb webOk={canal.webOk} />
     </div>
+
+    <!-- Insignia ahora/después (Tarea 8, P2 EPG). ALTURA FIJA reservada
+         SIEMPRE (ver .linea-epg más abajo) — con guía o sin ella: la rejilla
+         virtualizada (RejillaVirtual) mide UN alto de fila y asume filas
+         uniformes; si unas tarjetas midieran más que otras por tener texto
+         de guía y otras no, la ventana virtual se descuadraría. Texto
+         plano, sin aria-live (invariante P0.6/P0.8: esta tarjeta no es una
+         región live) — el lector de pantalla la lee como cualquier otro
+         texto de la tarjeta. Sin guía (ahoraDespues undefined, o
+         ahora=null): la tarjeta queda limpia a propósito — la honestidad
+         explícita de "sin guía" vive en el overlay del reproductor (Tarea
+         9), no aquí. -->
+    <p class="linea-epg">
+      {#if ahoraDespues?.ahora}
+        ● {t('epg.ahora')}: {ahoraDespues.ahora.titulo}{#if ahoraDespues.siguiente} · {t('epg.siguiente')} {formatearHoraLocal(ahoraDespues.siguiente.inicioSeg)} · {ahoraDespues.siguiente.titulo}{/if}
+      {/if}
+    </p>
   </footer>
 </article>
 
@@ -169,6 +213,24 @@
     color: var(--text-muted);
   }
   .geo { font-size: 10px; letter-spacing: .05em; padding: 1px 4px; border-radius: 3px; background: var(--graphite-600); color: var(--text-muted, var(--graphite-300)); }
+  /* Insignia ahora/después (Tarea 8, P2 EPG). height (no min-height) fija:
+     esta línea mide EXACTAMENTE lo mismo tenga o no texto — con guía, sin
+     guía, o con "ahora" pero sin "siguiente" — para que RejillaVirtual mida
+     una única altura de tarjeta uniforme sin importar qué canal tocó a cada
+     una. overflow:hidden + ellipsis: un título largo de programa nunca
+     empuja la altura ni desborda la tarjeta. */
+  .linea-epg {
+    margin: 0;
+    height: 14px;
+    line-height: 14px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font: var(--type-mono-label, inherit);
+    letter-spacing: var(--tracking-mono, normal);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
   /* Contraste (Tarea 18): --graphite-500 sobre --surface-card da 1.71:1 —
      el icono de favorito inactivo era casi invisible. --text-muted da
      6.54:1, con margen de sobra tanto si se trata como texto (glifo ★,

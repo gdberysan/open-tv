@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { Canal } from '../datos/catalogo'
+  import type { Readable } from 'svelte/store'
+  import type { AhoraDespues, Canal } from '../datos/catalogo'
   import RejillaVirtual from './RejillaVirtual.svelte'
   import SenalCanal from './SenalCanal.svelte'
   import MarcaWeb from './MarcaWeb.svelte'
@@ -11,13 +12,21 @@
   // densidad (Tarea 5, P0.8): solo tiene sentido en modo rejilla (RejillaVirtual);
   // la vista lista no usa TarjetaCanal ni tiene columnas que ensanchar/estrechar,
   // así que este componente solo la reenvía, sin decidir nada sobre ella.
-  let { canales, vista, cargando, alPedirMas, alAbrir, densidad = 'comoda' }: {
+  // epg/alVisiblesCambiar (Tarea 8, P2 EPG): puro paso — este componente
+  // decide el modo (rejilla/lista), no qué hacer con el store. Solo se
+  // reenvían a RejillaVirtual porque la insignia ahora/después (T8) vive en
+  // TarjetaCanal, que la vista de lista de más abajo NO usa (su propia fila
+  // <article> es un markup distinto, sin TarjetaCanal) — fuera de alcance de
+  // esta tarea.
+  let { canales, vista, cargando, alPedirMas, alAbrir, densidad = 'comoda', epg, alVisiblesCambiar }: {
     canales: Canal[]
     vista: 'rejilla' | 'lista'
     cargando: boolean
     alPedirMas: () => void
     alAbrir: (c: Canal) => void
     densidad?: 'comoda' | 'compacta'
+    epg?: Readable<Map<string, AhoraDespues>>
+    alVisiblesCambiar?: (ids: string[]) => void
   } = $props()
 
   let centinela: HTMLElement | undefined = $state()
@@ -45,7 +54,7 @@
        constatar "no hay nada". -->
   <Vacio />
 {:else if vista === 'rejilla'}
-  <RejillaVirtual {canales} {alAbrir} {alPedirMas} {densidad} />
+  <RejillaVirtual {canales} {alAbrir} {alPedirMas} {densidad} {epg} {alVisiblesCambiar} />
 {:else}
   <div class="canales lista" role="list" aria-label={t('rejilla.etiquetaLista')}>
     {#each canales as canal (canal.id)}

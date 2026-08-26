@@ -71,6 +71,35 @@ describe('RejillaVirtual', () => {
 
     expect(container.querySelectorAll('article').length).toBe(0)
   })
+
+  // Tarea 8 (P2, EPG): wiring de la ventana visible hacia el store epg (T7).
+  // RejillaVirtual no habla con epg directamente — solo REPORTA qué ids están
+  // en la ventana visible ahora mismo, vía este callback; quien la monta
+  // (App.svelte) decide qué hacer con ellos (epg.asegurar). Coalescencia: se
+  // llama con el LOTE visible cuando la ventana cambia, nunca una vez por
+  // tarjeta.
+  it('llama a alVisiblesCambiar con los ids de la ventana visible, en un solo lote', async () => {
+    const canales = Array.from({ length: 5 }, (_, i) => canalFalso(i))
+    const llamadas: string[][] = []
+    render(RejillaVirtual, {
+      canales,
+      alAbrir: () => {},
+      alPedirMas: () => {},
+      alVisiblesCambiar: (ids: string[]) => llamadas.push(ids),
+    })
+    await asentar()
+
+    expect(llamadas.length).toBeGreaterThan(0)
+    // jsdom sin layout real: los 5 caen en la ventana (mismo caso que
+    // "renderiza todos los canales cuando son pocos", arriba).
+    expect(llamadas[llamadas.length - 1]).toEqual(['0', '1', '2', '3', '4'])
+  })
+
+  it('sin alVisiblesCambiar (prop opcional): no revienta', async () => {
+    const canales = Array.from({ length: 5 }, (_, i) => canalFalso(i))
+    render(RejillaVirtual, { canales, alAbrir: () => {}, alPedirMas: () => {} })
+    await asentar()
+  })
 })
 
 // Tarea 5 (P0.8): densidad de la rejilla. jsdom no hace layout real (ver el

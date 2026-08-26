@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte'
-  import type { Canal } from '../datos/catalogo'
+  import type { Readable } from 'svelte/store'
+  import type { AhoraDespues, Canal } from '../datos/catalogo'
   import TarjetaCanal from './TarjetaCanal.svelte'
   import { t } from '../i18n'
 
@@ -58,11 +59,21 @@
   // de densidad: solo consume anchoMin, así que cambiar de densidad es
   // exactamente el mismo camino que un resize de ventana (agendarRecalculo
   // ya se dispara porque columnas es $derived de anchoMin).
-  let { canales, alAbrir, alPedirMas, densidad = 'comoda' }: {
+  // epg/alVisiblesCambiar (Tarea 8, P2 EPG): opcionales, mismo criterio que
+  // densidad — no romper a nadie que use esta rejilla suelta (tests
+  // existentes incluidos). epg se reenvía tal cual a cada <TarjetaCanal>
+  // (esta rejilla NUNCA lee el store, solo lo pasa); alVisiblesCambiar es el
+  // lado de ESCRITURA: reporta el lote de ids visibles cuando la ventana
+  // cambia, para que quien monte la rejilla (App.svelte) decida qué hacer
+  // con ellos (epg.asegurar) — RejillaVirtual no conoce epg.asegurar ni
+  // debe conocerlo, solo conoce "qué está en pantalla ahora mismo".
+  let { canales, alAbrir, alPedirMas, densidad = 'comoda', epg, alVisiblesCambiar }: {
     canales: Canal[]
     alAbrir: (c: Canal) => void
     alPedirMas: () => void
     densidad?: 'comoda' | 'compacta'
+    epg?: Readable<Map<string, AhoraDespues>>
+    alVisiblesCambiar?: (ids: string[]) => void
   } = $props()
 
   // Deben coincidir con el grid CSS de abajo (minmax(var(--ancho-min),1fr),
@@ -179,6 +190,16 @@
   const indiceInicio = $derived(filaInicio * columnas)
   const indiceFin = $derived(Math.min(canales.length, filaFin * columnas))
   const visibles = $derived(canales.slice(indiceInicio, indiceFin))
+
+  // Tarea 8 (P2, EPG): reporta el lote de ids visibles cuando la ventana
+  // cambia. COALESCENCIA: un solo array por cambio de ventana, nunca una
+  // llamada por tarjeta — visibles ya es la ventana entera (recalculada como
+  // mucho una vez por rAF, ver recalcularVentana), así que este efecto
+  // reacciona al mismo ritmo, no al de cada tarjeta individual.
+  $effect(() => {
+    if (!alVisiblesCambiar) return
+    alVisiblesCambiar(visibles.map((c) => c.id))
+  })
   // Fix ronda 1 (controlador, minor — doble GAP): un espaciador de N filas
   // ocultas NO necesita N*altoFila. El `gap:12px` de la propia grid YA pone
   // un separador entre el espaciador y la primera tarjeta visible (ese es
@@ -316,6 +337,7 @@
       {canal}
       {alAbrir}
       {densidad}
+      {epg}
       indice={indiceInicio + i}
       focoActivo={indiceInicio + i === activeIndex}
     />

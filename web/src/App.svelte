@@ -10,6 +10,7 @@
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
   import { reportarDesenlace } from './estado/estadisticas'
   import { historial, type EntradaHistorial } from './estado/historial'
+  import { crearEpg } from './estado/epg'
   import { debeHacerSurf, esObjetivoInteractivo } from './lib/surf'
   import BarraLateralFacetas from './componentes/BarraLateralFacetas.svelte'
   import RejillaCanales from './componentes/RejillaCanales.svelte'
@@ -61,6 +62,20 @@
     sondeoFuenteIntervaloMs?: number
     sondeoFuenteIntentosMax?: number
   } = $props()
+
+  // Tarea 8 (P2, EPG): único punto que crea el store epg (T7) — mismo
+  // principio que `fuente` arriba: App es el único componente que habla con
+  // CatalogSource, y epg necesita esa misma fuente para epgDeCanales. Se
+  // pasa hacia abajo (RejillaCanales → RejillaVirtual → TarjetaCanal) para
+  // LEER, y el callback alVisiblesCambiar (RejillaVirtual) es el único
+  // camino de ESCRITURA (epg.asegurar) — nunca al revés.
+  // untrack(): epg se crea UNA VEZ al montar, con la `fuente` que haya en
+  // ese instante — igual que desplazamiento en construirConsulta (ver más
+  // abajo), leer el prop reactivo fuera de un efecto/derived es a propósito
+  // (un `fuente` distinto en un test de componente no debe recrear el store
+  // a mitad de vida y perder su caché/intervalo), no un olvido de
+  // reactividad; sin untrack, svelte-check lo marca como warning.
+  const epg = crearEpg(untrack(() => fuente))
 
   // Puerta de entrada: hasta que /health confirme que el catálogo ya se
   // sincronizó una vez, no tiene sentido pedir /channels — la primera
@@ -622,6 +637,7 @@
 
   onDestroy(() => {
     detenerSondeoFuente()
+    epg.detener()
   })
 
   onMount(() => {
@@ -965,6 +981,8 @@
                 {alPedirMas}
                 alAbrir={abrirCanal}
                 densidad={$preferencias.densidad}
+                {epg}
+                alVisiblesCambiar={(ids) => epg.asegurar(ids)}
               />
             {/if}
           {/if}

@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent } from '@testing-library/svelte'
 import { render, screen } from '@testing-library/svelte'
+import { writable } from 'svelte/store'
 import TarjetaCanal from './TarjetaCanal.svelte'
-import type { Canal } from '../datos/catalogo'
+import type { AhoraDespues, Canal } from '../datos/catalogo'
 import { idioma } from '../i18n'
+import { formatearHoraLocal } from '../lib/hora'
 
 const base: Canal = {
   id: 'x', nombre: 'BBC One', logoUrl: '', categoriaId: 'General',
@@ -142,5 +144,63 @@ describe('TarjetaCanal', () => {
     expect(container.querySelector('img')).not.toBeNull()
     expect(container.querySelector('img')?.getAttribute('src')).toBe('http://bueno/logo.png')
     expect(container.querySelector('.sinlogo')).toBeNull()
+  })
+
+  // Tarea 8 (P2, EPG): insignia ahora/después. El store epg (T7) es
+  // Readable<Map<string, AhoraDespues>> — un `writable` de svelte/store con
+  // ese Map basta como doble de test, sin implementar asegurar/
+  // ahoraDespuesDe/detener (la tarjeta solo LEE el store, nunca lo pide).
+  describe('insignia ahora/después (EPG)', () => {
+    it('con guía presente: muestra "Ahora: <título>" y "Sig HH:MM · <título>" en hora local', () => {
+      const siguienteInicio = 1_700_003_400
+      const ahoraDespues: AhoraDespues = {
+        ahora: { titulo: 'Telediario', inicioSeg: 1_700_000_000, finSeg: 1_700_003_000 },
+        siguiente: { titulo: 'El Tiempo', inicioSeg: siguienteInicio, finSeg: 1_700_007_000 },
+      }
+      const epg = writable(new Map([['x', ahoraDespues]]))
+      const { container } = render(TarjetaCanal, { canal: base, alAbrir: () => {}, epg })
+
+      const texto = container.querySelector('.linea-epg')?.textContent ?? ''
+      expect(texto).toContain('Ahora: Telediario')
+      expect(texto).toContain(`Sig ${formatearHoraLocal(siguienteInicio)} · El Tiempo`)
+    })
+
+    it('con "ahora" pero sin "siguiente": muestra solo la línea de "Ahora"', () => {
+      const ahoraDespues: AhoraDespues = {
+        ahora: { titulo: 'Telediario', inicioSeg: 1_700_000_000, finSeg: 1_700_003_000 },
+        siguiente: null,
+      }
+      const epg = writable(new Map([['x', ahoraDespues]]))
+      const { container } = render(TarjetaCanal, { canal: base, alAbrir: () => {}, epg })
+
+      const texto = container.querySelector('.linea-epg')?.textContent ?? ''
+      expect(texto).toContain('Ahora: Telediario')
+      expect(texto).not.toContain('Sig')
+    })
+
+    it('sin guía para este canal (id ausente del Map del store): la tarjeta queda limpia', () => {
+      const epg = writable(new Map<string, AhoraDespues>())
+      const { container } = render(TarjetaCanal, { canal: base, alAbrir: () => {}, epg })
+
+      expect(container.querySelector('.linea-epg')?.textContent?.trim()).toBe('')
+      expect(container.querySelector('.linea-epg')).not.toBeNull() // la línea reservada existe igual
+    })
+
+    it('sin prop epg (uso suelto, tests existentes): tampoco muestra texto de EPG', () => {
+      const { container } = render(TarjetaCanal, { canal: base, alAbrir: () => {} })
+
+      expect(container.querySelector('.linea-epg')?.textContent?.trim()).toBe('')
+    })
+
+    it('no añade ningún aria-live nuevo (invariante P0.6/P0.8)', () => {
+      const ahoraDespues: AhoraDespues = {
+        ahora: { titulo: 'Telediario', inicioSeg: 1_700_000_000, finSeg: 1_700_003_000 },
+        siguiente: null,
+      }
+      const epg = writable(new Map([['x', ahoraDespues]]))
+      const { container } = render(TarjetaCanal, { canal: base, alAbrir: () => {}, epg })
+
+      expect(container.querySelector('.linea-epg')?.hasAttribute('aria-live')).toBe(false)
+    })
   })
 })
