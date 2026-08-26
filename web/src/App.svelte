@@ -68,6 +68,21 @@
     lateralAbierto = !lateralAbierto
   }
 
+  // Fix round 1 (Tarea 15): detectar el viewport estrecho para poder dejar
+  // inert el cajón cuando está fuera de pantalla — mismo patrón que
+  // RejillaVirtual.svelte (bind:innerWidth vía svelte:window, sin
+  // matchMedia). 900 DEBE coincidir con el @media (max-width: 900px) de la
+  // hoja de estilos de este componente: si cambia el breakpoint del CSS,
+  // este número cambia con él (es el mismo punto en el que el aside pasa de
+  // columna fija a cajón fixed+translateX). Nota (hallazgo real de este
+  // fix): un literal con corchetes angulares de una etiqueta especial
+  // (script/style/svelte:window) escrito DENTRO de un comentario de este
+  // bloque <script> confunde al compilador de Svelte ("`<script>` was left
+  // open" en svelte-check) aunque el mismo texto en un comentario HTML fuera
+  // del bloque es inofensivo — por eso aquí van sin los símbolos < >.
+  let innerWidth = $state(0)
+  let esEstrecho = $derived(innerWidth > 0 && innerWidth <= 900)
+
   // vistaStats: vista de depuración local, sin ruta de servidor propia. NO se
   // puede usar el PATH /stats para esto: el router (Tarea 13) ya registra
   // GET /stats como el endpoint JSON de verdad, ANTES del fallback SPA — un
@@ -377,8 +392,10 @@
 <!-- Tarea 11 (P0.6): gesto "surf". svelte:window en vez de un listener en un
      nodo concreto porque el espacio puede pulsarse con el foco en cualquier
      parte de la página (o en ningún control) — debeHacerSurf es la guarda
-     que decide si ESE objetivo concreto puede robarle el espacio. -->
-<svelte:window onkeydown={alTeclaVentana} />
+     que decide si ESE objetivo concreto puede robarle el espacio.
+     bind:innerWidth (fix round 1, Tarea 15): mismo <svelte:window> que ya
+     existía, un solo nodo — alimenta esEstrecho para el inert del cajón. -->
+<svelte:window onkeydown={alTeclaVentana} bind:innerWidth />
 
 <div class="fondo" inert={!!canalAbierto}>
   <div class="sala">
@@ -413,7 +430,22 @@
         {t('shell.facetas')}
       </button>
 
-      <aside class="facetas" id="panel-facetas" data-abierto={lateralAbierto}>
+      <!-- Fix round 1 (Tarea 15): en viewport estrecho el cajón cerrado se
+           saca de pantalla solo con transform (ver <style> .facetas bajo el
+           breakpoint) — sin inert, sus controles (buscador, filas de
+           facetas) seguían siendo alcanzables por Tab estando invisibles. Se
+           gatea con inert SOLO cuando esEstrecho Y está cerrado: en
+           escritorio (esEstrecho=false) la barra lateral es la columna fija
+           de siempre, nunca inert pase lo que pase lateralAbierto; con el
+           cajón abierto (lateralAbierto=true), tampoco. El botón que lo abre
+           vive FUERA de este aside (arriba, en .cuerpo), así que sigue
+           siendo alcanzable incluso con el aside inert. -->
+      <aside
+        class="facetas"
+        id="panel-facetas"
+        data-abierto={lateralAbierto}
+        inert={esEstrecho && !lateralAbierto}
+      >
         <!-- Tarea 6 (P0.6): contenido real de las facetas. -->
         <h2 class="sr-only">{t('shell.facetas')}</h2>
         <BarraLateralFacetas {paises} {categorias} {calidades} />

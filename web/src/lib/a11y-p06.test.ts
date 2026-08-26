@@ -78,6 +78,19 @@ function fuenteFalsa(overrides: Partial<CatalogSource> = {}): CatalogSource {
   }
 }
 
+// Fix round 1 (Tarea 15): App.svelte lee innerWidth vía <svelte:window
+// bind:innerWidth> (mismo patrón que RejillaVirtual.svelte) — jsdom expone
+// `window.innerWidth` como una propiedad normal (no de solo lectura como en
+// un navegador real), así que asignarla y disparar 'resize' a mano basta
+// para que el binding de Svelte la recoja, sin necesidad de mockear
+// matchMedia.
+function fijarAnchoVentana(px: number) {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: px })
+  window.dispatchEvent(new Event('resize'))
+}
+
+const ANCHO_ESCRITORIO_JSDOM = 1024 // valor por defecto de jsdom; > 900 ⇒ no estrecho
+
 beforeEach(() => {
   filtros.set({
     q: '', pais: '', categoria: '', calidad: '', mostrarOffline: false,
@@ -86,6 +99,7 @@ beforeEach(() => {
   favoritos.set(new Set())
   historial.borrar()
   idioma.actual = 'es'
+  fijarAnchoVentana(ANCHO_ESCRITORIO_JSDOM) // cada test arranca en ancho, salvo que diga lo contrario
   vi.mocked(consultarSalud).mockReset()
   vi.mocked(consultarSalud).mockImplementation(async () => ({
     sincronizando: false,
@@ -231,5 +245,59 @@ describe('a11y P0.6 — el vacío llega a la región polite persistente de App (
 
     const region = container.querySelector('[aria-live="polite"].sr-only')
     expect(region?.textContent).toBe('')
+  })
+})
+
+describe('a11y P0.6 fix round 1 — el cajón colapsado en viewport estrecho queda inert (no alcanzable por Tab)', () => {
+  // Hallazgo del informe original de la Tarea 15 (no arreglado entonces):
+  // bajo el breakpoint de 900px, el cajón cerrado se saca de pantalla solo
+  // con transform (translateX) — sin inert, sus controles seguían siendo
+  // tab-ables estando invisibles. Falsable: contra el código de antes de
+  // este fix (aside.facetas sin atributo inert en absoluto), las tres
+  // aserciones de abajo que esperan la PRESENCIA de inert habrían fallado
+  // (aside?.inert habría sido `undefined`, nunca `true`).
+  function aside(container: HTMLElement) {
+    return container.querySelector('aside.facetas') as (HTMLElement & { inert?: boolean }) | null
+  }
+
+  it('viewport estrecho + cajón cerrado: el aside queda inert', async () => {
+    fijarAnchoVentana(800)
+    const { container } = render(App, { fuente: fuenteFalsa() })
+    // lateralAbierto arranca en true (abierto) — se cierra con el mismo
+    // botón que usaría cualquier persona en viewport estrecho.
+    const boton = container.querySelector('button.boton-cajon') as HTMLElement
+    await fireEvent.click(boton)
+    await vi.waitFor(() => expect(aside(container)?.getAttribute('data-abierto')).toBe('false'))
+
+    expect(aside(container)?.inert).toBe(true)
+  })
+
+  it('viewport estrecho + cajón ABIERTO: el aside NO es inert (se puede usar mientras está desplegado)', async () => {
+    fijarAnchoVentana(800)
+    const { container } = render(App, { fuente: fuenteFalsa() })
+    // lateralAbierto arranca en true (ver App.svelte) — el efecto de
+    // fijarAnchoVentana(800) ya corrió en beforeEach de este describe vía
+    // el propio test, así que basta esperar a que esEstrecho se asiente.
+    await vi.waitFor(() => expect(aside(container)?.getAttribute('data-abierto')).toBe('true'))
+    expect(aside(container)?.inert).toBe(false)
+
+    const boton = container.querySelector('button.boton-cajon') as HTMLElement
+    await fireEvent.click(boton) // cierra
+    await vi.waitFor(() => expect(aside(container)?.inert).toBe(true))
+
+    await fireEvent.click(boton) // reabre — el botón vive FUERA del aside, nunca quedó inert
+    await vi.waitFor(() => expect(aside(container)?.inert).toBe(false))
+  })
+
+  it('viewport ANCHO: el aside nunca es inert, ni siquiera con el cajón "cerrado" (ahí no es un cajón, es la columna fija)', async () => {
+    const { container } = render(App, { fuente: fuenteFalsa() })
+    const boton = container.querySelector('button.boton-cajon') as HTMLElement
+
+    await fireEvent.click(boton) // lateralAbierto pasa a false
+    await vi.waitFor(() => expect(aside(container)?.getAttribute('data-abierto')).toBe('false'))
+
+    // Sigue en ancho (jsdom por defecto, 1024px > 900): esEstrecho es false,
+    // así que el inert NUNCA se activa pase lo que pase lateralAbierto.
+    expect(aside(container)?.inert).toBe(false)
   })
 })
