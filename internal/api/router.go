@@ -62,7 +62,7 @@ type Syncer interface {
 	SyncOne(ctx context.Context, id string) error
 }
 
-func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer Syncer, sources ports.SourceRepository, fuentesDir string, opts Options) http.Handler {
+func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository, sqlDB *sql.DB, syncer Syncer, sources ports.SourceRepository, fuentesDir string, epg ports.EPGRepository, opts Options) http.Handler {
 	r := chi.NewRouter()
 
 	// Primero: si el Host no es el loopback enlazado, se corta antes de que
@@ -83,6 +83,7 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	// externos, nunca de la propia app.
 	prober := handlers.NewAirplayProber(nil, 12*time.Hour, 2000, false)
 	ch := handlers.NewChannelHandler(logger, repo, provider, streams, prober)
+	eh := handlers.NewEPGHandler(logger, epg)
 
 	clienteWeb, hayClienteWeb := ui.Handler()
 
@@ -133,7 +134,9 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 		r.Get("/categories", ch.GetCategories)
 		r.Get("/qualities", ch.GetQualities)
 		r.Get("/random", ch.GetRandom)
+		r.Get("/epg", eh.GetEPGLote) // ?ids=<a,b,c>
 		r.Get("/{id}/health", ch.GetHealth)
+		r.Get("/{id}/epg", eh.GetEPGCanal) // ?limit=<n>
 	})
 
 	// El proxy HLS solo existe cuando escuchamos en loopback. No hay flag para
