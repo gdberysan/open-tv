@@ -31,4 +31,8 @@
   /* ---- Backdrop ---- */
   --backdrop:   rgba(10, 14, 21, 0.72); /* @kind color */
   --blur-panel: blur(12px); /* @kind other */
+
+  /* ---- P0.6: sombra/gradiente adicional (aditivo) ---- */
+  --scrim-gradient: linear-gradient(to top, rgba(7, 9, 14, 0.92), rgba(7, 9, 14, 0)); /* @kind color */
+  --shadow-panel:   0 24px 60px rgba(0, 0, 0, 0.5);
 }

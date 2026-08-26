@@ -25,6 +25,7 @@
   --graphite-200: #97A3B2; /* = acero   */
   --graphite-100: #C3CCD7;
   --graphite-050: #EFF3F8; /* = hueso   */
+  --graphite-950: #07090E; /* P0.6: lienzo más profundo que --surface-base */
   --white:        #FFFFFF;
 
   /* ---- Amber ramp (the single accent) ---- */
@@ -81,4 +82,10 @@
   --code-text:         var(--graphite-100);
   --code-comment:      var(--graphite-300);
   --code-accent:       var(--amber-400);
+
+  /* --- P0.6: lienzo más profundo y velos (aditivo; núcleo de marca intacto) --- */
+  --surface-abyss:     var(--graphite-950);  /* fondo del shell de dos columnas */
+  --scrim-strong:      rgba(10, 14, 21, 0.82); /* velo de badges sobre miniaturas */
+  --tint-amber-weak:   rgba(255, 138, 43, 0.10); /* relleno de filas destacadas */
+  --tint-amber-line:   rgba(255, 138, 43, 0.28); /* borde de filas destacadas */
 }
