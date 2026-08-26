@@ -150,3 +150,7 @@ jobs:
     uses: gdberysan/.github/.github/workflows/security.yml@main
     permissions:
       contents: read
+      # gitleaks-action llama a la API de PR commits cuando el evento es
+      # pull_request; sin este scope el job falla con 403 "Resource not
+      # accessible by integration" aunque no haya secretos.
+      pull-requests: read
