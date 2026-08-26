@@ -1,0 +1,33 @@
+/* ============================================================
+   KORVEN · FONTS
+   Space Grotesk · Inter · JetBrains Mono — de la brand board,
+   auto-hospedadas como variable fonts (un solo fichero .woff2
+   por familia cubre todos los pesos usados). Subset "latin"
+   (U+0000-00FF y símbolos comunes): cubre ES/EN, incluida la ñ.
+   ============================================================ */
+
+/* Fuentes auto-hospedadas: un solo binario, sin red, sin CDN externa. */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/space-grotesk-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-latin-wght-normal.woff2') format('woff2-variations');
+}

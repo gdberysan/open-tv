@@ -12,16 +12,13 @@ jobs:
   gateway:
     name: Gateway (Go)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: gateway
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: gateway/go.mod
-          cache-dependency-path: gateway/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
       - name: gofmt
         run: |
@@ -63,3 +60,104 @@ jobs:
 
       - name: flutter test
         run: flutter test
+
+  web:
+    name: Cliente web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # ffmpeg genera el fixture HLS del e2e. La imagen ubuntu-latest dejó de
+      # traerlo preinstalado (runner-images#9526), así que se instala
+      # explícito en vez de asumirlo: sin este paso, global-setup.ts falla
+      # con "spawnSync ffmpeg ENOENT" y el paso "ffmpeg -version | head -1"
+      # de antes lo escondía, porque sin `pipefail` el exit code del `head`
+      # (0) tapaba el de `ffmpeg` (127, "command not found") y el step
+      # aparecía en verde aunque el binario no existiera.
+      - name: ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -1
+
+      - name: npm ci
+        working-directory: web
+        run: npm ci
+
+      - name: svelte-check
+        working-directory: web
+        run: npm run check
+
+      - name: vitest
+        working-directory: web
+        run: npm test
+
+      - name: build del cliente
+        working-directory: web
+        run: npm run build
+
+      - name: presupuesto de bundle (<= 80 KB gzip de JS propio)
+        working-directory: web
+        run: |
+          # El JS propio es el chunk de entrada, NO el de hls.js (perezoso).
+          # Fix final, hallazgo 4: si Vite renombrara el chunk de entrada
+          # (deja de matchear 'index-*.js'), find no devolvería nada, total
+          # quedaría en 0 y "0 -gt 81920" es falso — el gate pasaría en
+          # silencio sin medir nada. Se cuenta ANTES de medir: exactamente
+          # UN chunk de entrada, o falla explícito con ::error::.
+          # $(( n )) normaliza el resultado de `wc -l` a un entero limpio
+          # (sin espacios de relleno, que algunas implementaciones de wc sí
+          # anteponen) sin depender de mapfile/readarray (bash 4+).
+          n=$(find ../internal/ui/dist/assets -maxdepth 1 -name 'index-*.js' | wc -l)
+          n=$((n))
+          if [ "$n" -ne 1 ]; then
+            echo "::error::se esperaba exactamente 1 chunk de entrada index-*.js en internal/ui/dist/assets, se encontraron ${n}"
+            exit 1
+          fi
+          archivo=$(find ../internal/ui/dist/assets -maxdepth 1 -name 'index-*.js')
+          total=$(gzip -c "$archivo" | wc -c)
+          echo "JS propio inicial: ${total} bytes gzip"
+          if [ "$total" -gt 81920 ]; then
+            echo "::error::el bundle propio supera 80 KB gzip (${total} B)"; exit 1
+          fi
+
+      # El embed es lo que convierte cliente y binario en un solo artefacto:
+      # si el build del cliente no aterriza donde Go lo espera, falla aquí.
+      - name: go build con el cliente embebido
+        run: go build ./... && go test ./internal/ui/...
+
+      - name: navegadores de Playwright
+        working-directory: web
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: e2e
+        working-directory: web
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 7
+
+  seguridad:
+    name: Seguridad
+    uses: gdberysan/.github/.github/workflows/security.yml@main
+    permissions:
+      contents: read
+      # gitleaks-action llama a la API de PR commits cuando el evento es
+      # pull_request; sin este scope el job falla con 403 "Resource not
+      # accessible by integration" aunque no haya secretos.
+      pull-requests: read

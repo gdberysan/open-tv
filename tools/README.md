@@ -28,7 +28,7 @@ sed -e "s|__RUTA_AL_REPO__|$PWD|g" -e "s|__RUTA_HOME__|$HOME|g" \
   tools/dev.korven.opentv.gateway.plist \
   > ~/Library/LaunchAgents/dev.korven.opentv.gateway.plist   # desde la raíz del repo
 
-cd gateway && go build -o server ./cmd/server && cd ..
+go build -o open-tv ./cmd/open-tv
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.korven.opentv.gateway.plist
 ```
 
@@ -40,9 +40,12 @@ Sirve el binario compilado, así que **tras tocar código Go hay que recompilar*
 si no, launchd sigue sirviendo la versión vieja sin quejarse:
 
 ```bash
-cd gateway && go build -o server ./cmd/server
+go build -o open-tv ./cmd/open-tv
 launchctl kickstart -k gui/$(id -u)/dev.korven.opentv.gateway
 ```
+
+`--no-browser` es obligatorio bajo launchd: un agente de fondo que abre el
+navegador al iniciar sesión es hostil.
 
 Para desinstalarlo:
 

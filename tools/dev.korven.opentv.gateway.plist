@@ -14,7 +14,9 @@
 	     que solo sirve para confundir a launchd sobre qué debe revivir. -->
 	<key>ProgramArguments</key>
 	<array>
-		<string>__RUTA_AL_REPO__/gateway/server</string>
+		<string>__RUTA_AL_REPO__/open-tv</string>
+		<string>serve</string>
+		<string>--no-browser</string>
 	</array>
 
 	<!-- DB_PATH es relativo al directorio de trabajo y launchd arranca en /.
@@ -22,12 +24,12 @@
 	     sirve cero canales, que es un fallo mucho peor de diagnosticar que un
 	     puerto cerrado. Va también explícito abajo, por si alguien toca esto. -->
 	<key>WorkingDirectory</key>
-	<string>__RUTA_AL_REPO__/gateway</string>
+	<string>__RUTA_AL_REPO__</string>
 
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>DB_PATH</key>
-		<string>__RUTA_AL_REPO__/gateway/iptv.db</string>
+		<string>__RUTA_AL_REPO__/.devdata/iptv.db</string>
 		<key>LISTEN_ADDR</key>
 		<string>127.0.0.1:8080</string>
 	</dict>

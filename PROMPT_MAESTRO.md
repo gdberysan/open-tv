@@ -57,22 +57,24 @@ Sistema open-source para agregación, indexación y reproducción de **televisi�
 ```
 iptv-ecosystem/
 │
-├── gateway/
-│   ├── cmd/server/main.go              # Entrypoint; solo wiring
-│   ├── internal/
-│   │   ├── domain/                     # Entidades puras — ZERO imports externos
-│   │   ├── ports/                      # Interfaces (entrada y salida)
-│   │   ├── services/                   # Casos de uso (Syncer)
-│   │   ├── adapters/
-│   │   │   ├── db/                     # SQLite repositories + schema.sql
-│   │   │   ├── validator/              # Health-check de streams (pool HEAD→GET)
-│   │   │   └── providers/
-│   │   │       └── opensource/         # IPTV-org y fuentes públicas M3U
-│   │   └── api/
-│   │       ├── handlers/               # HTTP handlers, uno por recurso
-│   │       └── middleware/             # Logging, rate-limit, CORS, recover
-│   ├── go.mod
-│   └── go.sum
+├── cmd/open-tv/main.go                  # Entrypoint; solo wiring
+├── internal/
+│   ├── domain/                          # Entidades puras — ZERO imports externos
+│   ├── ports/                           # Interfaces (entrada y salida)
+│   ├── services/                        # Casos de uso (Syncer)
+│   ├── adapters/
+│   │   ├── db/                          # SQLite repositories + schema.sql
+│   │   ├── validator/                   # Health-check de streams (pool HEAD→GET)
+│   │   └── providers/
+│   │       └── opensource/              # IPTV-org y fuentes públicas M3U
+│   ├── api/
+│   │   ├── handlers/                    # HTTP handlers, uno por recurso
+│   │   └── middleware/                  # Logging, rate-limit, CORS, recover
+│   └── ui/dist/                         # Cliente web construido, embebido con go:embed
+├── go.mod
+├── go.sum
+│
+├── web/                                 # Cliente web (Svelte); `npm run build` → internal/ui/dist/
 │
 ├── mobile/                             # Flutter app (solo target macOS activo)
 │   ├── lib/

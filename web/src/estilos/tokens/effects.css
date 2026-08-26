@@ -1,0 +1,34 @@
+/* ============================================================
+   KORVEN · EFFECTS — shadows, rings, motion, motifs
+   On a dark canvas, depth comes from subtle lift + a faint amber
+   glow, never heavy drop shadows. Motion is calm and precise.
+   ============================================================ */
+
+:root {
+  /* ---- Elevation (cool, low-spread on dark surfaces) ---- */
+  --shadow-xs:   0 1px 2px rgba(0, 0, 0, 0.40);
+  --shadow-sm:   0 2px 8px rgba(0, 0, 0, 0.45);
+  --shadow-md:   0 8px 24px rgba(0, 0, 0, 0.50);
+  --shadow-lg:   0 18px 48px rgba(0, 0, 0, 0.55);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* ---- Amber glow (focus, active emblem eye) ---- */
+  --glow-amber-sm: 0 0 0 1px rgba(255, 138, 43, 0.40), 0 0 12px rgba(255, 138, 43, 0.25);
+  --glow-amber-md: 0 0 24px rgba(255, 138, 43, 0.35);
+  --ring-focus:    0 0 0 3px var(--amber-glow);
+
+  /* ---- Hairline edge highlight for cards ---- */
+  --edge-top: inset 0 1px 0 rgba(255, 255, 255, 0.05); /* @kind shadow */
+
+  /* ---- Motion ---- */
+  --ease-out:   cubic-bezier(0.16, 1, 0.3, 1);  /* @kind other */ /* precise settle */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);  /* @kind other */
+  --ease-snap:  cubic-bezier(0.34, 1.4, 0.5, 1); /* @kind other */ /* slight overshoot */
+  --dur-fast:   120ms; /* @kind other */
+  --dur-base:   200ms; /* @kind other */
+  --dur-slow:   360ms; /* @kind other */
+
+  /* ---- Backdrop ---- */
+  --backdrop:   rgba(10, 14, 21, 0.72); /* @kind color */
+  --blur-panel: blur(12px); /* @kind other */
+}

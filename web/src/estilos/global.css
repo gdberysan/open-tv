@@ -1,0 +1,40 @@
+@import './tokens/base.css';
+@import './tokens/colors.css';
+@import './tokens/fonts.css';
+@import './tokens/spacing.css';
+@import './tokens/typography.css';
+@import './tokens/effects.css';
+
+/* El ámbar es SEÑAL VIVA: canal en directo, filtro activo, foco. Un botón
+   neutro no lleva ámbar. Esta regla gobierna todo el tema; ver la memoria del
+   proyecto y el sistema de diseño de Korven. */
+
+html, body {
+  margin: 0;
+  background: var(--surface-base);
+  color: var(--text-body);
+  font-family: var(--font-body, system-ui, sans-serif);
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber-500);
+  outline-offset: 2px;
+}
+
+/* Visualmente oculto pero legible por lectores de pantalla (Tarea 18, fix
+   round 1). Patrón estándar — NO usar display:none/visibility:hidden, que
+   sacarían el nodo del árbol de accesibilidad y anularían justo lo que esta
+   clase existe para conseguir: una región aria-live PERSISTENTE (montada
+   siempre, aunque vacía) cuyo texto se actualiza en vez de montarse/
+   desmontarse junto a su contenido — ver App.svelte y Reproductor.svelte. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+  padding: 0;
+  margin: -1px;
+}
