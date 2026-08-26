@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { onDestroy, onMount, untrack } from 'svelte'
   import { get } from 'svelte/store'
   import { idioma, t } from './i18n'
   import { crearHttpCatalog } from './datos/http'
@@ -20,15 +20,34 @@
   import BarraAcciones from './componentes/BarraAcciones.svelte'
   import ContinuarViendo from './componentes/ContinuarViendo.svelte'
   import Onboarding from './componentes/Onboarding.svelte'
+  import SincronizandoFuente from './componentes/SincronizandoFuente.svelte'
 
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
+
+  // Fix round 1 (Tarea 6, P0.7): cadencia/tope del sondeo tras añadir una
+  // fuente. 1.5s / 60 intentos ≈ 90s — las listas grandes (iptv-org global)
+  // pueden tardar decenas de segundos en sincronizar del lado del backend.
+  const SONDEO_FUENTE_INTERVALO_MS = 1500
+  const SONDEO_FUENTE_INTENTOS_MAX = Math.ceil(90_000 / SONDEO_FUENTE_INTERVALO_MS)
 
   // fuente es inyectable (Tarea 15): en producción cae en crearHttpCatalog,
   // pero los tests de componente pueden pasar un CatalogSource falso sin
   // tocar la red. Único punto del cliente que habla con CatalogSource: todos
   // los demás componentes leen stores y emiten callbacks.
-  let { fuente = crearHttpCatalog('') }: { fuente?: CatalogSource } = $props()
+  //
+  // sondeoFuenteIntervaloMs/sondeoFuenteIntentosMax son inyectables SOLO para
+  // tests (fix round 1, Tarea 6): sin esto, un test tendría que avanzar
+  // timers falsos ~90s reales (60 intentos) para ejercitar el caso de tope.
+  let {
+    fuente = crearHttpCatalog(''),
+    sondeoFuenteIntervaloMs = SONDEO_FUENTE_INTERVALO_MS,
+    sondeoFuenteIntentosMax = SONDEO_FUENTE_INTENTOS_MAX,
+  }: {
+    fuente?: CatalogSource
+    sondeoFuenteIntervaloMs?: number
+    sondeoFuenteIntentosMax?: number
+  } = $props()
 
   // Puerta de entrada: hasta que /health confirme que el catálogo ya se
   // sincronizó una vez, no tiene sentido pedir /channels — la primera
@@ -55,6 +74,21 @@
   // que fuente.fuentes() llegue a resolver.
   let fuentes = $state<Fuente[]>([])
   let fuentesCargadas = $state(false)
+
+  // Fix round 1 (Tarea 6, P0.7 — gate real en Chrome del controlador): tras
+  // crear una fuente, el backend la sincroniza de forma ASÍNCRONA — un solo
+  // refetch inmediato (el código original) casi siempre ve total=0 todavía.
+  // sondeandoFuenteNueva/sondeoAgotado gobiernan un tercer estado visible
+  // (SincronizandoFuente.svelte) que sondea el catálogo hasta que aparecen
+  // canales o se agota el tope. idSondeoActual seguido el mismo patrón que
+  // peticionActual: invalida cualquier tick de un sondeo anterior (reintento
+  // superpuesto, o componente desmontado) para que nunca dos sondeos
+  // escriban intentosSondeo/estado a la vez.
+  let sondeandoFuenteNueva = $state(false)
+  let sondeoAgotado = $state(false)
+  let intentosSondeo = 0
+  let idSondeoActual = 0
+  let temporizadorSondeo: ReturnType<typeof setTimeout> | undefined
 
   // Descarta respuestas de peticiones que ya no son la última: cambiar de
   // filtro dos veces seguidas no puede dejar pintada la respuesta de la
@@ -246,7 +280,10 @@
     // sinFuentes (Tarea 6, P0.7): sin catálogo que surfear, el mismo espacio
     // debe dejar que el navegador haga lo suyo (p. ej. scroll) en vez de
     // llamar a fuente.aleatorio() sobre un catálogo que se sabe vacío.
-    if (canalAbierto || fase.tipo !== 'listo' || vistaStats || sinFuentes) return
+    // sondeandoFuenteNueva/sondeoAgotado (fix round 1): mismo motivo mientras
+    // se sondea tras añadir una fuente — el catálogo puede seguir en 0.
+    if (canalAbierto || fase.tipo !== 'listo' || vistaStats || sinFuentes || sondeandoFuenteNueva || sondeoAgotado)
+      return
     if (!debeHacerSurf(e)) return
     e.preventDefault()
     alAleatorio()
@@ -293,20 +330,80 @@
     fase = { tipo: 'listo' }
   }
 
-  // Tarea 6 (P0.7): Onboarding ya recibió la Fuente creada como valor de
-  // retorno de anadirFuente*/fuentesSugeridas (el propio backend la crea al
-  // sincronizar) — no hace falta un fetch adicional a fuente.fuentes() para
-  // saber que ya no está vacía. Lo que SÍ falta es el catálogo: el backend
-  // sincroniza la fuente nueva de forma asíncrona, así que se reutiliza TAL
-  // CUAL la fase 'sincronizando' que ya existe (Sincronizando.svelte hace
-  // polling de /health cada 2s y llama a alSincronizado en cuanto termina),
-  // que a su vez retrigger el $effect de claveConsulta (lee fase.tipo) y
-  // vuelve a pedir la página 1 — el mismo camino que ya cubre el arranque
-  // normal, sin inventar un segundo mecanismo de espera.
+  // Fix round 1 (Tarea 6, P0.7): PARAR cualquier temporizador de sondeo
+  // pendiente. Se llama al empezar un sondeo nuevo (evita dos sondeos
+  // corriendo a la vez si alguien pulsa "Reintentar" dos veces) y al
+  // desmontar App (ver onDestroy más abajo). Bumpear idSondeoActual aquí
+  // (no solo en iniciarSondeoFuente) invalida también un tick YA EN VUELO
+  // —esperando la respuesta de cargarPagina— para que, al resolver después
+  // de este punto, su comprobación `idPropio !== idSondeoActual` lo
+  // descarte: sin esto, un desmontaje a mitad de una petición en curso
+  // seguiría escribiendo estado (sondeandoFuenteNueva/sondeoAgotado) sobre
+  // un componente ya fuera.
+  function detenerSondeoFuente() {
+    if (temporizadorSondeo !== undefined) clearTimeout(temporizadorSondeo)
+    temporizadorSondeo = undefined
+    idSondeoActual++
+  }
+
+  // Un tick del sondeo: reutiliza cargarPagina(true) tal cual (mismo camino
+  // que ya cubre carga inicial/cambio de filtro, con su propio guardián de
+  // peticionActual para descartar respuestas fuera de orden) y comprueba
+  // `total` DESPUÉS — nunca duplica la lógica de qué hacer con la página
+  // recibida. idPropio descarta este tick si, mientras esperaba la
+  // respuesta, un "Reintentar" (u onDestroy) ya invalidó este sondeo.
+  async function comprobarSondeoFuente(idPropio: number) {
+    await cargarPagina(true)
+    if (idPropio !== idSondeoActual) return
+    if (total > 0) {
+      sondeandoFuenteNueva = false
+      return
+    }
+    intentosSondeo++
+    if (intentosSondeo >= sondeoFuenteIntentosMax) {
+      sondeandoFuenteNueva = false
+      sondeoAgotado = true
+      return
+    }
+    temporizadorSondeo = setTimeout(() => comprobarSondeoFuente(idPropio), sondeoFuenteIntervaloMs)
+  }
+
+  function iniciarSondeoFuente() {
+    detenerSondeoFuente()
+    const idPropio = ++idSondeoActual
+    intentosSondeo = 0
+    sondeandoFuenteNueva = true
+    sondeoAgotado = false
+    // Primer intento INMEDIATO (sin esperar el primer intervalo): mismo
+    // patrón que el comprobar()+setInterval de Sincronizando.svelte — para
+    // listas pequeñas, el backend puede haber terminado de sincronizar ya
+    // cuando anadirFuente* devolvió.
+    comprobarSondeoFuente(idPropio)
+  }
+
+  function reintentarSondeoFuente() {
+    iniciarSondeoFuente()
+  }
+
+  // Tarea 6 (P0.7) — fix round 1: Onboarding ya recibió la Fuente creada
+  // como valor de retorno de anadirFuente*/fuentesSugeridas (el propio
+  // backend la crea al sincronizar) — no hace falta un fetch adicional a
+  // fuente.fuentes() para saber que ya no está vacía. Lo que SÍ falta es el
+  // CATÁLOGO: el backend sincroniza la fuente nueva de forma asíncrona (el
+  // gate real en Chrome del controlador cazó esto: un solo refetch
+  // inmediato casi siempre ve total=0 todavía, y nada volvía a mirar). La
+  // fase 'sincronizando' NO sirve aquí — Sincronizando.svelte hace polling
+  // de /health, que refleja la sincronización INICIAL del catálogo entero,
+  // no si ESTA fuente concreta ya tiene canales — así que se sondea el
+  // catálogo directamente (ver iniciarSondeoFuente).
   function alFuenteAnadida(f: Fuente) {
     fuentes = [...fuentes, f]
-    fase = { tipo: 'sincronizando' }
+    iniciarSondeoFuente()
   }
+
+  onDestroy(() => {
+    detenerSondeoFuente()
+  })
 
   onMount(() => {
     comprobarSalud()
@@ -390,12 +487,22 @@
   // filtro" (el texto de Vacio.svelte, pensado para un FILTRO demasiado
   // estrecho) encima de una pantalla que en realidad pide una fuente, un
   // mensaje falso para quien lo escucha por lector de pantalla.
+  //
+  // Fix round 1 (Tarea 6, P0.7): sondeandoFuenteNueva/sondeoAgotado se
+  // añaden a esta MISMA cadena derivada (nunca una región nueva, mismo
+  // invariante que el resto de este bloque) — cubren la transición "fuente
+  // añadida, sincronizando…" y, si se agota el tope, el aviso de que
+  // todavía no hay canales.
   let mensajePoliteAccesible = $derived(
     fase.tipo === 'sincronizando'
       ? t('estado.sincronizando')
-      : catalogoVacio && !sinFuentes
-        ? t('catalogo.vacio')
-        : '',
+      : sondeandoFuenteNueva
+        ? t('onboarding.sondeo.titulo')
+        : sondeoAgotado
+          ? t('onboarding.sondeo.agotado')
+          : catalogoVacio && !sinFuentes
+            ? t('catalogo.vacio')
+            : '',
   )
   let mensajeErrorAccesible = $derived(
     fase.tipo === 'error'
@@ -521,7 +628,17 @@
         {:else if fase.tipo === 'error'}
           <MensajeError clase={fase.clase} />
         {:else if fase.tipo === 'listo'}
-          {#if sinFuentes}
+          {#if sondeandoFuenteNueva || sondeoAgotado}
+            <!-- Fix round 1 (Tarea 6, P0.7): tras añadir una fuente, ANTES de
+                 volver al Onboarding o al shell normal — se comprueba
+                 primero que sinFuentes (justo abajo), porque fuentes ya deja
+                 de estar vacío en cuanto alFuenteAnadida la añade, pero el
+                 catálogo (total) todavía puede seguir en 0 mientras el
+                 backend sincroniza. Sin esta rama PRIMERO, sinFuentes pasaría
+                 a false y se vería la rejilla vacía de siempre — exactamente
+                 el bug real que cazó el gate en Chrome del controlador. -->
+            <SincronizandoFuente agotado={sondeoAgotado} alReintentar={reintentarSondeoFuente} />
+          {:else if sinFuentes}
             <!-- Tarea 6 (P0.7): catálogo listo pero sin ninguna fuente
                  bring-your-own — primer arranque en limpio. Sustituye TODO
                  el bloque de abajo (héroe/acciones/pista de surf/rejilla): no

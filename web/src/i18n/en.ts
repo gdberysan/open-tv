@@ -120,4 +120,9 @@ export const en: Record<ClaveMensaje, string> = {
   'onboarding.sugeridas.anadir': 'Add {label}',
   'onboarding.error': 'Could not add the source. Check the URL and try again.',
   'onboarding.disclaimer': 'Open TV is a player: it hosts no content. You choose your sources and you are responsible for them.',
+
+  'onboarding.sondeo.titulo': 'Syncing the source…',
+  'onboarding.sondeo.detalle': "It can take a few seconds, depending on the list's size.",
+  'onboarding.sondeo.agotado': 'The source was added but no channels have shown up yet. It may take longer, or the list could be empty.',
+  'onboarding.sondeo.reintentar': 'Retry',
 }

@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, fireEvent, screen } from '@testing-library/svelte'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, fireEvent, screen, within } from '@testing-library/svelte'
 import App from './App.svelte'
 import type { Canal, CatalogSource, ConsultaCatalogo, Fuente, PaginaCanales } from './datos/catalogo'
 import { filtros } from './estado/filtros'
@@ -243,12 +243,20 @@ describe('App — onboarding cuando no hay fuentes (Tarea 6, P0.7)', () => {
     expect(screen.queryByText(t('onboarding.titulo'))).toBeNull()
   })
 
-  it('añadir una fuente desde el Onboarding hace que desaparezca y el resto del shell aparezca', async () => {
+  it('añadir una fuente cuyo primer sondeo ya ve canales hace que el Onboarding desaparezca y el resto del shell aparezca', async () => {
     const nueva: Fuente = {
       id: 'nueva', label: 'Nueva', url: 'https://ej.test/nueva.m3u', kind: 'url', ultimoSync: null, canales: 0,
     }
     const anadirFuente = vi.fn(async () => nueva)
-    const fuente = fuenteFalsa({ fuentes: vi.fn(async () => []), anadirFuente })
+    // Primera llamada (carga inicial, catálogo aún vacío) → total 0, la que
+    // dispara sinFuentes; TODAS las siguientes (el sondeo tras añadir) → ya
+    // hay canales — el sondeo inmediato (sin esperar ningún temporizador,
+    // ver iniciarSondeoFuente) basta para salir sin tocar timers falsos.
+    const canales = vi.fn()
+    canales
+      .mockResolvedValueOnce({ canales: [], total: 0 })
+      .mockResolvedValue({ canales: [canalDePrueba('a')], total: 1 })
+    const fuente = fuenteFalsa({ fuentes: vi.fn(async () => []), anadirFuente, canales })
     render(App, { fuente })
 
     const campo = await screen.findByLabelText(t('onboarding.url.etiqueta'))
@@ -257,13 +265,139 @@ describe('App — onboarding cuando no hay fuentes (Tarea 6, P0.7)', () => {
     await fireEvent.click(boton)
 
     await vi.waitFor(() => expect(anadirFuente).toHaveBeenCalledWith('https://ej.test/nueva.m3u'))
-    // Mecanismo de refresco (ver App.svelte, alFuenteAnadida): la Fuente ya
-    // creada se añade en el momento a `fuentes` (sinFuentes pasa a false de
-    // inmediato) y fase pasa por 'sincronizando' — como consultarSalud() está
-    // mockeado a nivel de fichero para responder siempre "ya sincronizado",
-    // Sincronizando.svelte llama a alListo() casi enseguida en su propio
-    // onMount, así que basta con esperar a que el Onboarding se desmonte.
     await vi.waitFor(() => expect(screen.queryByText(t('onboarding.titulo'))).toBeNull())
     await screen.findByRole('button', { name: t('accion.aleatorio') })
+  })
+})
+
+describe('App — fix round 1 (Tarea 6, P0.7): sondeo del catálogo tras añadir una fuente', () => {
+  // Gate real en Chrome del controlador: el backend sincroniza la fuente
+  // nueva de forma ASÍNCRONA — un solo refetch inmediato tras el 201 casi
+  // siempre ve total=0 todavía, y (código anterior a este fix) nada volvía a
+  // mirar. Estos dos tests son falsables contra ESE código: con un solo
+  // refetch, ninguno de los dos vería jamás
+  // onboarding.sondeo.titulo/agotado, porque esas cadenas ni siquiera
+  // existían.
+  const INTERVALO_TEST_MS = 10 // rápido a propósito — sondeoFuenteIntervaloMs es inyectable solo para tests
+
+  function nuevaFuenteDePrueba(): Fuente {
+    return { id: 'nueva', label: 'Nueva', url: 'https://ej.test/nueva.m3u', kind: 'url', ultimoSync: null, canales: 0 }
+  }
+
+  async function anadirDesdeOnboarding() {
+    const campo = await screen.findByLabelText(t('onboarding.url.etiqueta'))
+    await fireEvent.input(campo, { target: { value: 'https://ej.test/nueva.m3u' } })
+    const boton = screen.getByRole('button', { name: t('onboarding.anadir') })
+    await fireEvent.click(boton)
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('total=0 en los primeros intentos y luego >0: se ve "sincronizando la fuente", después desaparece y aparece la rejilla', async () => {
+    vi.useFakeTimers()
+    // Llamada 1: carga inicial (sinFuentes). Llamadas 2 y 3 (sondeo,
+    // intentos 1 y 2): total sigue en 0 — el bug real que este fix corrige.
+    // Llamada 4 (sondeo, intento 3): el backend ya terminó de sincronizar.
+    const canales = vi.fn()
+    canales
+      .mockResolvedValueOnce({ canales: [], total: 0 })
+      .mockResolvedValueOnce({ canales: [], total: 0 })
+      .mockResolvedValueOnce({ canales: [], total: 0 })
+      .mockResolvedValue({ canales: [canalDePrueba('a')], total: 160 })
+    const anadirFuente = vi.fn(async () => nuevaFuenteDePrueba())
+    const fuente = fuenteFalsa({ fuentes: vi.fn(async () => []), anadirFuente, canales })
+
+    // Consultas ámbito <main> (dentro de `within`): las regiones aria-live
+    // PERSISTENTES de App también reflejan `onboarding.sondeo.titulo`/
+    // `agotado` como texto plano (fuera de <main>) — sin acotar, getByText
+    // encuentra DOS nodos con el mismo texto (el visible y el anunciado) y
+    // lanza "multiple elements found". Acotar a <main> comprueba la copia
+    // VISIBLE sin desactivar esa comprobación de accesibilidad (que hacen
+    // los otros tests de a11y de este mismo repo).
+    const { container } = render(App, { fuente, sondeoFuenteIntervaloMs: INTERVALO_TEST_MS, sondeoFuenteIntentosMax: 5 })
+    const main = () => within(container.querySelector('main') as HTMLElement)
+    await vi.advanceTimersByTimeAsync(0) // resuelve onMount (salud/facetas/fuentes) + la carga inicial
+
+    expect(main().getByText(t('onboarding.titulo'))).not.toBeNull()
+
+    await anadirDesdeOnboarding()
+    await vi.advanceTimersByTimeAsync(0) // anadirFuente resuelve → iniciarSondeoFuente → intento 1 (inmediato)
+
+    // El Onboarding ya se fue (fuentes dejó de estar vacío) pero la rejilla
+    // TODAVÍA no debe verse — total sigue en 0 tras el intento 1. Esto es
+    // justo lo que el código pre-fix hacía mal: mostraba "0 canales" aquí.
+    expect(main().queryByText(t('onboarding.titulo'))).toBeNull()
+    expect(main().getByText(t('onboarding.sondeo.titulo'))).not.toBeNull()
+    expect(main().queryByRole('button', { name: t('accion.aleatorio') })).toBeNull()
+    expect(canales).toHaveBeenCalledTimes(2)
+
+    await vi.advanceTimersByTimeAsync(INTERVALO_TEST_MS) // intento 2: total sigue en 0
+    expect(canales).toHaveBeenCalledTimes(3)
+    expect(main().getByText(t('onboarding.sondeo.titulo'))).not.toBeNull()
+
+    await vi.advanceTimersByTimeAsync(INTERVALO_TEST_MS) // intento 3: total=160 → éxito
+    expect(canales).toHaveBeenCalledTimes(4)
+
+    expect(main().queryByText(t('onboarding.sondeo.titulo'))).toBeNull()
+    expect(main().queryByText(t('onboarding.titulo'))).toBeNull()
+    expect(main().getByRole('button', { name: t('accion.aleatorio') })).not.toBeNull()
+  })
+
+  it('total=0 en todos los intentos: al agotar el tope aparece el aviso honesto con «Reintentar»', async () => {
+    vi.useFakeTimers()
+    const canales = vi.fn(async (): Promise<PaginaCanales> => ({ canales: [], total: 0 })) // nunca hay canales
+    const anadirFuente = vi.fn(async () => nuevaFuenteDePrueba())
+    const fuente = fuenteFalsa({ fuentes: vi.fn(async () => []), anadirFuente, canales })
+
+    const { container } = render(App, { fuente, sondeoFuenteIntervaloMs: INTERVALO_TEST_MS, sondeoFuenteIntentosMax: 3 })
+    const main = () => within(container.querySelector('main') as HTMLElement)
+    await vi.advanceTimersByTimeAsync(0) // carga inicial → Onboarding
+
+    await anadirDesdeOnboarding()
+    await vi.advanceTimersByTimeAsync(0) // intento 1/3
+    expect(main().getByText(t('onboarding.sondeo.titulo'))).not.toBeNull()
+    expect(main().queryByText(t('onboarding.sondeo.agotado'))).toBeNull()
+
+    await vi.advanceTimersByTimeAsync(INTERVALO_TEST_MS) // intento 2/3
+    expect(main().queryByText(t('onboarding.sondeo.agotado'))).toBeNull()
+
+    await vi.advanceTimersByTimeAsync(INTERVALO_TEST_MS) // intento 3/3: se agota el tope
+    expect(main().getByText(t('onboarding.sondeo.agotado'))).not.toBeNull()
+
+    const reintentar = main().getByRole('button', { name: t('onboarding.sondeo.reintentar') })
+    expect(reintentar).not.toBeNull()
+    // NO silencios (brief): ni la rejilla ni el Onboarding vuelven a
+    // aparecer solos — hace falta la acción explícita de "Reintentar".
+    expect(main().queryByRole('button', { name: t('accion.aleatorio') })).toBeNull()
+    expect(main().queryByText(t('onboarding.titulo'))).toBeNull()
+
+    // "Reintentar" vuelve a sondear desde cero: mismo camino, nueva
+    // oportunidad de éxito si el backend ya terminó.
+    canales.mockImplementation(async () => ({ canales: [canalDePrueba('a')], total: 42 }))
+    await fireEvent.click(reintentar)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(main().queryByText(t('onboarding.sondeo.agotado'))).toBeNull()
+    expect(main().getByRole('button', { name: t('accion.aleatorio') })).not.toBeNull()
+  })
+
+  it('desmontar App durante el sondeo no deja timers sueltos (no llama a canales() otra vez tras desmontar)', async () => {
+    vi.useFakeTimers()
+    const canales = vi.fn(async () => ({ canales: [], total: 0 })) // nunca hay canales
+    const anadirFuente = vi.fn(async () => nuevaFuenteDePrueba())
+    const fuente = fuenteFalsa({ fuentes: vi.fn(async () => []), anadirFuente, canales })
+
+    const { unmount } = render(App, { fuente, sondeoFuenteIntervaloMs: INTERVALO_TEST_MS, sondeoFuenteIntentosMax: 60 })
+    await vi.advanceTimersByTimeAsync(0)
+    await anadirDesdeOnboarding()
+    await vi.advanceTimersByTimeAsync(0) // intento 1, programa el intento 2
+
+    const llamadasAntesDeDesmontar = canales.mock.calls.length
+    unmount()
+
+    await vi.advanceTimersByTimeAsync(INTERVALO_TEST_MS * 5)
+    expect(canales.mock.calls.length).toBe(llamadasAntesDeDesmontar)
   })
 })

@@ -161,6 +161,13 @@ export const es = {
   'onboarding.error': 'No se pudo añadir la fuente. Comprueba la URL e inténtalo de nuevo.',
   // Versión breve (brief, Tarea 6): el texto legal completo va en la Tarea 8.
   'onboarding.disclaimer': 'Open TV es un reproductor: no aloja contenido. Tú eliges tus fuentes y respondes por ellas.',
+
+  // Fix round 1 (Tarea 6, P0.7): tras añadir una fuente, App sondea el
+  // catálogo hasta que aparecen canales — ver SincronizandoFuente.svelte.
+  'onboarding.sondeo.titulo': 'Sincronizando la fuente…',
+  'onboarding.sondeo.detalle': 'Puede tardar unos segundos, según el tamaño de la lista.',
+  'onboarding.sondeo.agotado': 'La fuente se añadió pero todavía no aparecen canales. Puede tardar más, o la lista puede estar vacía.',
+  'onboarding.sondeo.reintentar': 'Reintentar',
 } as const
 
 export type ClaveMensaje = keyof typeof es
