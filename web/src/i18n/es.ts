@@ -196,6 +196,16 @@ export const es = {
   'fuentes.cargando': 'Cargando fuentes…',
   'fuentes.error': 'No se pudieron cargar las fuentes.',
   'fuentes.vacia': 'Todavía no hay fuentes añadidas.',
+
+  // Tarea 8 (P0.7): disclaimer legal completo, al pie de esta vista — la
+  // versión breve de onboarding.disclaimer sigue tal cual, esta es la
+  // completa. Cuatro líneas cortas, tono Korven: sobrio, declarativo, sin
+  // muro de legalese.
+  'fuentes.legal.titulo': 'Aviso legal',
+  'fuentes.legal.reproductor': 'Open TV es un reproductor: no aloja, no retransmite ni distribuye contenido.',
+  'fuentes.legal.responsabilidad': 'Tú eliges tus fuentes y eres responsable de la legalidad del contenido al que accedes con ellas.',
+  'fuentes.legal.sinDrm': 'Sin DRM ni elusión de geobloqueo — pensado para televisión abierta (FTA).',
+  'fuentes.legal.sugeridas': 'Las fuentes sugeridas son enlaces públicos de la comunidad iptv-org; añadirlas es decisión tuya.',
 } as const
 
 export type ClaveMensaje = keyof typeof es

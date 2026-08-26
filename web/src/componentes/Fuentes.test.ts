@@ -266,6 +266,18 @@ describe('Fuentes — añadir más (bloque compartido)', () => {
   })
 })
 
+describe('Fuentes — disclaimer legal', () => {
+  it('(e) pinta el bloque legal completo, incluida la línea de responsabilidad del usuario', async () => {
+    render(Fuentes, { fuente: fuenteFalsa(), alVolver: vi.fn(), alFuenteAnadida: vi.fn(), alFuentesCambiaron: vi.fn() })
+
+    await screen.findByText(t('fuentes.legal.titulo'))
+    expect(screen.getByText(t('fuentes.legal.reproductor'))).not.toBeNull()
+    expect(screen.getByText(t('fuentes.legal.responsabilidad'))).not.toBeNull()
+    expect(screen.getByText(t('fuentes.legal.sinDrm'))).not.toBeNull()
+    expect(screen.getByText(t('fuentes.legal.sugeridas'))).not.toBeNull()
+  })
+})
+
 describe('Fuentes — volver', () => {
   it('el botón «Volver» llama a alVolver', async () => {
     const alVolver = vi.fn()

@@ -186,6 +186,19 @@
     <h3 class="titulo-anadir">{t('fuentes.anadirMas.titulo')}</h3>
     <AnadirFuente {fuente} {alFuenteAnadida} />
   </div>
+
+  <!-- Tarea 8 (P0.7): disclaimer legal completo. Sin aria-live (brief) — es
+       texto estático, no un anuncio de estado. Bloque sobrio al pie, mismo
+       patrón mono-eyebrow que .titulo-anadir/.titulo-sugeridas para el
+       encabezado, --text-faint (no --text-muted) para marcar que es la
+       letra pequeña, no contenido de la vista. -->
+  <div class="legal">
+    <h3 class="titulo-legal">{t('fuentes.legal.titulo')}</h3>
+    <p>{t('fuentes.legal.reproductor')}</p>
+    <p>{t('fuentes.legal.responsabilidad')}</p>
+    <p>{t('fuentes.legal.sinDrm')}</p>
+    <p>{t('fuentes.legal.sugeridas')}</p>
+  </div>
 </section>
 
 <style>
@@ -309,5 +322,26 @@
     letter-spacing: var(--tracking-mono, normal);
     text-transform: uppercase;
     color: var(--text-muted);
+  }
+
+  .legal {
+    border-top: 1px solid var(--border-default);
+    padding-top: var(--space-4, 1rem);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .titulo-legal {
+    margin: 0 0 4px;
+    font: var(--type-mono-label, inherit);
+    letter-spacing: var(--tracking-mono, normal);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .legal p {
+    margin: 0;
+    color: var(--text-faint);
+    font-size: 12px;
+    line-height: 1.5;
   }
 </style>

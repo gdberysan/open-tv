@@ -150,4 +150,13 @@ export const en: Record<ClaveMensaje, string> = {
   'fuentes.cargando': 'Loading sources…',
   'fuentes.error': 'Could not load the sources.',
   'fuentes.vacia': 'No sources added yet.',
+
+  // Task 8 (P0.7): full legal disclaimer, footer of this view — the short
+  // version in onboarding.disclaimer stays as-is, this is the complete one.
+  // Four short lines, Korven tone: sober, declarative, no legalese wall.
+  'fuentes.legal.titulo': 'Legal',
+  'fuentes.legal.reproductor': 'Open TV is a player: it hosts, rebroadcasts, and distributes no content.',
+  'fuentes.legal.responsabilidad': 'You choose your sources and are responsible for the legality of the content you access with them.',
+  'fuentes.legal.sinDrm': 'No DRM, no geoblock circumvention — built for free-to-air (FTA) television.',
+  'fuentes.legal.sugeridas': 'Suggested sources are public links from the iptv-org community; adding them is your call.',
 }
