@@ -26,6 +26,10 @@ const maxCuerpoManifiesto = 64 << 10
 // contestan 403 al default de Go, igual que le pasa al health-checker.
 const userAgentSondeo = "VLC/3.0.20 LibVLC/3.0.20"
 
+// maxRedireccionesSondeo: un manifiesto no necesita más de un par de saltos.
+// Mismo tope que internal/proxy/handler.go.
+const maxRedireccionesSondeo = 5
+
 // AirplayProber resuelve la compatibilidad AirPlay de una URL bajo demanda y la
 // recuerda en memoria.
 //
@@ -55,16 +59,44 @@ type entradaAirplay struct {
 // IPTV externos (ver channel_handler.go: resolveStreamURL) y no de nada que
 // el usuario tecleé a mano. En el router se monta siempre con false.
 func NewAirplayProber(client *http.Client, ttl time.Duration, maxEntradas int, permitirDestinosPrivados bool) *AirplayProber {
-	if client == nil {
-		client = &http.Client{Timeout: presupuestoSondeo}
-	}
-	return &AirplayProber{
-		client:      client,
+	p := &AirplayProber{
 		ttl:         ttl,
 		maxEntradas: maxEntradas,
 		privadasOK:  permitirDestinosPrivados,
 		cache:       make(map[string]entradaAirplay),
 	}
+	if client == nil {
+		// CheckRedirect es imprescindible aquí: el http.Client por defecto
+		// sigue hasta 10 redirecciones sin preguntar, y destinoPrivado (en
+		// sondear) solo valida la URL de partida. Un origen que pase ese
+		// primer filtro puede responder 302 hacia 127.0.0.1 o hacia el
+		// enlace-local de metadatos de una nube; sin esto el sondeo lo
+		// seguiría igual que si fuera un destino válido. Mismo criterio que
+		// internal/proxy/handler.go: checkRedirect.
+		client = &http.Client{
+			Timeout:       presupuestoSondeo,
+			CheckRedirect: p.checkRedirect,
+		}
+	}
+	p.client = client
+	return p
+}
+
+// checkRedirect se ejecuta en cada salto de una redirección 3xx, ANTES de
+// que el cliente la siga. Solo se instala en el cliente por defecto (ver
+// NewAirplayProber): si el caller inyecta su propio *http.Client (como
+// hacen los tests), las redirecciones de ESE cliente no pasan por aquí.
+func (p *AirplayProber) checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= maxRedireccionesSondeo {
+		return fmt.Errorf("demasiadas redirecciones (%d)", len(via))
+	}
+	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+		return fmt.Errorf("esquema no permitido en redirección: %s", req.URL.Scheme)
+	}
+	if !p.privadasOK && destinoPrivado(req.Context(), req.URL.Hostname()) {
+		return fmt.Errorf("redirección a destino no permitido: %s", req.URL.Hostname())
+	}
+	return nil
 }
 
 // Veredicto nunca devuelve error: un sondeo que falla es AirplayUnknown, que es
@@ -103,7 +135,10 @@ func (p *AirplayProber) sondear(ctx context.Context, destino string) domain.Airp
 	}
 
 	// #nosec G704 -- destino ya pasó la comprobación de esquema y de destino
-	// privado justo arriba; el análisis de taint de gosec no ve esa validación.
+	// privado justo arriba; el análisis de taint de gosec no ve esa
+	// validación, ni tampoco checkRedirect (que repite el mismo filtro en
+	// cada salto cuando el cliente es el que construye NewAirplayProber por
+	// defecto).
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, destino, nil)
 	if err != nil {
 		return domain.AirplayUnknown
