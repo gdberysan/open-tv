@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, fireEvent, screen, within } from '@testing-library/svelte'
 import { tick } from 'svelte'
+import { get } from 'svelte/store'
 import App from './App.svelte'
 import type { Canal, CatalogSource, ConsultaCatalogo, Fuente, PaginaCanales } from './datos/catalogo'
 import { filtros } from './estado/filtros'
 import { favoritos } from './estado/favoritos'
+import { preferencias } from './estado/preferencias'
 import { idioma, t } from './i18n'
 
 // comprobarSalud() de App llama a consultarSalud(), que hace un fetch('/health')
@@ -112,6 +114,7 @@ beforeEach(() => {
     vista: 'rejilla',
   })
   favoritos.set(new Set())
+  preferencias.set({ densidad: 'comoda', recordarVista: true, recordarFiltros: false })
   idioma.actual = 'es'
   FalsoIntersectionObserver.instancias.length = 0
 })
@@ -684,5 +687,153 @@ describe('App — paleta de comandos ⌘K', () => {
 
     await screen.findByRole('dialog', { name: 'a' }) // el Reproductor, no la paleta
     expect(paletaDialogo()).toBeNull()
+  })
+})
+
+describe('App — vista Ajustes (Tarea 6, P0.8)', () => {
+  afterEach(() => {
+    window.location.hash = ''
+  })
+
+  it('(a) el botón «Ajustes» de la cabecera abre la vista y fija el hash #ajustes', async () => {
+    render(App, { fuente: fuenteFalsa() })
+
+    const botonAjustes = await screen.findByRole('button', { name: t('ajustes.abrir') })
+    await fireEvent.click(botonAjustes)
+
+    await screen.findByRole('heading', { name: t('ajustes.titulo') })
+    expect(window.location.hash).toBe('#ajustes')
+  })
+
+  it('(a) montar App con el hash #ajustes ya puesto abre la vista directamente', async () => {
+    window.location.hash = 'ajustes'
+    render(App, { fuente: fuenteFalsa() })
+    await screen.findByRole('heading', { name: t('ajustes.titulo') })
+  })
+
+  it('«Ajustes» es alcanzable aunque el catálogo siga sincronizando (vista top-level, no anidada en fase listo)', async () => {
+    const fuente = fuenteFalsa()
+    const { consultarSalud } = await import('./estado/salud')
+    vi.mocked(consultarSalud).mockResolvedValueOnce({
+      sincronizando: true,
+      proxyDisponible: false,
+      ultimoSync: null,
+      version: 'test',
+    })
+    render(App, { fuente })
+
+    const botonAjustes = await screen.findByRole('button', { name: t('ajustes.abrir') })
+    await fireEvent.click(botonAjustes)
+
+    await screen.findByRole('heading', { name: t('ajustes.titulo') })
+  })
+
+  it('«Volver» cierra la vista y limpia el hash; Ajustes y Fuentes son mutuamente excluyentes', async () => {
+    render(App, { fuente: fuenteFalsa() })
+
+    await fireEvent.click(await screen.findByRole('button', { name: t('ajustes.abrir') }))
+    await screen.findByRole('heading', { name: t('ajustes.titulo') })
+
+    await fireEvent.click(await screen.findByRole('button', { name: t('ajustes.volver') }))
+    expect(screen.queryByRole('heading', { name: t('ajustes.titulo') })).toBeNull()
+    expect(window.location.hash).toBe('')
+
+    // Abrir Fuentes y luego Ajustes deja solo Ajustes visible — nunca las dos
+    // vistas montadas a la vez.
+    await fireEvent.click(await screen.findByRole('button', { name: t('fuentes.abrir') }))
+    await screen.findByRole('heading', { name: t('fuentes.titulo') })
+    await fireEvent.click(screen.getByRole('button', { name: t('ajustes.abrir') }))
+    await screen.findByRole('heading', { name: t('ajustes.titulo') })
+    expect(screen.queryByRole('heading', { name: t('fuentes.titulo') })).toBeNull()
+  })
+
+  it('la densidad elegida en Ajustes se refleja en la rejilla (Tarea 5 ya cableada, aquí solo el extremo de UI)', async () => {
+    render(App, { fuente: fuenteFalsa() })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    await fireEvent.click(await screen.findByRole('button', { name: t('ajustes.abrir') }))
+    await screen.findByRole('heading', { name: t('ajustes.titulo') })
+
+    await fireEvent.click(screen.getByRole('button', { name: t('ajustes.densidad.compacta') }))
+    expect(get(preferencias).densidad).toBe('compacta')
+  })
+})
+
+describe('App — recordar vista (preferencias.recordarVista, Tarea 6 de P0.8)', () => {
+  it('(c) ON por defecto: cambiar a «lista» y simular un remonte restaura la vista guardada', async () => {
+    const { unmount } = render(App, { fuente: fuenteFalsa() })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    await fireEvent.click(screen.getByRole('button', { name: t('accion.lista') }))
+    await vi.waitFor(() => expect(get(filtros).vista).toBe('lista'))
+
+    unmount()
+    // Simula lo que pasa en un reload real: el store de filtros vuelve a su
+    // valor por defecto (rejilla) — solo localStorage sobrevive.
+    filtros.update((f) => ({ ...f, vista: 'rejilla' }))
+
+    render(App, { fuente: fuenteFalsa() })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    expect(screen.getByRole('button', { name: t('accion.lista') }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('OFF: apagar «recordar vista» hace que un remonte NO restaure la vista', async () => {
+    preferencias.set({ densidad: 'comoda', recordarVista: false, recordarFiltros: false })
+    const { unmount } = render(App, { fuente: fuenteFalsa() })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    await fireEvent.click(screen.getByRole('button', { name: t('accion.lista') }))
+    await vi.waitFor(() => expect(get(filtros).vista).toBe('lista'))
+
+    unmount()
+    filtros.update((f) => ({ ...f, vista: 'rejilla' }))
+
+    render(App, { fuente: fuenteFalsa() })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    expect(screen.getByRole('button', { name: t('accion.rejilla') }).getAttribute('aria-pressed')).toBe('true')
+  })
+})
+
+describe('App — recordar filtros (preferencias.recordarFiltros, default OFF, Tarea 6 de P0.8)', () => {
+  afterEach(() => {
+    window.location.hash = ''
+  })
+
+
+  it('(d) por defecto (OFF): cambiar un filtro y simular un remonte NO lo restaura', async () => {
+    const { unmount } = render(App, { fuente: fuenteFalsa() })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    filtros.update((f) => ({ ...f, pais: 'MX' }))
+    await tick()
+
+    unmount()
+    filtros.update((f) => ({ ...f, pais: '' }))
+
+    render(App, { fuente: fuenteFalsa() })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    expect(get(filtros).pais).toBe('')
+  })
+
+  it('(d) activado desde Ajustes: cambiar un filtro y simular un remonte SÍ lo restaura', async () => {
+    const { unmount } = render(App, { fuente: fuenteFalsa() })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    await fireEvent.click(await screen.findByRole('button', { name: t('ajustes.abrir') }))
+    const casilla = await screen.findByRole('checkbox', { name: t('ajustes.recordarFiltros.titulo') })
+    await fireEvent.click(casilla)
+    expect(get(preferencias).recordarFiltros).toBe(true)
+    await fireEvent.click(screen.getByRole('button', { name: t('ajustes.volver') }))
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+
+    filtros.update((f) => ({ ...f, pais: 'MX' }))
+    await tick()
+
+    unmount()
+    filtros.update((f) => ({ ...f, pais: '' }))
+
+    render(App, { fuente: fuenteFalsa() })
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    expect(get(filtros).pais).toBe('MX')
   })
 })

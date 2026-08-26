@@ -181,4 +181,20 @@ export const en: Record<ClaveMensaje, string> = {
   'paleta.accion.abrirFuentes': 'Open Sources',
   'paleta.accion.abrirStats': 'Open Stats',
   'paleta.pista': '↑↓ navigate · Enter opens · Esc closes',
+
+  // Task 6 (P0.8): settings view (#ajustes) — grid density, remember
+  // view/filters across sessions, and About (version from /health, legal
+  // notice reused from Sources, brand credit via PieDeMarca).
+  'ajustes.abrir': 'Settings',
+  'ajustes.titulo': 'Settings',
+  'ajustes.volver': '← Back',
+  'ajustes.densidad.titulo': 'Grid density',
+  'ajustes.densidad.comoda': 'Comfortable',
+  'ajustes.densidad.compacta': 'Compact',
+  'ajustes.recordarVista.titulo': 'Remember view',
+  'ajustes.recordarVista.ayuda': 'Remembers whether you prefer to see channels as a grid or a list across sessions.',
+  'ajustes.recordarFiltros.titulo': 'Remember filters',
+  'ajustes.recordarFiltros.ayuda': 'Remembers country, category, quality, search and "favourites only" across sessions. Off by default.',
+  'ajustes.acerca.titulo': 'About',
+  'ajustes.acerca.version': 'Version {version}',
 }

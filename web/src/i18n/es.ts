@@ -254,6 +254,26 @@ export const es = {
   'paleta.accion.abrirFuentes': 'Abrir Fuentes',
   'paleta.accion.abrirStats': 'Abrir Estadísticas',
   'paleta.pista': '↑↓ navega · Enter abre · Esc cierra',
+
+  // Tarea 6 (P0.8): vista de ajustes (#ajustes), mismo patrón de hash y
+  // punto de acceso en la cabecera que #fuentes. Densidad de la rejilla
+  // (ya cableada a RejillaVirtual desde la Tarea 5), «recordar vista»/
+  // «recordar filtros» entre sesiones, y «Acerca de» (versión de /health,
+  // aviso legal reutilizado de Fuentes, crédito de marca vía PieDeMarca).
+  'ajustes.abrir': 'Ajustes',
+  'ajustes.titulo': 'Ajustes',
+  'ajustes.volver': '← Volver',
+  'ajustes.densidad.titulo': 'Densidad de la rejilla',
+  'ajustes.densidad.comoda': 'Cómoda',
+  'ajustes.densidad.compacta': 'Compacta',
+  'ajustes.recordarVista.titulo': 'Recordar vista',
+  'ajustes.recordarVista.ayuda': 'Recuerda si prefieres ver los canales en rejilla o en lista entre sesiones.',
+  // Default OFF a propósito (brief): un filtro guardado que no encuentra
+  // nada al volver es más confuso que útil — quien lo quiera lo activa aquí.
+  'ajustes.recordarFiltros.titulo': 'Recordar filtros',
+  'ajustes.recordarFiltros.ayuda': 'Recuerda país, categoría, calidad, búsqueda y «solo favoritos» entre sesiones. Desactivado por defecto.',
+  'ajustes.acerca.titulo': 'Acerca de',
+  'ajustes.acerca.version': 'Versión {version}',
 } as const
 
 export type ClaveMensaje = keyof typeof es
