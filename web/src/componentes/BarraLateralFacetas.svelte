@@ -3,7 +3,8 @@
   import type { Faceta } from '../datos/catalogo'
   import { filtros } from '../estado/filtros'
   import { debounce } from '../lib/debounce'
-  import { t } from '../i18n'
+  import { idioma, t } from '../i18n'
+  import { nombreDePais } from '../lib/paises'
 
   // Los facetas vienen de App (el único que habla con CatalogSource); este
   // componente solo las pinta y escribe en el store de filtros. Reemplaza a
@@ -88,15 +89,34 @@
     return valor.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
   }
 
-  function facetasFiltradas(facetas: Faceta[], termino: string): Faceta[] {
+  // `campos` da, por faceta, las cadenas contra las que casa el término
+  // tecleado — por defecto solo el valor crudo; País pasa nombre Y código
+  // (fix round 1: el catálogo sirve códigos ISO en `valor`, y "méxico"/"mex"
+  // es lo que la gente teclea, no "mx").
+  function facetasFiltradas(
+    facetas: Faceta[],
+    termino: string,
+    campos: (f: Faceta) => string[] = (f) => [f.valor],
+  ): Faceta[] {
     const q = normalizarTexto(termino.trim())
     if (!q) return facetas
-    return facetas.filter((f) => normalizarTexto(f.valor).includes(q))
+    return facetas.filter((f) => campos(f).some((campo) => normalizarTexto(campo).includes(q)))
+  }
+
+  // Fix round 1 (Tarea 9, P0.7): las facetas de país llegan como código ISO
+  // ("MX"); la fila muestra el nombre (Intl.DisplayNames, reactivo al
+  // idioma actual de la app) y ambos casan en el buscador. `filtros.pais`
+  // sigue escribiendo el CÓDIGO — el backend filtra por código, no por
+  // nombre.
+  function nombrePais(codigo: string): string {
+    return nombreDePais(codigo, idioma.actual)
   }
 
   let filtroPais = $state('')
   let mostrarBuscadorPais = $derived(paises.length > UMBRAL_BUSCADOR_FACETA)
-  let paisesFiltrados = $derived(facetasFiltradas(paises, filtroPais))
+  let paisesFiltrados = $derived(
+    facetasFiltradas(paises, filtroPais, (f) => [f.valor, nombrePais(f.valor)]),
+  )
 
   let filtroCategoria = $state('')
   let mostrarBuscadorCategoria = $derived(categorias.length > UMBRAL_BUSCADOR_FACETA)
@@ -138,7 +158,8 @@
           aria-pressed={$filtros.pais === f.valor}
           onclick={() => alternarPais(f.valor)}
         >
-          <span class="valor">{f.valor}</span>
+          <span class="valor">{nombrePais(f.valor)}</span>
+          <span class="pais-codigo">{f.valor}</span>
           <span class="conteo">{f.total}</span>
         </button>
       {/each}
@@ -308,13 +329,22 @@
     font: var(--type-mono-label, inherit);
     color: var(--text-muted);
   }
+  /* Código ISO discreto junto al nombre del país (fix round 1, Tarea 9,
+     P0.7): legibilidad — el nombre es lo que se lee, el código queda como
+     referencia mínima, en el mismo tratamiento mono/atenuado que el conteo. */
+  .fila .pais-codigo {
+    flex-shrink: 0;
+    font: var(--type-mono-label, inherit);
+    color: var(--text-muted);
+  }
   /* Ámbar = faceta activa (única regla de color de todo el componente). */
   .fila[aria-pressed='true'] {
     background: var(--tint-amber-weak);
     border-color: var(--tint-amber-line);
   }
   .fila[aria-pressed='true'] .valor,
-  .fila[aria-pressed='true'] .conteo {
+  .fila[aria-pressed='true'] .conteo,
+  .fila[aria-pressed='true'] .pais-codigo {
     color: var(--amber-500);
   }
 
