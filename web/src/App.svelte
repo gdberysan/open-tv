@@ -22,6 +22,7 @@
   import Onboarding from './componentes/Onboarding.svelte'
   import SincronizandoFuente from './componentes/SincronizandoFuente.svelte'
   import Fuentes from './componentes/Fuentes.svelte'
+  import PieDeMarca from './componentes/PieDeMarca.svelte'
 
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
@@ -760,6 +761,12 @@
     {#if !vistaStats}
       <p><a class="stats" href="#stats" onclick={abrirStats}>{t('pie.stats')}</a></p>
     {/if}
+    <!-- Tarea 10 (P0.7): pie de crédito de marca, INTEGRADO en este mismo
+         <footer> (no un segundo <footer> compitiendo) — comparte el mismo
+         boundary inert de arriba y el mismo contenedor .fondo. El propio
+         componente aporta su borde superior hairline para separarse
+         visualmente de las líneas de arriba. -->
+    <PieDeMarca />
   </footer>
 </div>
 

@@ -84,6 +84,9 @@ export const en: Record<ClaveMensaje, string> = {
   'pie.codigo': 'View the code',
   'pie.stats': 'Local stats',
 
+  'pieMarca.emblemaAlt': 'Korven emblem',
+  'pieMarca.desarrolladoPor': 'Built by',
+
   'idioma.es': 'Español',
   'idioma.en': 'English',
 

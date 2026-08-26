@@ -123,6 +123,13 @@ export const es = {
   'pie.codigo': 'Ver el código',
   'pie.stats': 'Estadísticas locales',
 
+  // Tarea 10 (P0.7): pie de crédito de marca (PieDeMarca.svelte), integrado
+  // en el mismo <footer class="pie"> de arriba. Los nombres propios (Korven,
+  // Claude Code) no se traducen — solo el conector "Desarrollado por". El
+  // enlace discreto al repo reutiliza pie.codigo, que ya existía sin usar.
+  'pieMarca.emblemaAlt': 'Emblema de Korven',
+  'pieMarca.desarrolladoPor': 'Desarrollado por',
+
   'idioma.es': 'Español',
   'idioma.en': 'English',
 
