@@ -82,7 +82,16 @@ export const es = {
   'reproductor.cargando': 'Conectando con el canal…',
   'reproductor.cerrar': 'Cerrar',
   'reproductor.silenciar': 'Silenciar',
-  'reproductor.pantallaCompleta': 'Pantalla completa',
+  // Tarea 2 (P0.8): el botón de pantalla completa ahora refleja el estado
+  // real (fullscreenchange sobre el CONTENEDOR, no el <video>) — entrar/salir
+  // sustituye al rótulo fijo de antes, igual que el patrón silenciar/
+  // favorito ya usa aria-pressed + etiqueta que cambia con el estado.
+  'reproductor.pantallaCompleta.entrar': 'Entrar en pantalla completa',
+  'reproductor.pantallaCompleta.salir': 'Salir de pantalla completa',
+  // Picture-in-Picture: botón solo se renderiza si el navegador lo soporta
+  // (document.pictureInPictureEnabled) — Firefox/iOS Safari difieren.
+  'reproductor.pip.activar': 'Activar Picture-in-Picture',
+  'reproductor.pip.desactivar': 'Salir de Picture-in-Picture',
   // Tarea 1 (P0.8): insignia del overlay 1b sobre el vídeo — "en directo",
   // no un estado de salud (ese es senal.viva/muerta/sinDatos, en SenalCanal).
   'reproductor.envivo': 'En vivo',

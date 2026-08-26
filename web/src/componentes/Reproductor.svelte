@@ -120,6 +120,19 @@
   // sistema.
   const soportaAirplay = typeof window !== 'undefined' && 'WebKitPlaybackTargetAvailabilityEvent' in window
 
+  // Tarea 2 (P0.8): pantalla completa sobre el CONTENEDOR del diálogo (no el
+  // <video>) — así el overlay y la barra de controles siguen visibles en
+  // pantalla completa, que antes desaparecían porque solo el <video> se
+  // expandía. soportaFullscreen/soportaPiP se leen una vez al montar (mismo
+  // patrón que soportaAirplay); document.fullscreenEnabled/
+  // pictureInPictureEnabled son el feature-detect — Firefox/iOS difieren, y
+  // jsdom no los define en absoluto (los tests los mockean a mano).
+  const soportaFullscreen = typeof document !== 'undefined' && document.fullscreenEnabled === true
+  const soportaPiP =
+    typeof document !== 'undefined' && 'pictureInPictureEnabled' in document && document.pictureInPictureEnabled === true
+  let estaEnPantallaCompleta = $state(false)
+  let estaEnPiP = $state(false)
+
   let guardActual: PlaybackGuard | undefined
   // any: el tipo real de Hls solo existe tras el import() perezoso.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -455,9 +468,49 @@
     if (video) video.muted = silenciado
   }
 
+  // Sobre contenedorDialogo (el div role="dialog" que envuelve TANTO el
+  // <video> como el overlay y la barra de controles), no sobre el <video>:
+  // pedir fullscreen solo del <video> saca al overlay/controles de la
+  // presentación en pantalla completa (el navegador solo muestra el árbol
+  // del elemento fullscreen-eado). El estado real se refleja vía
+  // fullscreenchange (alCambioFullscreen), no aquí — esta función solo pide
+  // el cambio, no lo asume.
   function alternarPantallaCompleta() {
-    if (document.fullscreenElement) document.exitFullscreen()
-    else video?.requestFullscreen()
+    if (document.fullscreenElement) {
+      document.exitFullscreen()
+    } else if (soportaFullscreen) {
+      contenedorDialogo?.requestFullscreen()
+    }
+  }
+
+  function alCambioFullscreen() {
+    estaEnPantallaCompleta = document.fullscreenElement === contenedorDialogo
+  }
+
+  // Picture-in-Picture: botón feature-detectado (soportaPiP, arriba) — si no
+  // hay soporte, el botón ni se renderiza. requestPictureInPicture() puede
+  // rechazar sin un gesto de usuario reciente en algunos navegadores; es
+  // best-effort, se registra el error y no se propaga (no hay nada que
+  // "fallar" de cara al reproductor en sí).
+  function alternarPiP() {
+    if (!video) return
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch((e: unknown) => {
+        console.error('No se pudo salir de Picture-in-Picture', e)
+      })
+    } else {
+      video.requestPictureInPicture().catch((e: unknown) => {
+        console.error('No se pudo activar Picture-in-Picture', e)
+      })
+    }
+  }
+
+  function alEntrarPiP() {
+    estaEnPiP = true
+  }
+
+  function alSalirPiP() {
+    estaEnPiP = false
   }
 
   function abrirSelectorAirplay() {
@@ -490,6 +543,15 @@
         }
         break
       case 'Escape':
+        // Precedencia (Tarea 2, P0.8): si estamos en pantalla completa,
+        // Escape SOLO sale de ella — sin este check, salir de fullscreen con
+        // Escape también cerraba el reproductor entero (el navegador ya sale
+        // de fullscreen por su cuenta en algunos casos sin llegar a disparar
+        // este handler; aquí se cubre el caso en que sí llega).
+        if (document.fullscreenElement) {
+          document.exitFullscreen()
+          return
+        }
         alCerrar()
         break
       case 'f':
@@ -558,10 +620,21 @@
     requestAnimationFrame(() => {
       if (previo && document.body.contains(previo)) previo.focus()
     })
+
+    // Un reproductor cerrado no debe dejar un PiP flotante de un <video> que
+    // ya se está desmontando — se cierra explícitamente, no se confía en que
+    // el navegador lo haga solo al quitar el nodo del DOM.
+    if (estaEnPiP && typeof document.exitPictureInPicture === 'function') {
+      document.exitPictureInPicture().catch(() => {})
+    }
   })
 </script>
 
 <svelte:window onkeydown={alTeclado} />
+<!-- fullscreenchange es un evento de document, no de window — svelte:document
+     es el mismo mecanismo que svelte:window de arriba, para el objeto global
+     que sí lo dispara. -->
+<svelte:document onfullscreenchange={alCambioFullscreen} />
 
 <div class="reproductor" role="dialog" aria-modal="true" aria-label={canal.nombre} bind:this={contenedorDialogo}>
   <!-- onmousemove aquí, no en el <div role="dialog"> de fuera: mover el
@@ -573,7 +646,15 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="lienzo" onmousemove={mostrar}>
     <!-- svelte-ignore a11y_media_has_caption -->
-    <video bind:this={video} {...{ 'x-webkit-airplay': 'allow' }} playsinline muted={silenciado}></video>
+    <!-- onenterpictureinpicture/onleavepictureinpicture no están en los tipos
+         de atributos de <video> de Svelte (igual que x-webkit-airplay arriba)
+         — el spread evita el chequeo de propiedades conocidas del literal. -->
+    <video
+      bind:this={video}
+      {...{ 'x-webkit-airplay': 'allow', onenterpictureinpicture: alEntrarPiP, onleavepictureinpicture: alSalirPiP }}
+      playsinline
+      muted={silenciado}
+    ></video>
 
     {#if cargando}
       <p class="estado">{t('reproductor.cargando')}</p>
@@ -640,14 +721,36 @@
             aria-pressed={esFavorito}
             aria-label={esFavorito ? t('canal.favorito.quitar') : t('canal.favorito.anadir')}
           >★</button>
-          <!-- La Tarea 2 (P0.8) añade aquí Pantalla completa y PiP. -->
+          <!-- Tarea 2 (P0.8): Pantalla completa se traslada aquí desde la
+               barra fija de abajo — sobre el CONTENEDOR del diálogo (ver
+               alternarPantallaCompleta), para que ella misma y el resto del
+               overlay sigan visibles en pantalla completa. PiP se une junto a
+               ella, feature-detectado (soportaPiP): si el navegador no lo
+               soporta (Firefox/iOS difieren), el botón ni se renderiza. -->
+          <button
+            type="button"
+            class="pantalla-completa"
+            class:activo={estaEnPantallaCompleta}
+            onclick={alternarPantallaCompleta}
+            aria-pressed={estaEnPantallaCompleta}
+            aria-label={estaEnPantallaCompleta ? t('reproductor.pantallaCompleta.salir') : t('reproductor.pantallaCompleta.entrar')}
+          >⛶</button>
+          {#if soportaPiP}
+            <button
+              type="button"
+              class="pip"
+              class:activo={estaEnPiP}
+              onclick={alternarPiP}
+              aria-pressed={estaEnPiP}
+              aria-label={estaEnPiP ? t('reproductor.pip.desactivar') : t('reproductor.pip.activar')}
+            >🗗</button>
+          {/if}
         </div>
       </div>
     </div>
   </div>
 
   <div class="controles">
-    <button type="button" onclick={alternarPantallaCompleta} aria-label={t('reproductor.pantallaCompleta')}>⛶</button>
     {#if soportaAirplay}
       <button type="button" onclick={abrirSelectorAirplay} aria-label="AirPlay">📺</button>
     {/if}
