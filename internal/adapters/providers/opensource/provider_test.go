@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -87,6 +89,108 @@ func TestProvider_GetLiveChannels_RejectsOversizedM3U(t *testing.T) {
 	channels, err := p.GetLiveChannels(ctx)
 	if err == nil {
 		t.Fatalf("Se esperaba error por M3U demasiado grande, se obtuvieron %d canales", len(channels))
+	}
+}
+
+// ── fuentes locales (file://) ───────────────────────────────────────────────
+
+func TestProvider_GetLiveChannels_FileSource(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lista.m3u")
+	if err := os.WriteFile(path, []byte(mockM3U), 0o600); err != nil {
+		t.Fatalf("no se pudo escribir el fixture: %v", err)
+	}
+
+	p := NewProvider("prov_1", "file://"+path, nil, WithAllowedFileDir(dir))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	channels, err := p.GetLiveChannels(ctx)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if len(channels) != 2 {
+		t.Fatalf("Expected 2 channels, got %d", len(channels))
+	}
+	if channels[0].Name != "News Channel" {
+		t.Errorf("Expected 'News Channel', got '%s'", channels[0].Name)
+	}
+	if channels[0].LogoURL != "http://logo.com/1.png" {
+		t.Errorf("Expected logo 'http://logo.com/1.png', got '%s'", channels[0].LogoURL)
+	}
+
+	// GetStreamURL debe quedar poblado igual que en la vía HTTP.
+	streamURL, err := p.GetStreamURL(ctx, channels[0].ID)
+	if err != nil {
+		t.Fatalf("Unexpected error en GetStreamURL: %v", err)
+	}
+	if streamURL != "http://stream.com/news.m3u8" {
+		t.Errorf("Expected stream URL 'http://stream.com/news.m3u8', got '%s'", streamURL)
+	}
+}
+
+func TestProvider_GetLiveChannels_FileDisabledByDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lista.m3u")
+	if err := os.WriteFile(path, []byte(mockM3U), 0o600); err != nil {
+		t.Fatalf("no se pudo escribir el fixture: %v", err)
+	}
+
+	// Sin WithAllowedFileDir: el soporte file:// debe quedar deshabilitado.
+	p := NewProvider("prov_1", "file://"+path, nil)
+
+	_, err := p.GetLiveChannels(context.Background())
+	if err == nil {
+		t.Fatal("Se esperaba error: soporte file:// deshabilitado por defecto")
+	}
+}
+
+func TestProvider_GetLiveChannels_FileOutsideAllowedDir(t *testing.T) {
+	allowedDir := t.TempDir()
+	outsideDir := t.TempDir()
+	path := filepath.Join(outsideDir, "lista.m3u")
+	if err := os.WriteFile(path, []byte(mockM3U), 0o600); err != nil {
+		t.Fatalf("no se pudo escribir el fixture: %v", err)
+	}
+
+	p := NewProvider("prov_1", "file://"+path, nil, WithAllowedFileDir(allowedDir))
+
+	_, err := p.GetLiveChannels(context.Background())
+	if err == nil {
+		t.Fatal("Se esperaba error por ruta fuera del directorio permitido")
+	}
+}
+
+func TestProvider_GetLiveChannels_FilePathTraversal(t *testing.T) {
+	allowedDir := t.TempDir()
+	secretDir := t.TempDir()
+	secretFile := filepath.Join(secretDir, "secreto.m3u")
+	if err := os.WriteFile(secretFile, []byte(mockM3U), 0o600); err != nil {
+		t.Fatalf("no se pudo escribir el fixture: %v", err)
+	}
+
+	// allowedDir/../<secretDir base>/secreto.m3u: tras filepath.Clean apunta
+	// fuera de allowedDir (ambos t.TempDir() comparten el mismo padre).
+	traversal := filepath.Join(allowedDir, "..", filepath.Base(secretDir), "secreto.m3u")
+
+	p := NewProvider("prov_1", "file://"+traversal, nil, WithAllowedFileDir(allowedDir))
+
+	_, err := p.GetLiveChannels(context.Background())
+	if err == nil {
+		t.Fatal("Se esperaba error por path traversal (../)")
+	}
+}
+
+func TestProvider_GetLiveChannels_FileNotFound(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "no-existe.m3u")
+
+	p := NewProvider("prov_1", "file://"+path, nil, WithAllowedFileDir(dir))
+
+	_, err := p.GetLiveChannels(context.Background())
+	if err == nil {
+		t.Fatal("Se esperaba error por fichero inexistente")
 	}
 }
 
