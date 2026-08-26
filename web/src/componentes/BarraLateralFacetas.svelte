@@ -314,6 +314,12 @@
     cursor: pointer;
     font: var(--type-body-sm, inherit);
     text-align: left;
+    /* Aparición/estado de faceta (Tarea 7, P0.8): activar/desactivar una
+       faceta (aria-pressed) o pasar el ratón ya no es un salto seco de
+       color — solo background/border-color/color, nunca layout; esta
+       lista no es la rejilla virtualizada (como mucho unas pocas docenas
+       de filas, y solo cambia con un clic, no en cada frame de scroll). */
+    transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   }
   .fila:hover {
     background: var(--surface-raised);
@@ -353,5 +359,9 @@
     align-items: center;
     gap: 6px;
     cursor: pointer;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fila { transition: none; }
   }
 </style>

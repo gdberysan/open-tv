@@ -6,10 +6,11 @@
   import type { CatalogSource, Canal, ConsultaCatalogo, Faceta, Frescura as InfoFrescura, Fuente } from './datos/catalogo'
   import { filtros } from './estado/filtros'
   import { favoritos } from './estado/favoritos'
+  import { preferencias } from './estado/preferencias'
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
   import { reportarDesenlace } from './estado/estadisticas'
   import { historial, type EntradaHistorial } from './estado/historial'
-  import { debeHacerSurf } from './lib/surf'
+  import { debeHacerSurf, esObjetivoInteractivo } from './lib/surf'
   import BarraLateralFacetas from './componentes/BarraLateralFacetas.svelte'
   import RejillaCanales from './componentes/RejillaCanales.svelte'
   import Reproductor from './componentes/Reproductor.svelte'
@@ -22,7 +23,17 @@
   import Onboarding from './componentes/Onboarding.svelte'
   import SincronizandoFuente from './componentes/SincronizandoFuente.svelte'
   import Fuentes from './componentes/Fuentes.svelte'
+  import Ajustes from './componentes/Ajustes.svelte'
   import PieDeMarca from './componentes/PieDeMarca.svelte'
+  import Paleta from './componentes/Paleta.svelte'
+  import {
+    borrarFiltrosGuardados,
+    borrarVistaGuardada,
+    escribirFiltrosGuardados,
+    escribirVistaGuardada,
+    leerFiltrosGuardados,
+    leerVistaGuardada,
+  } from './estado/persistenciaSesion'
 
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
@@ -58,6 +69,10 @@
   // pueda mezclar los tres.
   type Fase = { tipo: 'comprobando' } | { tipo: 'sincronizando' } | { tipo: 'error'; clase: ClaseError } | { tipo: 'listo' }
   let fase = $state<Fase>({ tipo: 'comprobando' })
+
+  // Tarea 6 (P0.8): versión real para «Acerca de» (Ajustes.svelte) — viene
+  // del MISMO /health que ya gobierna `fase`, nunca un segundo fetch.
+  let versionApp = $state('dev')
 
   let canales = $state<Canal[]>([])
   let total = $state(0)
@@ -102,6 +117,17 @@
   // necesita saber QUÉ canal está abierto, no resolverle antes una URL.
   let canalAbierto = $state<Canal | null>(null)
 
+  // Paleta de comandos ⌘K/Ctrl+K (Tarea 4, P0.8). RULING del plan: se
+  // INHIBE por completo mientras el reproductor está abierto — dos modales
+  // con trap de foco propio anidados (¿qué Esc gana? ¿qué Tab atrapa?) es una
+  // complejidad que un atajo de conveniencia no justifica; más simple es "un
+  // solo modal a la vez" (ver alTeclaVentana, más abajo, y cerrarPaleta).
+  let paletaAbierta = $state(false)
+
+  function cerrarPaleta() {
+    paletaAbierta = false
+  }
+
   // Shell de dos columnas (Tarea 4 de P0.6): true = barra de facetas visible.
   // En escritorio (>900px) es simplemente la columna izquierda del grid; bajo
   // ~900px la misma bandera gobierna el cajón (aside fijo con translateX).
@@ -141,11 +167,28 @@
   // router nunca registra ese path; F5 sirve el SPA de siempre).
   let vistaFuentes = $state(typeof window !== 'undefined' && window.location.hash === '#fuentes')
 
-  function abrirStats(e: MouseEvent) {
-    e.preventDefault()
+  // Tarea 6 (P0.8): vista de ajustes, mismo patrón de hash que vistaStats/
+  // vistaFuentes — #ajustes tampoco choca con ninguna ruta del servidor.
+  let vistaAjustes = $state(typeof window !== 'undefined' && window.location.hash === '#ajustes')
+
+  // irAStats/irAFuentes/irAAjustes son el núcleo sin evento de ratón (Tarea 4,
+  // P0.8): la paleta de comandos dispara las mismas vistas sin partir de un
+  // clic sobre un <a>, así que no tiene un MouseEvent que prevenir. Los
+  // manejadores de clic de abajo (abrirStats/abrirFuentes/abrirAjustes) siguen
+  // siendo la única puerta para los enlaces reales de la cabecera/pie — un
+  // solo sitio que sabe "qué significa ir a stats/fuentes/ajustes", con o sin
+  // evento. Las tres vistas son mutuamente excluyentes: cada irA* apaga las
+  // otras dos antes de encender la suya.
+  function irAStats() {
     vistaFuentes = false
+    vistaAjustes = false
     vistaStats = true
     location.hash = 'stats'
+  }
+
+  function abrirStats(e: MouseEvent) {
+    e.preventDefault()
+    irAStats()
   }
 
   function volverDelPanel() {
@@ -153,15 +196,37 @@
     history.pushState('', document.title, window.location.pathname + window.location.search)
   }
 
-  function abrirFuentes(e: MouseEvent) {
-    e.preventDefault()
+  function irAFuentes() {
     vistaStats = false
+    vistaAjustes = false
     vistaFuentes = true
     location.hash = 'fuentes'
   }
 
+  function abrirFuentes(e: MouseEvent) {
+    e.preventDefault()
+    irAFuentes()
+  }
+
   function volverDeFuentes() {
     vistaFuentes = false
+    history.pushState('', document.title, window.location.pathname + window.location.search)
+  }
+
+  function irAAjustes() {
+    vistaStats = false
+    vistaFuentes = false
+    vistaAjustes = true
+    location.hash = 'ajustes'
+  }
+
+  function abrirAjustes(e: MouseEvent) {
+    e.preventDefault()
+    irAAjustes()
+  }
+
+  function volverDeAjustes() {
+    vistaAjustes = false
     history.pushState('', document.title, window.location.pathname + window.location.search)
   }
 
@@ -329,7 +394,32 @@
   // el reproductor cerrado (abierto, la barra espaciadora ya es su atajo de
   // play/pausa — ver Reproductor.svelte; dejar que ambos oyentes de
   // window compitan por la misma tecla sería confuso e imprevisible).
+  // ⌘K (mac) / Ctrl+K (el resto) abre la paleta de comandos (Tarea 4, P0.8).
+  // Nunca Alt+K/AltGr — con altKey no cuenta como el atajo real.
+  function esAtajoPaleta(e: KeyboardEvent): boolean {
+    return e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey) && !e.altKey
+  }
+
   function alTeclaVentana(e: KeyboardEvent) {
+    if (esAtajoPaleta(e)) {
+      // RULING (ver `paletaAbierta` más arriba): inhibida con el reproductor
+      // abierto. paletaAbierta ya true: no hay nada que hacer dos veces (su
+      // propio manejador de teclado, dentro de Paleta.svelte, es quien
+      // gobierna el teclado mientras está montada).
+      if (canalAbierto || paletaAbierta) return
+      // No robarle el atajo a un control AJENO ya interactivo (el buscador de
+      // facetas, un <select>, un <button> enfocado, contenido
+      // contenteditable…): con el foco ya ahí, ⌘K no hace nada — MISMO
+      // criterio que debeHacerSurf aplica más abajo a la barra espaciadora
+      // (esObjetivoInteractivo, compartido — Tarea 8, P0.8: antes este guard
+      // solo excluía INPUT/TEXTAREA, así que ⌘K con el foco en el segmentado
+      // de densidad de Ajustes, o en cualquier <button>, sí que la abría).
+      if (esObjetivoInteractivo(e.target)) return
+      e.preventDefault()
+      paletaAbierta = true
+      return
+    }
+
     // sinFuentes (Tarea 6, P0.7): sin catálogo que surfear, el mismo espacio
     // debe dejar que el navegador haga lo suyo (p. ej. scroll) en vez de
     // llamar a fuente.aleatorio() sobre un catálogo que se sabe vacío.
@@ -337,7 +427,22 @@
     // se sondea tras añadir una fuente — el catálogo puede seguir en 0.
     // vistaFuentes (Tarea 7): mismo motivo que vistaStats — es otra vista, no
     // el catálogo normal.
-    if (canalAbierto || fase.tipo !== 'listo' || vistaStats || vistaFuentes || sinFuentes || sondeandoFuenteNueva || sondeoAgotado)
+    // paletaAbierta: mismo motivo que canalAbierto — con un modal abierto es
+    // ese modal quien gobierna el teclado; sin esta guarda, un clic en el
+    // chrome no interactivo de la paleta (la pista, un título de grupo) saca
+    // el foco del <input> y la barra espaciadora surfea por debajo,
+    // violando el invariante "los dos modales nunca coexisten" (fix, P0.8).
+    if (
+      canalAbierto ||
+      paletaAbierta ||
+      fase.tipo !== 'listo' ||
+      vistaStats ||
+      vistaFuentes ||
+      vistaAjustes ||
+      sinFuentes ||
+      sondeandoFuenteNueva ||
+      sondeoAgotado
+    )
       return
     if (!debeHacerSurf(e)) return
     e.preventDefault()
@@ -375,6 +480,7 @@
   async function comprobarSalud() {
     try {
       const salud = await consultarSalud()
+      versionApp = salud.version
       fase = salud.sincronizando ? { tipo: 'sincronizando' } : { tipo: 'listo' }
     } catch (e) {
       fase = { tipo: 'error', clase: clasificarError(e) }
@@ -473,6 +579,47 @@
     iniciarSondeoFuente()
   }
 
+  // Tarea 6 (P0.8): «recordar vista»/«recordar filtros» (Ajustes.svelte,
+  // preferencias.recordarVista/recordarFiltros). Restaurar corre UNA VEZ por
+  // montaje, en el cuerpo del <script> — no en onMount ni en un $effect —
+  // para que se aplique ANTES de que el $effect de guardado de más abajo
+  // (que lee `preferencias`/`filtros` reactivamente) tenga ocasión de
+  // ejecutarse por primera vez y volver a escribir el valor por defecto del
+  // store encima de lo guardado. `get(preferencias)` es una foto suelta
+  // adrede: solo hace falta leerla una vez, al arrancar.
+  if (get(preferencias).recordarVista) {
+    const vistaGuardada = leerVistaGuardada()
+    if (vistaGuardada) filtros.update((f) => ({ ...f, vista: vistaGuardada }))
+  }
+  if (get(preferencias).recordarFiltros) {
+    const filtrosGuardados = leerFiltrosGuardados()
+    if (filtrosGuardados) filtros.update((f) => ({ ...f, ...filtrosGuardados }))
+  }
+
+  // Efectos de guardado: reactivos a CUALQUIER cambio de `filtros` o de la
+  // propia preferencia (encender/apagar «recordar vista/filtros» desde
+  // Ajustes persiste — o borra— de inmediato, sin esperar al próximo cambio
+  // de filtro). Apagada la preferencia, se borra la clave en vez de dejarla
+  // como basura: sin esto, volver a encenderla más tarde restauraría un
+  // valor viejo que el usuario nunca pidió recordar en esa sesión.
+  $effect(() => {
+    if ($preferencias.recordarVista) escribirVistaGuardada($filtros.vista)
+    else borrarVistaGuardada()
+  })
+  $effect(() => {
+    if ($preferencias.recordarFiltros) {
+      escribirFiltrosGuardados({
+        q: $filtros.q ?? '',
+        pais: $filtros.pais ?? '',
+        categoria: $filtros.categoria ?? '',
+        calidad: $filtros.calidad ?? '',
+        soloFavoritos: $filtros.soloFavoritos,
+      })
+    } else {
+      borrarFiltrosGuardados()
+    }
+  })
+
   onDestroy(() => {
     detenerSondeoFuente()
   })
@@ -535,7 +682,13 @@
   // encima, <main> no monta Vacio.svelte, así que la región persistente no
   // debe anunciar su mensaje.
   let catalogoVacio = $derived(
-    fase.tipo === 'listo' && !vistaStats && !vistaFuentes && !errorCatalogo && !cargando && canales.length === 0,
+    fase.tipo === 'listo' &&
+      !vistaStats &&
+      !vistaFuentes &&
+      !vistaAjustes &&
+      !errorCatalogo &&
+      !cargando &&
+      canales.length === 0,
   )
 
   // Tarea 6 (P0.7): onboarding cuando el catálogo está listo pero NO hay
@@ -563,6 +716,7 @@
       fuentes.length === 0 &&
       !vistaStats &&
       !vistaFuentes &&
+      !vistaAjustes &&
       !errorCatalogo &&
       !cargando &&
       canales.length === 0 &&
@@ -654,7 +808,7 @@
      existía, un solo nodo — alimenta esEstrecho para el inert del cajón. -->
 <svelte:window onkeydown={alTeclaVentana} bind:innerWidth />
 
-<div class="fondo" inert={!!canalAbierto}>
+<div class="fondo" inert={!!canalAbierto || paletaAbierta}>
   <div class="sala">
     <header class="cabecera">
       <div class="marca">
@@ -672,6 +826,12 @@
              bring-your-own, no una vista de depuración. -->
         <button type="button" class="fuentes-link" onclick={abrirFuentes}>
           {t('fuentes.abrir')}
+        </button>
+        <!-- Tarea 6 (P0.8): punto de acceso discreto a Ajustes — mismo sitio
+             y mismo estilo neutro que «Fuentes» (constraint global: ámbar
+             solo para el acento/acción activa; esto es navegación). -->
+        <button type="button" class="ajustes-link" onclick={abrirAjustes}>
+          {t('ajustes.abrir')}
         </button>
         <button type="button" class="idioma" onclick={alternarIdioma}>
           {idioma.actual === 'es' ? t('idioma.en') : t('idioma.es')}
@@ -715,8 +875,14 @@
         <BarraLateralFacetas {paises} {categorias} {calidades} />
       </aside>
 
-      <main inert={!!canalAbierto}>
-        {#if vistaStats}
+      <main inert={!!canalAbierto || paletaAbierta}>
+        {#if vistaAjustes}
+          <!-- Tarea 6 (P0.8): vista de ajustes, alcanzada por #ajustes (botón
+               de la cabecera) — TOP-LEVEL como vistaStats, no anidada bajo
+               fase.tipo==='listo': las preferencias tienen sentido aunque el
+               catálogo siga sincronizando o haya dado error. -->
+          <Ajustes alVolver={volverDeAjustes} version={versionApp} />
+        {:else if vistaStats}
           <PanelStats alVolver={volverDelPanel} />
         {:else if fase.tipo === 'sincronizando'}
           <Sincronizando alListo={alSincronizado} />
@@ -789,7 +955,17 @@
             {#if errorCatalogo}
               <MensajeError clase={errorCatalogo} />
             {:else}
-              <RejillaCanales {canales} vista={$filtros.vista} {cargando} {alPedirMas} alAbrir={abrirCanal} />
+              <!-- Tarea 5 (P0.8): densidad de la rejilla viene de preferencias
+                   (localStorage) — la UI para cambiarla es la Tarea 6
+                   (#ajustes); aquí solo se lee y se reenvía. -->
+              <RejillaCanales
+                {canales}
+                vista={$filtros.vista}
+                {cargando}
+                {alPedirMas}
+                alAbrir={abrirCanal}
+                densidad={$preferencias.densidad}
+              />
             {/if}
           {/if}
         {/if}
@@ -797,7 +973,7 @@
     </div>
   </div>
 
-  <footer class="pie" inert={!!canalAbierto}>
+  <footer class="pie" inert={!!canalAbierto || paletaAbierta}>
     <p>{t('pie.fuente')}</p>
     <p>{t('pie.postura')}</p>
     {#if !vistaStats}
@@ -820,6 +996,24 @@
     alCerrar={cerrarReproductor}
     alAnterior={canalAnterior}
     alSiguiente={canalSiguiente}
+  />
+{/if}
+
+{#if paletaAbierta}
+  <!-- Tarea 4 (P0.8): montada FUERA de .fondo, como Reproductor arriba —
+       vive su propio ciclo de foco (ver Paleta.svelte) mientras .fondo/
+       main/footer quedan inert (arriba). Nunca coexiste con canalAbierto
+       (RULING: ⌘K inhibida con el reproductor abierto — ver alTeclaVentana). -->
+  <Paleta
+    {canales}
+    {paises}
+    {categorias}
+    {calidades}
+    alCerrar={cerrarPaleta}
+    alAbrirCanal={abrirCanal}
+    {alAleatorio}
+    alAbrirFuentes={irAFuentes}
+    alAbrirStats={irAStats}
   />
 {/if}
 
@@ -862,6 +1056,10 @@
   /* Mismo estilo neutro que .idioma (constraint global: ámbar solo para el
      acento/acción activa — esto es navegación, no una CTA). */
   .fuentes-link {
+    background: none; border: 1px solid var(--border-default); color: var(--text-body);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer;
+  }
+  .ajustes-link {
     background: none; border: 1px solid var(--border-default); color: var(--text-body);
     border-radius: 6px; padding: 4px 10px; cursor: pointer;
   }

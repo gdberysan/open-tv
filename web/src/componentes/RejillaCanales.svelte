@@ -8,12 +8,16 @@
   import { favoritos } from '../estado/favoritos'
   import { t } from '../i18n'
 
-  let { canales, vista, cargando, alPedirMas, alAbrir }: {
+  // densidad (Tarea 5, P0.8): solo tiene sentido en modo rejilla (RejillaVirtual);
+  // la vista lista no usa TarjetaCanal ni tiene columnas que ensanchar/estrechar,
+  // así que este componente solo la reenvía, sin decidir nada sobre ella.
+  let { canales, vista, cargando, alPedirMas, alAbrir, densidad = 'comoda' }: {
     canales: Canal[]
     vista: 'rejilla' | 'lista'
     cargando: boolean
     alPedirMas: () => void
     alAbrir: (c: Canal) => void
+    densidad?: 'comoda' | 'compacta'
   } = $props()
 
   let centinela: HTMLElement | undefined = $state()
@@ -41,7 +45,7 @@
        constatar "no hay nada". -->
   <Vacio />
 {:else if vista === 'rejilla'}
-  <RejillaVirtual {canales} {alAbrir} {alPedirMas} />
+  <RejillaVirtual {canales} {alAbrir} {alPedirMas} {densidad} />
 {:else}
   <div class="canales lista" role="list" aria-label={t('rejilla.etiquetaLista')}>
     {#each canales as canal (canal.id)}

@@ -51,7 +51,11 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.cargando': 'Connecting to the channel…',
   'reproductor.cerrar': 'Close',
   'reproductor.silenciar': 'Mute',
-  'reproductor.pantallaCompleta': 'Full screen',
+  'reproductor.pantallaCompleta.entrar': 'Enter full screen',
+  'reproductor.pantallaCompleta.salir': 'Exit full screen',
+  'reproductor.pip.activar': 'Activate Picture-in-Picture',
+  'reproductor.pip.desactivar': 'Exit Picture-in-Picture',
+  'reproductor.envivo': 'Live',
   'reproductor.error.noArranco': 'The channel never started playing. It may be down, geo-blocked, or its address expired.',
   'reproductor.error.corte': 'The channel stopped broadcasting.',
   'reproductor.error.caido': 'The channel is down or its address expired.',
@@ -164,4 +168,33 @@ export const en: Record<ClaveMensaje, string> = {
   'fuentes.legal.responsabilidad': 'You choose your sources and are responsible for the legality of the content you access with them.',
   'fuentes.legal.sinDrm': 'No DRM, no geoblock circumvention — built for free-to-air (FTA) television.',
   'fuentes.legal.sugeridas': 'Suggested sources are public links from the iptv-org community; adding them is your call.',
+
+  // Task 4 (P0.8): ⌘K/Ctrl+K command palette.
+  'paleta.titulo': 'Command palette',
+  'paleta.placeholder': 'Search channels, facets or actions…',
+  'paleta.grupo.canales': 'Channels',
+  'paleta.grupo.facetas': 'Facets',
+  'paleta.grupo.acciones': 'Actions',
+  'paleta.buscarTodos': 'Search “{termino}” across all channels',
+  'paleta.accion.surf': 'Surf: jump to a random live channel',
+  'paleta.accion.quitarSoloFavoritos': 'Remove “Favourites only”',
+  'paleta.accion.abrirFuentes': 'Open Sources',
+  'paleta.accion.abrirStats': 'Open Stats',
+  'paleta.pista': '↑↓ navigate · Enter opens · Esc closes',
+
+  // Task 6 (P0.8): settings view (#ajustes) — grid density, remember
+  // view/filters across sessions, and About (version from /health, legal
+  // notice reused from Sources, brand credit via PieDeMarca).
+  'ajustes.abrir': 'Settings',
+  'ajustes.titulo': 'Settings',
+  'ajustes.volver': '← Back',
+  'ajustes.densidad.titulo': 'Grid density',
+  'ajustes.densidad.comoda': 'Comfortable',
+  'ajustes.densidad.compacta': 'Compact',
+  'ajustes.recordarVista.titulo': 'Remember view',
+  'ajustes.recordarVista.ayuda': 'Remembers whether you prefer to see channels as a grid or a list across sessions.',
+  'ajustes.recordarFiltros.titulo': 'Remember filters',
+  'ajustes.recordarFiltros.ayuda': 'Remembers country, category, quality, search and "favourites only" across sessions. Off by default.',
+  'ajustes.acerca.titulo': 'About',
+  'ajustes.acerca.version': 'Version {version}',
 }

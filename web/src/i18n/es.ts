@@ -82,7 +82,19 @@ export const es = {
   'reproductor.cargando': 'Conectando con el canal…',
   'reproductor.cerrar': 'Cerrar',
   'reproductor.silenciar': 'Silenciar',
-  'reproductor.pantallaCompleta': 'Pantalla completa',
+  // Tarea 2 (P0.8): el botón de pantalla completa ahora refleja el estado
+  // real (fullscreenchange sobre el CONTENEDOR, no el <video>) — entrar/salir
+  // sustituye al rótulo fijo de antes, igual que el patrón silenciar/
+  // favorito ya usa aria-pressed + etiqueta que cambia con el estado.
+  'reproductor.pantallaCompleta.entrar': 'Entrar en pantalla completa',
+  'reproductor.pantallaCompleta.salir': 'Salir de pantalla completa',
+  // Picture-in-Picture: botón solo se renderiza si el navegador lo soporta
+  // (document.pictureInPictureEnabled) — Firefox/iOS Safari difieren.
+  'reproductor.pip.activar': 'Activar Picture-in-Picture',
+  'reproductor.pip.desactivar': 'Salir de Picture-in-Picture',
+  // Tarea 1 (P0.8): insignia del overlay 1b sobre el vídeo — "en directo",
+  // no un estado de salud (ese es senal.viva/muerta/sinDatos, en SenalCanal).
+  'reproductor.envivo': 'En vivo',
   'reproductor.error.noArranco': 'El canal no llegó a reproducir. Puede estar caído, geo-bloqueado o su dirección caducó.',
   'reproductor.error.corte': 'El canal dejó de emitir.',
   'reproductor.error.caido': 'El canal está caído o su dirección caducó.',
@@ -225,6 +237,43 @@ export const es = {
   'fuentes.legal.responsabilidad': 'Tú eliges tus fuentes y eres responsable de la legalidad del contenido al que accedes con ellas.',
   'fuentes.legal.sinDrm': 'Sin DRM ni elusión de geobloqueo — pensado para televisión abierta (FTA).',
   'fuentes.legal.sugeridas': 'Las fuentes sugeridas son enlaces públicos de la comunidad iptv-org; añadirlas es decisión tuya.',
+
+  // Tarea 4 (P0.8): paleta de comandos ⌘K/Ctrl+K — buscador difuso sobre los
+  // canales ya cargados, las facetas y un puñado de acciones. Ver
+  // Paleta.svelte.
+  'paleta.titulo': 'Paleta de comandos',
+  'paleta.placeholder': 'Buscar canales, facetas o acciones…',
+  'paleta.grupo.canales': 'Canales',
+  'paleta.grupo.facetas': 'Facetas',
+  'paleta.grupo.acciones': 'Acciones',
+  'paleta.buscarTodos': 'Buscar «{termino}» en todos los canales',
+  // "Surf" y "Canal al azar" (accion.aleatorio) son el mismo comando por
+  // debajo — dos nombres findables, ver el comentario de accionesBase.
+  'paleta.accion.surf': 'Surf: salta a un canal vivo al azar',
+  'paleta.accion.quitarSoloFavoritos': 'Quitar «Solo favoritos»',
+  'paleta.accion.abrirFuentes': 'Abrir Fuentes',
+  'paleta.accion.abrirStats': 'Abrir Estadísticas',
+  'paleta.pista': '↑↓ navega · Enter abre · Esc cierra',
+
+  // Tarea 6 (P0.8): vista de ajustes (#ajustes), mismo patrón de hash y
+  // punto de acceso en la cabecera que #fuentes. Densidad de la rejilla
+  // (ya cableada a RejillaVirtual desde la Tarea 5), «recordar vista»/
+  // «recordar filtros» entre sesiones, y «Acerca de» (versión de /health,
+  // aviso legal reutilizado de Fuentes, crédito de marca vía PieDeMarca).
+  'ajustes.abrir': 'Ajustes',
+  'ajustes.titulo': 'Ajustes',
+  'ajustes.volver': '← Volver',
+  'ajustes.densidad.titulo': 'Densidad de la rejilla',
+  'ajustes.densidad.comoda': 'Cómoda',
+  'ajustes.densidad.compacta': 'Compacta',
+  'ajustes.recordarVista.titulo': 'Recordar vista',
+  'ajustes.recordarVista.ayuda': 'Recuerda si prefieres ver los canales en rejilla o en lista entre sesiones.',
+  // Default OFF a propósito (brief): un filtro guardado que no encuentra
+  // nada al volver es más confuso que útil — quien lo quiera lo activa aquí.
+  'ajustes.recordarFiltros.titulo': 'Recordar filtros',
+  'ajustes.recordarFiltros.ayuda': 'Recuerda país, categoría, calidad, búsqueda y «solo favoritos» entre sesiones. Desactivado por defecto.',
+  'ajustes.acerca.titulo': 'Acerca de',
+  'ajustes.acerca.version': 'Versión {version}',
 } as const
 
 export type ClaveMensaje = keyof typeof es
