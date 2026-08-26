@@ -32,8 +32,8 @@ Copiadas de `PROMPT_MAESTRO.md` §10. Se aplican a **todas** las tareas de este 
 
 **Idioma:** comentarios y mensajes de commit en español, como el resto del repo.
 
-**Directorio de trabajo del gateway:** todos los comandos `go` se ejecutan desde `/Users/usuario/Dev/ip-tv/gateway`.
-**Directorio de trabajo de la app:** todos los comandos `flutter` se ejecutan desde `/Users/usuario/Dev/ip-tv/mobile`.
+**Directorio de trabajo del gateway:** todos los comandos `go` se ejecutan desde `~/Dev/ip-tv/gateway`.
+**Directorio de trabajo de la app:** todos los comandos `flutter` se ejecutan desde `~/Dev/ip-tv/mobile`.
 
 ---
 
@@ -102,7 +102,7 @@ Copiadas de `PROMPT_MAESTRO.md` §10. Se aplican a **todas** las tareas de este 
 Hay un screenshot sin trackear en la raíz del repositorio. Moverlo fuera o borrarlo:
 
 ```bash
-cd /Users/usuario/Dev/ip-tv
+cd ~/Dev/ip-tv
 rm -f Screenshot*.png
 git status --short
 ```
@@ -221,13 +221,13 @@ jobs:
 - [x] **Step 2: Verificar localmente que los mismos comandos pasan (menos gofmt)**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway && go vet ./... && go build ./... && go test -race -count=1 ./...
+cd ~/Dev/ip-tv/gateway && go vet ./... && go build ./... && go test -race -count=1 ./...
 ```
 
 Esperado: PASS en todos los paquetes. `-race` es nuevo respecto a lo que se corría a mano; si aparece una carrera, **pararse y arreglarla antes de seguir** — es un hallazgo real.
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/mobile && flutter analyze && flutter test
+cd ~/Dev/ip-tv/mobile && flutter analyze && flutter test
 ```
 
 Esperado: "No issues found!" y 57 tests en verde.
@@ -235,7 +235,7 @@ Esperado: "No issues found!" y 57 tests en verde.
 - [x] **Step 3: Verificar que gofmt falla ahora mismo**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway && gofmt -l .
+cd ~/Dev/ip-tv/gateway && gofmt -l .
 ```
 
 Esperado (falla intencionada, confirma que el gate sirve para algo):
@@ -251,7 +251,7 @@ internal/domain/sport_event.go
 - [x] **Step 4: Formatear y verificar que ya pasa**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway && gofmt -w . && gofmt -l .
+cd ~/Dev/ip-tv/gateway && gofmt -w . && gofmt -l .
 ```
 
 Esperado: salida vacía.
@@ -259,7 +259,7 @@ Esperado: salida vacía.
 - [x] **Step 5: Commit y push**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv
+cd ~/Dev/ip-tv
 git add .github/workflows/ci.yml gateway/
 git commit -m "ci: gate de build, vet, gofmt y tests para gateway y app"
 git push
@@ -382,7 +382,7 @@ CI corre exactamente eso en cada push (`.github/workflows/ci.yml`).
 Desde un directorio limpio, seguir literalmente el README:
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway && (go run ./cmd/server &) && sleep 8 && curl -s localhost:8080/health && echo
+cd ~/Dev/ip-tv/gateway && (go run ./cmd/server &) && sleep 8 && curl -s localhost:8080/health && echo
 ```
 
 Esperado: `{"status":"ok"}`. Parar el proceso después con `pkill -f "cmd/server"`.
@@ -392,7 +392,7 @@ Esperado: `{"status":"ok"}`. Parar el proceso después con `pkill -f "cmd/server
 `scripts/scaffold.sh` crea `pipeline/` y `providers/xtreamcodes/`; el primero se eliminó en el commit `0cfd541` y el segundo nunca existió en el código actual. Seguirlo produciría un árbol que no compila.
 
 ```bash
-cd /Users/usuario/Dev/ip-tv && git rm scripts/scaffold.sh
+cd ~/Dev/ip-tv && git rm scripts/scaffold.sh
 ```
 
 - [x] **Step 4: Reconciliar `PROMPT_MAESTRO.md` con la realidad**
@@ -755,7 +755,7 @@ Esperado: PASS.
 La DB local tiene 4 148 streams marcados muertos por la regla vieja. Darles una oportunidad limpia:
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway
+cd ~/Dev/ip-tv/gateway
 sqlite3 iptv.db "UPDATE streams SET is_alive = 0, fail_count = 0, last_checked = NULL;"
 sqlite3 iptv.db "SELECT COUNT(*) FROM streams WHERE last_checked IS NOT NULL;"
 ```
@@ -1228,7 +1228,7 @@ Esperado: PASS.
 Run: `go test -race -count=1 ./...` → PASS.
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway
+cd ~/Dev/ip-tv/gateway
 sqlite3 iptv.db "SELECT COUNT(*) FROM channels c WHERE NOT EXISTS (SELECT 1 FROM streams s WHERE s.channel_id = c.id);"
 go build -o server ./cmd/server && ./server &
 sleep 25
@@ -2153,7 +2153,7 @@ Con el gateway **parado**:
 
 ```bash
 pkill -f "cmd/server" ; pkill -f "gateway/server"
-cd /Users/usuario/Dev/ip-tv/mobile && flutter run -d macos
+cd ~/Dev/ip-tv/mobile && flutter run -d macos
 ```
 
 Esperado: la pantalla de error dice "No se pudo contactar con el gateway. ¿Está arrancado en el puerto 8080?" en lugar del volcado de `SocketException`.
@@ -2535,7 +2535,7 @@ Esperado: PASS.
 - [x] **Step 7: Verificar contra el gateway real**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway && go build -o server ./cmd/server && ./server &
+cd ~/Dev/ip-tv/gateway && go build -o server ./cmd/server && ./server &
 sleep 25 && curl -s localhost:8080/health | python3 -m json.tool ; pkill -f "./server"
 ```
 
@@ -2700,7 +2700,7 @@ Esperado: PASS.
 - [x] **Step 6: Verificar sobre tráfico real**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway
+cd ~/Dev/ip-tv/gateway
 go build -o server ./cmd/server
 HEALTH_INTERVAL=2m ./server > /tmp/gw.log 2>&1 &
 sleep 240
@@ -2752,7 +2752,7 @@ Este plan asume **(a)**. Si se prefiere (b), sacar `healthcheck/` de esta tarea 
 - [x] **Step 1: Confirmar que de verdad no los usa nadie**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway
+cd ~/Dev/ip-tv/gateway
 for p in failover healthcheck; do
   echo "== $p =="
   grep -rn "adapters/$p" --include="*.go" . | grep -v "/$p/" || echo "  sin importadores"
@@ -2765,7 +2765,7 @@ Esperado: "sin importadores" y "sin referencias en producción". **Si algo apare
 - [x] **Step 2: Borrar**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv
+cd ~/Dev/ip-tv
 git rm -r gateway/internal/adapters/failover gateway/internal/adapters/healthcheck
 git rm gateway/internal/domain/mirror.go gateway/internal/domain/sport_event.go \
        gateway/internal/domain/provider.go gateway/internal/domain/category.go \
@@ -2788,7 +2788,7 @@ Las tablas seguirán existiendo en las DBs ya creadas; no se borran para no arri
 - [x] **Step 4: Compilar y correr toda la suite**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway
+cd ~/Dev/ip-tv/gateway
 go build ./... && go vet ./... && go test -race -count=1 ./... && gofmt -l .
 ```
 
@@ -2805,7 +2805,7 @@ Esperado: ya no aparecen `failover` ni `healthcheck`. Los porcentajes restantes 
 - [x] **Step 6: Commit**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv
+cd ~/Dev/ip-tv
 git add gateway/
 git commit -m "gateway: borrar failover, healthcheck y tipos de dominio sin uso"
 ```
@@ -3355,7 +3355,7 @@ Esperado: PASS. Actualizar los fakes de `StreamRepository` en tests para que imp
 - [x] **Step 7: Medir la mejora**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway
+cd ~/Dev/ip-tv/gateway
 go build -o server ./cmd/server
 HEALTH_INTERVAL=3m ./server > /tmp/gw.log 2>&1 &
 sleep 260
@@ -3516,7 +3516,7 @@ Los repositorios que solo leen desde los handlers pasan a usar `lecturaDB`; los 
 - [x] **Step 6: Verificar de punta a punta**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway
+cd ~/Dev/ip-tv/gateway
 go build -o server ./cmd/server && ./server > /tmp/gw.log 2>&1 &
 sleep 3
 # Martillear /channels mientras corre el sync inicial

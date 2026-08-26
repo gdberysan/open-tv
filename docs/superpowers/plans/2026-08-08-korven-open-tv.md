@@ -14,7 +14,7 @@
 
 ## Global Constraints
 
-- El design system es **alta fidelidad**: los valores de `/Users/usuario/Dev/korven/design/design_handoff_korven_sitio/tokens/*.css` son finales y se portan literales. No reinterpretar colores, tamaños ni easings.
+- El design system es **alta fidelidad**: los valores de `~/Dev/korven/design/design_handoff_korven_sitio/tokens/*.css` son finales y se portan literales. No reinterpretar colores, tamaños ni easings.
 - **Regla del ámbar:** `#FF8A2B` significa señal viva — canal vivo, filtro activo, foco. Si un elemento no es ninguna de esas tres cosas, no lleva ámbar.
 - Solo tema oscuro.
 - Cero dependencias nuevas en `pubspec.yaml` salvo las fuentes como assets.
@@ -245,7 +245,7 @@ git commit -m "mobile: portar los tokens de color, espaciado y motion de Korven"
 Pesos que usa el sistema: Space Grotesk 500/600/700, Inter 400/500/600, JetBrains Mono 400/500/700.
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/mobile && mkdir -p assets/fonts && cd assets/fonts
+cd ~/Dev/ip-tv/mobile && mkdir -p assets/fonts && cd assets/fonts
 for repo in \
   "google/fonts/main/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf" \
   "google/fonts/main/ofl/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf"; do
@@ -735,7 +735,7 @@ git commit -m "mobile: wordmark de Korven con la O hexagonal y el nodo ámbar"
 **Interfaces:**
 - Produces: `KorvenEmblem({double size = 128})`.
 
-**Contexto:** `korven-emblem.svg` son 949 bytes: un hexágono relleno carbón con borde hueso, cinco polilíneas facetadas desde el centro, y el ojo ámbar. Se replica con `CustomPainter` — sin `flutter_svg`, porque en una app de escritorio cada dependencia es pasivo. Fuente de verdad: `/Users/usuario/Dev/korven/design/design_handoff_korven_sitio/assets/korven-emblem.svg` (viewBox 0 0 128 128).
+**Contexto:** `korven-emblem.svg` son 949 bytes: un hexágono relleno carbón con borde hueso, cinco polilíneas facetadas desde el centro, y el ojo ámbar. Se replica con `CustomPainter` — sin `flutter_svg`, porque en una app de escritorio cada dependencia es pasivo. Fuente de verdad: `~/Dev/korven/design/design_handoff_korven_sitio/assets/korven-emblem.svg` (viewBox 0 0 128 128).
 
 - [ ] **Step 1: Escribir el test**
 
@@ -2262,7 +2262,7 @@ git commit -am "chore: renombrar a Korven Open TV en la capa visible"
 - [ ] **Step 1: Renombrar**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/mobile
+cd ~/Dev/ip-tv/mobile
 sed -i '' 's/^name: iptv_ecosystem/name: korven_open_tv/' pubspec.yaml
 grep -rl "package:iptv_ecosystem/" lib test | xargs sed -i '' 's|package:iptv_ecosystem/|package:korven_open_tv/|g'
 flutter pub get
@@ -2290,7 +2290,7 @@ git commit -am "chore: paquete Dart korven_open_tv"
 - [ ] **Step 1: Renombrar**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/gateway
+cd ~/Dev/ip-tv/gateway
 sed -i '' 's|^module github.com/tu-org/iptv-ecosystem/gateway|module github.com/gdberysan/open-tv/gateway|' go.mod
 grep -rl "tu-org/iptv-ecosystem" --include="*.go" . | xargs sed -i '' 's|github.com/tu-org/iptv-ecosystem/gateway|github.com/gdberysan/open-tv/gateway|g'
 gofmt -w .
@@ -2320,7 +2320,7 @@ git commit -am "chore: módulo Go github.com/gdberysan/open-tv/gateway"
 - [ ] **Step 1: Cambiar el identificador**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/mobile/macos
+cd ~/Dev/ip-tv/mobile/macos
 sed -i '' 's/com\.example\.iptvEcosystem/dev.korven.opentv/g' Runner/Configs/AppInfo.xcconfig Runner.xcodeproj/project.pbxproj
 grep -rn "com.example" Runner/Configs Runner.xcodeproj/project.pbxproj || echo "sin com.example"
 ```
@@ -2328,7 +2328,7 @@ grep -rn "com.example" Runner/Configs Runner.xcodeproj/project.pbxproj || echo "
 - [ ] **Step 2: Reconstruir limpio y verificar**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv/mobile && flutter clean && flutter pub get && flutter build macos --debug 2>&1 | tail -5
+cd ~/Dev/ip-tv/mobile && flutter clean && flutter pub get && flutter build macos --debug 2>&1 | tail -5
 ```
 
 Arrancar la app: debe abrir con el nombre nuevo. El toggle de offline arranca apagado — es el reseteo esperado.
@@ -2348,7 +2348,7 @@ git commit -am "chore: bundle id dev.korven.opentv"
 - [ ] **Step 1: Renombrar el repositorio en GitHub**
 
 ```bash
-cd /Users/usuario/Dev/ip-tv
+cd ~/Dev/ip-tv
 gh repo rename open-tv --yes
 git remote -v
 ```
@@ -2365,7 +2365,7 @@ pkill -f "iptv_ecosystem.app"; pkill -f "Korven Open TV"
 - [ ] **Step 3: Renombrar la carpeta**
 
 ```bash
-cd /Users/usuario/Dev && mv ip-tv open-tv && cd open-tv && pwd && git status --short
+cd ~/Dev && mv ip-tv open-tv && cd open-tv && pwd && git status --short
 ```
 
 - [ ] **Step 4: Arreglar las rutas absolutas de `.claude/settings.json`**
@@ -2373,8 +2373,8 @@ cd /Users/usuario/Dev && mv ip-tv open-tv && cd open-tv && pwd && git status --s
 Sin esto vuelven los diálogos de permisos que costó trabajo eliminar: el fichero tiene 3 rutas absolutas a la carpeta vieja.
 
 ```bash
-cd /Users/usuario/Dev/open-tv
-sed -i '' 's|/Users/usuario/Dev/ip-tv|/Users/usuario/Dev/open-tv|g' .claude/settings.json
+cd ~/Dev/open-tv
+sed -i '' 's|~/Dev/ip-tv|~/Dev/open-tv|g' .claude/settings.json
 grep -c "Dev/open-tv" .claude/settings.json   # debe dar 3
 python3 -c "import json;json.load(open('.claude/settings.json'));print('JSON válido')"
 ```
@@ -2392,7 +2392,7 @@ ls -d "-Users-usuario-Dev-open-tv" && ls "-Users-usuario-Dev-open-tv/memory/"
 - [ ] **Step 6: Verificar el stack completo desde la ruta nueva**
 
 ```bash
-cd /Users/usuario/Dev/open-tv/gateway && go build ./... && go test -count=1 ./... 2>&1 | grep -c "^ok"
+cd ~/Dev/open-tv/gateway && go build ./... && go test -count=1 ./... 2>&1 | grep -c "^ok"
 cd ../mobile && flutter test 2>&1 | tail -1 && flutter analyze 2>&1 | tail -1
 cd .. && grep -rniE "iptv.ecosystem|ip-tv|tu-org" --include="*.go" --include="*.dart" --include="*.yaml" --include="*.json" gateway mobile .claude || echo "sin referencias al nombre viejo"
 ```

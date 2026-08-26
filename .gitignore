@@ -42,3 +42,7 @@ mobile/macos/Flutter/ephemeral/
 # Claude Code — settings.json (compartido) sí se versiona;
 # settings.local.json es de cada máquina
 .claude/settings.local.json
+
+# Artefactos locales que no viajan al repo público (P1)
+docs/prompts/
+.claude/

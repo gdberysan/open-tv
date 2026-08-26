@@ -1,0 +1,5 @@
+# Higiene del tarball de release (no afecta a lo que se lee en el árbol):
+# artefactos locales de desarrollo fuera del zip generado por `git archive`.
+docs/prompts/ export-ignore
+.claude/ export-ignore
+.gitattributes export-ignore
