@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -28,6 +29,10 @@ import (
 type fakeSourceRepo struct {
 	mu      sync.Mutex
 	fuentes map[string]ports.Source // clave: id
+	// errAdd, si no es nil, hace que Add lo devuelva sin tocar el mapa —
+	// simula un fallo de alta que NO es duplicado (DB ocupada, disco lleno)
+	// para los tests de limpieza de huérfanos (H1).
+	errAdd error
 }
 
 func newFakeSourceRepo() *fakeSourceRepo {
@@ -53,6 +58,9 @@ func (f *fakeSourceRepo) List(context.Context) ([]ports.Source, error) {
 func (f *fakeSourceRepo) Add(_ context.Context, s ports.Source) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.errAdd != nil {
+		return f.errAdd
+	}
 	id := fakeSourceID(s.URL)
 	if _, ok := f.fuentes[id]; ok {
 		return fmt.Errorf("fake: %w", ports.ErrFuenteDuplicada)
@@ -381,6 +389,75 @@ func TestSourceHandler_PostMultipartExcedeElTamano(t *testing.T) {
 	}
 }
 
+// TestSourceHandler_PostMultipartContenidoIdenticoEsDuplicado cubre la
+// decisión de diseño más novedosa de la tarea: el id de un fichero subido es
+// el hash de su CONTENIDO, así que subir el mismo M3U dos veces (aunque el
+// segundo envío use otro nombre de fichero) tiene que dar el mismo 409 que
+// una URL remota repetida, y fuentesDir no debe acabar con dos copias del
+// mismo contenido.
+func TestSourceHandler_PostMultipartContenidoIdenticoEsDuplicado(t *testing.T) {
+	dir := t.TempDir()
+	syncer := newSpySyncer()
+	r := setupSourceRouter(newFakeSourceRepo(), syncer, dir)
+
+	body1, ct1 := construirMultipart(t, []byte(m3uEjemplo), "Primera subida")
+	rec1 := httptest.NewRecorder()
+	req1 := httptest.NewRequest(http.MethodPost, "/sources", body1)
+	req1.Header.Set("Content-Type", ct1)
+	r.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusCreated {
+		t.Fatalf("1ª subida: status = %d, quiero 201 (body=%s)", rec1.Code, rec1.Body.String())
+	}
+	esperarAviso(t, syncer.avisos)
+
+	// Mismo contenido exacto, segunda subida (nombre de fichero y label
+	// distintos: lo que importa es el contenido, no los metadatos).
+	body2, ct2 := construirMultipart(t, []byte(m3uEjemplo), "Segunda subida")
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodPost, "/sources", body2)
+	req2.Header.Set("Content-Type", ct2)
+	r.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusConflict {
+		t.Fatalf("2ª subida: status = %d, quiero 409 (body=%s)", rec2.Code, rec2.Body.String())
+	}
+
+	entradas, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entradas) != 1 {
+		t.Fatalf("fuentesDir tiene %d ficheros, quiero exactamente 1: %v", len(entradas), entradas)
+	}
+}
+
+// TestSourceHandler_PostMultipartAddFallaLimpiaFicheroHuerfano cubre H1: si
+// Add falla por una causa que NO es duplicado, el fichero que guardarFichero
+// ya escribió en fuentesDir no debe quedar huérfano.
+func TestSourceHandler_PostMultipartAddFallaLimpiaFicheroHuerfano(t *testing.T) {
+	dir := t.TempDir()
+	repo := newFakeSourceRepo()
+	repo.errAdd = errors.New("fake: fallo no relacionado con duplicados")
+	r := setupSourceRouter(repo, newSpySyncer(), dir)
+
+	body, ct := construirMultipart(t, []byte(m3uEjemplo), "")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/sources", body)
+	req.Header.Set("Content-Type", ct)
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, quiero 500 (body=%s)", rec.Code, rec.Body.String())
+	}
+
+	entradas, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entradas) != 0 {
+		t.Errorf("fuentesDir tiene ficheros huérfanos tras el fallo de Add: %v", entradas)
+	}
+}
+
 func TestSourceHandler_DeleteConocida(t *testing.T) {
 	repo := newFakeSourceRepo()
 	if err := repo.Add(context.Background(), ports.Source{URL: "https://ej.test/del.m3u", Label: "A", Kind: "url", IsActive: true}); err != nil {
@@ -410,6 +487,52 @@ func TestSourceHandler_DeleteDesconocida(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, quiero 404", rec.Code)
+	}
+}
+
+// TestSourceHandler_DeleteFuenteFicheroBorraElArchivo cubre H2: borrar una
+// fuente kind=="file" debe borrar también su M3U de fuentesDir, no solo la
+// fila. Sin este comportamiento, altas y bajas repetidas de fuentes por
+// fichero hacen crecer el disco sin cota.
+func TestSourceHandler_DeleteFuenteFicheroBorraElArchivo(t *testing.T) {
+	dir := t.TempDir()
+	syncer := newSpySyncer()
+	r := setupSourceRouter(newFakeSourceRepo(), syncer, dir)
+
+	body, ct := construirMultipart(t, []byte(m3uEjemplo), "")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/sources", body)
+	req.Header.Set("Content-Type", ct)
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST: status = %d, quiero 201 (body=%s)", rec.Code, rec.Body.String())
+	}
+	esperarAviso(t, syncer.avisos)
+
+	var creada fuenteJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &creada); err != nil {
+		t.Fatalf("respuesta no es JSON: %v", err)
+	}
+	path := strings.TrimPrefix(creada.URL, "file://")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("el fichero no existe tras el alta: %v", err)
+	}
+
+	recDel := httptest.NewRecorder()
+	r.ServeHTTP(recDel, httptest.NewRequest(http.MethodDelete, "/sources/"+creada.ID, nil))
+	if recDel.Code != http.StatusNoContent {
+		t.Fatalf("DELETE: status = %d, quiero 204", recDel.Code)
+	}
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("el fichero sigue en disco tras el DELETE (statErr=%v)", err)
+	}
+	entradas, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entradas) != 0 {
+		t.Errorf("fuentesDir no quedó vacío tras el DELETE: %v", entradas)
 	}
 }
 

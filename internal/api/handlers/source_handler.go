@@ -308,8 +308,20 @@ func (h *SourceHandler) crearFuente(w http.ResponseWriter, r *http.Request, fuen
 	err := h.repo.Add(r.Context(), ports.Source{URL: fuenteURL, Label: label, Kind: kind, IsActive: true})
 	if err != nil {
 		if errors.Is(err, ports.ErrFuenteDuplicada) {
+			// Duplicado NO es huérfano: mismo contenido → mismo path → el
+			// fichero que ya está en disco pertenece legítimamente a la
+			// fuente ya existente. No se toca.
 			h.writeError(w, http.StatusConflict, "ya existe una fuente con esa URL")
 			return
+		}
+		// Cualquier OTRO fallo de Add (DB ocupada, disco lleno...) deja un
+		// fichero recién escrito en fuentesDir sin ninguna fila que lo
+		// reclame, si esta alta venía de una subida. Se borra aquí, antes de
+		// responder, para que un Add fallido no acumule M3Us huérfanos.
+		if kind == "file" {
+			if path, ok := h.rutaFicheroSubido(fuenteURL); ok {
+				h.borrarFicheroSubido(path, "alta fallida")
+			}
 		}
 		h.logger.Error("POST /sources: fallo dando de alta la fuente", slog.Any("error", err))
 		h.writeError(w, http.StatusInternalServerError, "no se pudo dar de alta la fuente")
@@ -328,7 +340,11 @@ func (h *SourceHandler) crearFuente(w http.ResponseWriter, r *http.Request, fuen
 
 	// Sync inicial asíncrono: una lista M3U grande puede tardar bastante en
 	// descargarse y parsear, y el 201 no debe esperar a eso. El error se
-	// registra; el usuario tiene POST /sources/{id}/sync para reintentar a mano.
+	// registra; el usuario tiene POST /sources/{id}/sync para reintentar a
+	// mano. Deliberadamente sin tracking en el WaitGroup de apagado de
+	// main.go: es un proceso local de un único usuario, y en el peor caso el
+	// proceso termina un poco antes de que este sync puntual acabe (aceptable
+	// aquí; no lo sería en un servicio multi-usuario).
 	go func(id string) {
 		if err := h.syncer.SyncOne(context.Background(), id); err != nil {
 			h.logger.Error("Sync inicial de fuente nueva fallido",
@@ -337,6 +353,49 @@ func (h *SourceHandler) crearFuente(w http.ResponseWriter, r *http.Request, fuen
 	}(creada.ID)
 
 	h.writeJSON(w, http.StatusCreated, aFuenteJSON(creada))
+}
+
+// rutaFicheroSubido extrae la ruta de disco de una URL "file://<ruta>" y
+// valida que quede CONTENIDA en fuentesDir, con la misma disciplina que
+// opensource.Provider.resolveFilePath (Abs+Clean en ambos lados y contención
+// real por filepath.Rel, nunca un simple strings.HasPrefix sobre las
+// cadenas). ok=false si la URL no es file:// o si, por lo que sea, la ruta
+// resultante cae fuera de fuentesDir: un borrado nunca debe fiarse a ciegas
+// de un campo que, en las fuentes que este propio handler crea, siempre
+// debería quedar dentro.
+func (h *SourceHandler) rutaFicheroSubido(fuenteURL string) (string, bool) {
+	if !strings.HasPrefix(fuenteURL, "file://") || h.fuentesDir == "" {
+		return "", false
+	}
+	raw := strings.TrimPrefix(fuenteURL, "file://")
+	if raw == "" {
+		return "", false
+	}
+	allowedAbs, err := filepath.Abs(filepath.Clean(h.fuentesDir))
+	if err != nil {
+		return "", false
+	}
+	pathAbs, err := filepath.Abs(filepath.Clean(raw))
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(allowedAbs, pathAbs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return pathAbs, true
+}
+
+// borrarFicheroSubido borra un fichero ya validado como contenido en
+// fuentesDir, tolerando que ya no exista. Un fallo de borrado (permisos,
+// I/O) se loguea pero nunca aborta el flujo que lo invoca: en ambos call
+// sites (alta fallida, fuente borrada) el peor desenlace de un os.Remove
+// fallido es un fichero huérfano benigno, no una inconsistencia del catálogo.
+func (h *SourceHandler) borrarFicheroSubido(path, motivo string) {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		h.logger.Warn("No se pudo borrar el fichero subido de una fuente",
+			slog.String("motivo", motivo), slog.String("path", path), slog.Any("error", err))
+	}
 }
 
 // buscarPorURL relee la lista de fuentes para encontrar la que se acaba de dar
@@ -357,27 +416,37 @@ func (h *SourceHandler) buscarPorURL(ctx context.Context, fuenteURL string) (por
 	return ports.Source{}, fmt.Errorf("handlers.buscarPorURL: ninguna fuente con url=%s", fuenteURL)
 }
 
-// existeFuente hace una comprobación barata de existencia a partir de List:
-// no hay un Get-por-id en ports.SourceRepository (solo List/Add/Remove/TouchSync)
-// y añadir uno solo para esto no compensa frente a reutilizar List, que ya se
-// paga en cada GET /sources.
-func (h *SourceHandler) existeFuente(ctx context.Context, id string) (bool, error) {
+// buscarPorID hace una búsqueda barata a partir de List: no hay un Get-por-id
+// en ports.SourceRepository (solo List/Add/Remove/TouchSync) y añadir uno
+// solo para esto no compensa frente a reutilizar List, que ya se paga en cada
+// GET /sources. Se usa tanto para el 404 de DELETE/Sync como, en DELETE, para
+// saber si la fuente es kind=="file" y qué fichero le corresponde borrar.
+func (h *SourceHandler) buscarPorID(ctx context.Context, id string) (ports.Source, bool, error) {
 	fuentes, err := h.repo.List(ctx)
 	if err != nil {
-		return false, fmt.Errorf("handlers.existeFuente (List): %w", err)
+		return ports.Source{}, false, fmt.Errorf("handlers.buscarPorID (List): %w", err)
 	}
 	for _, f := range fuentes {
 		if f.ID == id {
-			return true, nil
+			return f, true, nil
 		}
 	}
-	return false, nil
+	return ports.Source{}, false, nil
 }
 
 // Delete borra una fuente y, en cascada (a cargo del repositorio), sus
 // canales y streams. Un id desconocido es un 404: se comprueba por
 // adelantado en vez de ejecutar el DELETE a ciegas, porque Remove no informa
-// si borró alguna fila. Ruta: DELETE /sources/{id}
+// si borró alguna fila.
+//
+// Para kind=="file", el M3U subido en fuentesDir se borra DESPUÉS de que la
+// fila haya desaparecido con éxito, nunca antes: si el orden fuera al revés y
+// Remove fallara a mitad, la fuente quedaría con su fila (y su fila en
+// providers) viva pero sin el fichero que la respalda — rota de verdad. Con
+// fila-primero-fichero-después, el peor caso de un os.Remove fallido es un
+// fichero huérfano benigno (se loguea): el catálogo ya quedó consistente,
+// porque la fila y sus canales/streams ya se fueron en cascada.
+// Ruta: DELETE /sources/{id}
 func (h *SourceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
 	if id == "" {
@@ -385,7 +454,7 @@ func (h *SourceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existe, err := h.existeFuente(r.Context(), id)
+	fuente, existe, err := h.buscarPorID(r.Context(), id)
 	if err != nil {
 		h.logger.Error("DELETE /sources: fallo comprobando existencia", slog.Any("error", err))
 		h.writeError(w, http.StatusInternalServerError, "error borrando la fuente")
@@ -401,6 +470,13 @@ func (h *SourceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "error borrando la fuente")
 		return
 	}
+
+	if fuente.Kind == "file" {
+		if path, ok := h.rutaFicheroSubido(fuente.URL); ok {
+			h.borrarFicheroSubido(path, "fuente borrada")
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -416,7 +492,7 @@ func (h *SourceHandler) Sync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existe, err := h.existeFuente(r.Context(), id)
+	_, existe, err := h.buscarPorID(r.Context(), id)
 	if err != nil {
 		h.logger.Error("POST /sources/{id}/sync: fallo comprobando existencia", slog.Any("error", err))
 		h.writeError(w, http.StatusInternalServerError, "error disparando el sync")
@@ -427,6 +503,9 @@ func (h *SourceHandler) Sync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Mismo trade-off que el sync inicial de crearFuente: goroutine sin
+	// tracking en el WaitGroup de apagado de main.go, aceptable en un proceso
+	// local de un único usuario.
 	go func(id string) {
 		if err := h.syncer.SyncOne(context.Background(), id); err != nil {
 			h.logger.Error("Sync manual fallido", slog.String("fuente", id), slog.Any("error", err))

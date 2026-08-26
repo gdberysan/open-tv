@@ -126,6 +126,13 @@ func TestTablaDeRutas(t *testing.T) {
 		{"/channels/categories", http.StatusOK},
 		{"/channels/stream?id=x", http.StatusNotFound},
 		{"/channels/loquesea/health", http.StatusNotFound},
+		// /sources* (Tarea 4): alcanzables a través del router REAL, no de un
+		// mock de handler. Igual que arriba, "sugeridas" es una ruta literal
+		// que convive con /{id}/sync — si chi la absorbiera como parámetro,
+		// esto dejaría de ser 200 con la constante y pasaría a intentar un
+		// sync sobre una fuente inexistente.
+		{"/sources", http.StatusOK},
+		{"/sources/sugeridas", http.StatusOK},
 		// La guía se retiró. Ya no es 404 de API: el cliente web (Tarea 9) se
 		// monta como NotFound del router, así que cualquier ruta que ninguna
 		// API reclame cae al fallback SPA (200 con el index) SI hay cliente
