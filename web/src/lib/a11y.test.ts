@@ -498,4 +498,51 @@ describe('a11y — App: el fondo queda inert mientras el reproductor está abier
     expect(main?.inert).toBe(true)
     expect(pie?.inert).toBe(true)
   })
+
+  it('fix1 Hallazgo 1: la cabecera (con el toggle de idioma) queda dentro de un ancestro inert al abrir el reproductor', async () => {
+    // Antes de este arreglo, <header>/el botón de cajón eran HERMANOS de
+    // <main> (Tarea 4 los sacó de dentro al reestructurar el shell) y no
+    // llevaban inert propio: con el reproductor abierto, el toggle ES/EN
+    // seguía siendo clicable y un lector de pantalla en modo navegación
+    // podía entrar en la cabecera por detrás del modal. El arreglo envuelve
+    // cabecera + cuerpo + pie en un único contenedor (`div.fondo`) con
+    // inert={!!canalAbierto}: basta con comprobar que el ANCESTRO que
+    // envuelve la cabecera queda inert (no solo <main>).
+    //
+    // Igual que en el test de arriba: jsdom no refleja la propiedad IDL
+    // `inert` a un atributo del DOM (`hasAttribute('inert')`/`[inert]` se
+    // quedan en false pase lo que pase), así que la búsqueda del ancestro
+    // recorre `parentElement` a mano comprobando la PROPIEDAD `.inert`, no
+    // un selector de atributo.
+    function ancestroInert(el: HTMLElement | null): (HTMLElement & { inert?: boolean }) | null {
+      for (let n = el; n; n = n.parentElement) {
+        if ((n as HTMLElement & { inert?: boolean }).inert !== undefined) return n as HTMLElement & { inert?: boolean }
+      }
+      return null
+    }
+
+    const canales = [canalFalso(0)]
+    const fuente = fuenteFalsa({ canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })) })
+    const { container } = render(App, { fuente })
+
+    const cabecera = container.querySelector('header.cabecera') as HTMLElement
+    expect(cabecera).not.toBeNull()
+    const contenedor = ancestroInert(cabecera)
+    // Contra el código pre-fix (cabecera HERMANA de <main>, sin inert
+    // propio ni de ningún ancestro), ancestroInert daría null aquí.
+    expect(contenedor).not.toBeNull()
+    expect(contenedor).not.toBe(cabecera) // el propio <header> no lleva inert; lo hereda de un ancestro
+    expect(contenedor?.inert).toBe(false)
+
+    const abrirCanal = await screen.findByLabelText('Canal 0')
+    await fireEvent.click(abrirCanal)
+    await tick()
+
+    // Mismo nodo, ahora inert: el toggle de idioma (dentro de la cabecera)
+    // queda fuera del árbol de accesibilidad y del orden de tabulación.
+    expect(ancestroInert(cabecera)).toBe(contenedor)
+    expect(contenedor?.inert).toBe(true)
+    const botonIdioma = cabecera.querySelector('button.idioma')
+    expect(contenedor?.contains(botonIdioma)).toBe(true)
+  })
 })

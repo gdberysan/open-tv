@@ -255,84 +255,103 @@
   )
 </script>
 
-<!-- inert (Tarea 18, orden de foco): mientras el reproductor está abierto es
-     un diálogo modal (role="dialog" aria-modal, ver Reproductor.svelte) que
-     vive FUERA de <main> (mismo nivel que <footer>, ver más abajo). Sin
-     inert, Tab seguía alcanzando los botones de <main>/<footer> por detrás
-     del reproductor — un lector de pantalla o un usuario de teclado podía
-     "salirse" del modal sin cerrarlo. inert saca todo <main>/<footer> del
-     árbol de accesibilidad y del orden de tabulación de una sola vez, sin
-     tener que enumerar a mano cada control de fuera. Con el shell de dos
-     columnas (Tarea 4) esto no cambia: <main> sigue siendo el mismo nodo,
-     solo que ahora vive dentro de <div class="cuerpo"> junto al aside. -->
+<!-- inert (Tarea 18, orden de foco; fix round 1, Hallazgo 1): mientras el
+     reproductor está abierto es un diálogo modal (role="dialog" aria-modal,
+     ver Reproductor.svelte) que vive FUERA de <div class="fondo">, como
+     hermano. Sin inert, Tab seguía alcanzando los botones de fuera del
+     modal — un lector de pantalla o un usuario de teclado podía "salirse"
+     del diálogo sin cerrarlo. La reestructuración de la Tarea 4 sacó
+     <header> (con el toggle de idioma, interactivo) y el botón de cajón de
+     dentro de <main>, así que un inert puesto solo en <main>/<footer> ya NO
+     bastaba: la cabecera quedaba clicable/focable por detrás del modal.
+     El arreglo envuelve TODO el fondo —cabecera, cuerpo (aside + main) y
+     pie— en <div class="fondo" inert={...}>, un contenedor nuevo sin estilo
+     propio (no toca el fondo visual de .sala ni el del pie: solo aporta el
+     boundary de inert). inert se hereda por todo el subárbol, así que
+     cabecera, botón de cajón, aside, main y pie quedan inert de una sola
+     vez, y cuando la Tarea 6 meta controles reales en el aside quedarán
+     cubiertos automáticamente sin tocar este boundary. <main>/<footer>
+     conservan además su inert propio (redundante pero inocuo) porque un
+     test anterior ya lo comprueba nodo a nodo. -->
 <!-- Persistentes (fix round 1, Hallazgo 1): ver el comentario largo en el
      <script> sobre por qué NO son los <p aria-live> que se montan dentro de
      Sincronizando/MensajeError. Vacías en catálogo normal; su texto es lo
-     único que cambia. Se quedan aquí, en la raíz, ANTES del shell — un solo
-     nodo persistente cada una, nunca duplicadas. -->
+     único que cambia. Se quedan aquí, en la raíz, FUERA del contenedor
+     inert y ANTES del shell — un solo nodo persistente cada una, nunca
+     duplicadas, y su anuncio no depende de que el fondo esté o no inert. -->
 <div class="sr-only" aria-live="polite" aria-atomic="true">{mensajeSincronizandoAccesible}</div>
 <div class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">{mensajeErrorAccesible}</div>
 
-<div class="sala">
-  <header class="cabecera">
-    <div class="marca">
-      <h1 class="wordmark">KORVEN <span class="acento">OPEN TV</span></h1>
-      <p class="subtitulo">{t('app.lema')}</p>
-    </div>
-    <div class="cabecera-derecha">
-      <!-- Hueco para IndicadorSenal (Tarea 5): esta tarea solo prepara el
-           layout, el indicador honesto de señal llega en la siguiente. -->
-      <button type="button" class="idioma" onclick={alternarIdioma}>
-        {idioma.actual === 'es' ? t('idioma.en') : t('idioma.es')}
+<div class="fondo" inert={!!canalAbierto}>
+  <div class="sala">
+    <header class="cabecera">
+      <div class="marca">
+        <h1 class="wordmark">KORVEN <span class="acento">OPEN TV</span></h1>
+        <p class="subtitulo">{t('app.lema')}</p>
+      </div>
+      <div class="cabecera-derecha">
+        <!-- Hueco para IndicadorSenal (Tarea 5): esta tarea solo prepara el
+             layout, el indicador honesto de señal llega en la siguiente. -->
+        <button type="button" class="idioma" onclick={alternarIdioma}>
+          {idioma.actual === 'es' ? t('idioma.en') : t('idioma.es')}
+        </button>
+      </div>
+    </header>
+
+    <div class="cuerpo">
+      <!-- Botón de cajón: solo tiene sentido visualmente bajo el breakpoint de
+           ~900px (CSS lo oculta en escritorio, donde el aside ya es la columna
+           fija de siempre); se deja siempre montado para que aria-controls /
+           aria-expanded describan un control real y estable. -->
+      <button
+        type="button"
+        class="boton-cajon"
+        aria-controls="panel-facetas"
+        aria-expanded={lateralAbierto}
+        onclick={alternarLateral}
+      >
+        {t('shell.facetas')}
       </button>
-    </div>
-  </header>
 
-  <div class="cuerpo">
-    <!-- Botón de cajón: solo tiene sentido visualmente bajo el breakpoint de
-         ~900px (CSS lo oculta en escritorio, donde el aside ya es la columna
-         fija de siempre); se deja siempre montado para que aria-controls /
-         aria-expanded describan un control real y estable. -->
-    <button
-      type="button"
-      class="boton-cajon"
-      aria-controls="panel-facetas"
-      aria-expanded={lateralAbierto}
-      onclick={alternarLateral}
-    >
-      {t('shell.facetas')}
-    </button>
+      <aside class="facetas" id="panel-facetas" data-abierto={lateralAbierto}>
+        <!-- Contenido real de las facetas: Tarea 6 (BarraLateralFacetas). Por
+             ahora solo un encabezado accesible que nombra la región; los
+             desplegables actuales (país/categoría/calidad) se quedan de
+             momento en <main>, sin migrar su lógica todavía. -->
+        <h2 class="sr-only">{t('shell.facetas')}</h2>
+      </aside>
 
-    <aside class="facetas" id="panel-facetas" data-abierto={lateralAbierto}>
-      <!-- Contenido real de las facetas: Tarea 6 (BarraLateralFacetas). Por
-           ahora solo un encabezado accesible que nombra la región; los
-           desplegables actuales (país/categoría/calidad) se quedan de
-           momento en <main>, sin migrar su lógica todavía. -->
-      <h2 class="sr-only">{t('shell.facetas')}</h2>
-    </aside>
+      <main inert={!!canalAbierto}>
+        {#if vistaStats}
+          <PanelStats alVolver={volverDelPanel} />
+        {:else if fase.tipo === 'sincronizando'}
+          <Sincronizando alListo={alSincronizado} />
+        {:else if fase.tipo === 'error'}
+          <MensajeError clase={fase.clase} />
+        {:else if fase.tipo === 'listo'}
+          <BarraFiltros {paises} {categorias} {alAleatorio} />
 
-    <main inert={!!canalAbierto}>
-      {#if vistaStats}
-        <PanelStats alVolver={volverDelPanel} />
-      {:else if fase.tipo === 'sincronizando'}
-        <Sincronizando alListo={alSincronizado} />
-      {:else if fase.tipo === 'error'}
-        <MensajeError clase={fase.clase} />
-      {:else if fase.tipo === 'listo'}
-        <BarraFiltros {paises} {categorias} {alAleatorio} />
-
-        {#if errorCatalogo}
-          <MensajeError clase={errorCatalogo} />
-        {:else}
-          <div class="resumen">
-            <p class="total">{t('catalogo.total', { n: total })}</p>
-            {#if frescura}<Frescura {frescura} />{/if}
-          </div>
-          <RejillaCanales {canales} vista={$filtros.vista} {cargando} {alPedirMas} alAbrir={abrirCanal} />
+          {#if errorCatalogo}
+            <MensajeError clase={errorCatalogo} />
+          {:else}
+            <div class="resumen">
+              <p class="total">{t('catalogo.total', { n: total })}</p>
+              {#if frescura}<Frescura {frescura} />{/if}
+            </div>
+            <RejillaCanales {canales} vista={$filtros.vista} {cargando} {alPedirMas} alAbrir={abrirCanal} />
+          {/if}
         {/if}
-      {/if}
-    </main>
+      </main>
+    </div>
   </div>
+
+  <footer class="pie" inert={!!canalAbierto}>
+    <p>{t('pie.fuente')}</p>
+    <p>{t('pie.postura')}</p>
+    {#if !vistaStats}
+      <p><a class="stats" href="#stats" onclick={abrirStats}>{t('pie.stats')}</a></p>
+    {/if}
+  </footer>
 </div>
 
 {#if canalAbierto}
@@ -345,14 +364,6 @@
     alSiguiente={canalSiguiente}
   />
 {/if}
-
-<footer class="pie" inert={!!canalAbierto}>
-  <p>{t('pie.fuente')}</p>
-  <p>{t('pie.postura')}</p>
-  {#if !vistaStats}
-    <p><a class="stats" href="#stats" onclick={abrirStats}>{t('pie.stats')}</a></p>
-  {/if}
-</footer>
 
 <style>
   /* Shell de dos columnas (Tarea 4 de P0.6). El fondo --surface-abyss es más

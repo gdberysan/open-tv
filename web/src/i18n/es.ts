@@ -1,7 +1,6 @@
 // El español es la fuente: sus claves definen el tipo, así que una clave que
 // falte en inglés rompe el typecheck y no llega a producción.
 export const es = {
-  'app.titulo': 'Korven Open TV',
   'app.lema': 'Televisión abierta, sin cuentas y sin configuración',
 
   'catalogo.buscar': 'Buscar un canal',

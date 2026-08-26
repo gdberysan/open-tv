@@ -3,7 +3,6 @@ import type { ClaveMensaje } from './es'
 // Record<ClaveMensaje, string>: si falta una clave, el build falla. No hay
 // forma de publicar una UI a medio traducir.
 export const en: Record<ClaveMensaje, string> = {
-  'app.titulo': 'Korven Open TV',
   'app.lema': 'Free-to-air television, no accounts, no setup',
 
   'catalogo.buscar': 'Search a channel',
