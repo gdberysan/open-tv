@@ -38,6 +38,14 @@ jobs:
       - name: go test
         run: go test -race -count=1 ./...
 
+      # Gate de release: nada versionado dispara las reglas duras (.DS_Store,
+      # *.db, docs/prompts/, .claude/settings.local.json). En CI no existe
+      # la denylist privada del autor (~/.config/korven/open-tv-denylist.txt)
+      # ni debe existir — --solo-reglas-duras corre sin ella y nunca sale 2;
+      # el escaneo con denylist es un gate LOCAL del autor pre-release.
+      - name: scrubcheck (reglas duras)
+        run: go run ./tools/scrubcheck --solo-reglas-duras
+
   mobile:
     name: Mobile (Flutter)
     runs-on: ubuntu-latest
