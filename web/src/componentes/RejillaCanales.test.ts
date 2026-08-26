@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, render } from '@testing-library/svelte'
+import { writable } from 'svelte/store'
 import RejillaCanales from './RejillaCanales.svelte'
-import type { Canal } from '../datos/catalogo'
+import type { AhoraDespues, Canal } from '../datos/catalogo'
 import { idioma } from '../i18n'
 
 // Mismo doble que RejillaVirtual.test.ts / App.integracion.test.ts: jsdom no
@@ -80,5 +81,45 @@ describe('RejillaCanales — modo lista', () => {
 
     expect(container.querySelector('article.fila img')?.getAttribute('src')).toBe(canal.logoUrl)
     expect(container.querySelector('article.fila .sinlogo')).toBeNull()
+  })
+
+  // Tarea (paridad de EPG): la insignia ahora/después de TarjetaCanal (P2)
+  // también en la fila de la vista lista. Mismo doble de test que
+  // TarjetaCanal.test.ts / RejillaVirtual.test.ts: un `writable` de
+  // svelte/store basta como Readable<Map<string, AhoraDespues>>.
+  describe('insignia ahora/después (EPG) — modo lista', () => {
+    it('con guía presente: muestra "Ahora: <título>" en la fila', () => {
+      const ahoraDespues: AhoraDespues = {
+        ahora: { titulo: 'Telediario', inicioSeg: 1_700_000_000, finSeg: 1_700_003_000 },
+        siguiente: null,
+      }
+      const epg = writable(new Map([['x', ahoraDespues]]))
+      const { container } = render(RejillaCanales, {
+        canales: [canal], vista: 'lista', cargando: false, alPedirMas: () => {}, alAbrir: () => {}, epg,
+      })
+
+      const texto = container.querySelector('article.fila .linea-epg')?.textContent ?? ''
+      expect(texto).toContain('Ahora: Telediario')
+    })
+
+    it('sin guía para este canal: la fila no muestra texto de EPG', () => {
+      const epg = writable(new Map<string, AhoraDespues>())
+      const { container } = render(RejillaCanales, {
+        canales: [canal], vista: 'lista', cargando: false, alPedirMas: () => {}, alAbrir: () => {}, epg,
+      })
+
+      expect(container.querySelector('article.fila .linea-epg')?.textContent?.trim() ?? '').toBe('')
+    })
+
+    it('modo lista: llama a alVisiblesCambiar con los ids de los canales cargados', () => {
+      const llamadas: string[][] = []
+      render(RejillaCanales, {
+        canales: [canal], vista: 'lista', cargando: false, alPedirMas: () => {}, alAbrir: () => {},
+        alVisiblesCambiar: (ids: string[]) => llamadas.push(ids),
+      })
+
+      expect(llamadas.length).toBeGreaterThan(0)
+      expect(llamadas[llamadas.length - 1]).toEqual(['x'])
+    })
   })
 })
