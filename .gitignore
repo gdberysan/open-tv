@@ -46,3 +46,6 @@ mobile/macos/Flutter/ephemeral/
 # Artefactos locales que no viajan al repo público (P1)
 docs/prompts/
 .claude/
+
+# Salida de goreleaser (root-anchored: NO afecta a internal/ui/dist, el embed)
+/dist/
