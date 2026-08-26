@@ -73,6 +73,16 @@ function fuenteFalsa(overrides: Partial<CatalogSource> = {}): CatalogSource {
     mirrors: vi.fn(async () => []),
     frescura: vi.fn(async () => ({ tipo: 'vivo' as const, generadoEn: null })),
     proxyDisponible: vi.fn(async () => false),
+    fuentes: vi.fn(async () => []),
+    anadirFuente: vi.fn(async () => ({
+      id: 'f1', label: 'Fuente falsa', url: '', kind: 'url' as const, ultimoSync: null, canales: 0,
+    })),
+    anadirFuenteFichero: vi.fn(async () => ({
+      id: 'f1', label: 'Fuente falsa', url: '', kind: 'file' as const, ultimoSync: null, canales: 0,
+    })),
+    quitarFuente: vi.fn(async () => {}),
+    resyncFuente: vi.fn(async () => {}),
+    fuentesSugeridas: vi.fn(async () => []),
     ...overrides,
   }
 }

@@ -136,4 +136,111 @@ describe('HttpCatalog', () => {
     expect(mirrors[2].vivo).toBe(false)
     expect(mirrors[2].webOk).toBeNull()
   })
+
+  describe('fuentes', () => {
+    it('fuentes() lee GET /sources y traduce el cable', async () => {
+      const espia = vi.fn(async (..._args: unknown[]) => respuesta([
+        { id: 'f1', label: 'Mi lista', url: 'https://x/lista.m3u8', kind: 'url', ultimo_sync: 1700000000, canales: 42 },
+      ]))
+      vi.stubGlobal('fetch', espia)
+
+      const fuentes = await crearHttpCatalog('').fuentes()
+
+      expect(String(espia.mock.calls[0][0])).toBe('/sources')
+      expect(fuentes).toEqual([
+        { id: 'f1', label: 'Mi lista', url: 'https://x/lista.m3u8', kind: 'url', ultimoSync: 1700000000, canales: 42 },
+      ])
+    })
+
+    // El cable manda 0 como centinela de "nunca sincronizada": traducirlo a
+    // 0 literal confundiría "nunca" con "el 1 de enero de 1970".
+    it('fuentes() traduce ultimo_sync 0 a null', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => respuesta([
+        { id: 'f1', label: 'X', url: 'https://x', kind: 'url', ultimo_sync: 0, canales: 0 },
+      ])))
+
+      const fuentes = await crearHttpCatalog('').fuentes()
+      expect(fuentes[0].ultimoSync).toBeNull()
+    })
+
+    it('anadirFuente() manda POST JSON con {url,label}', async () => {
+      const espia = vi.fn(async (..._args: unknown[]) => respuesta(
+        { id: 'f2', label: 'Etiqueta', url: 'https://y/lista.m3u8', kind: 'url', ultimo_sync: 0, canales: 0 },
+      ))
+      vi.stubGlobal('fetch', espia)
+
+      const fuente = await crearHttpCatalog('').anadirFuente('https://y/lista.m3u8', 'Etiqueta')
+
+      const [url, init] = espia.mock.calls[0] as [string, RequestInit]
+      expect(String(url)).toBe('/sources')
+      expect(init.method).toBe('POST')
+      expect(init.headers).toMatchObject({ 'Content-Type': 'application/json' })
+      expect(JSON.parse(init.body as string)).toEqual({ url: 'https://y/lista.m3u8', label: 'Etiqueta' })
+      expect(fuente).toEqual({ id: 'f2', label: 'Etiqueta', url: 'https://y/lista.m3u8', kind: 'url', ultimoSync: null, canales: 0 })
+    })
+
+    it('anadirFuente() sin label no manda la clave', async () => {
+      const espia = vi.fn(async (..._args: unknown[]) => respuesta(
+        { id: 'f3', label: '', url: 'https://z', kind: 'url', ultimo_sync: 0, canales: 0 },
+      ))
+      vi.stubGlobal('fetch', espia)
+
+      await crearHttpCatalog('').anadirFuente('https://z')
+
+      const [, init] = espia.mock.calls[0] as [string, RequestInit]
+      expect(JSON.parse(init.body as string)).toEqual({ url: 'https://z' })
+    })
+
+    it('anadirFuenteFichero() manda POST multipart con el campo fichero', async () => {
+      const espia = vi.fn(async (..._args: unknown[]) => respuesta(
+        { id: 'f4', label: 'lista.m3u', url: '', kind: 'file', ultimo_sync: 0, canales: 10 },
+      ))
+      vi.stubGlobal('fetch', espia)
+
+      const fichero = new File(['#EXTM3U'], 'lista.m3u', { type: 'audio/x-mpegurl' })
+      const fuente = await crearHttpCatalog('').anadirFuenteFichero(fichero)
+
+      const [url, init] = espia.mock.calls[0] as [string, RequestInit]
+      expect(String(url)).toBe('/sources')
+      expect(init.method).toBe('POST')
+      expect(init.body).toBeInstanceOf(FormData)
+      const form = init.body as FormData
+      expect(form.get('fichero')).toBe(fichero)
+      expect(fuente.kind).toBe('file')
+    })
+
+    it('quitarFuente() manda DELETE /sources/{id}', async () => {
+      const espia = vi.fn(async (..._args: unknown[]) => new Response(null, { status: 204 }))
+      vi.stubGlobal('fetch', espia)
+
+      await crearHttpCatalog('').quitarFuente('f1')
+
+      const [url, init] = espia.mock.calls[0] as [string, RequestInit]
+      expect(String(url)).toBe('/sources/f1')
+      expect(init.method).toBe('DELETE')
+    })
+
+    it('resyncFuente() manda POST /sources/{id}/sync', async () => {
+      const espia = vi.fn(async (..._args: unknown[]) => new Response(null, { status: 204 }))
+      vi.stubGlobal('fetch', espia)
+
+      await crearHttpCatalog('').resyncFuente('f1')
+
+      const [url, init] = espia.mock.calls[0] as [string, RequestInit]
+      expect(String(url)).toBe('/sources/f1/sync')
+      expect(init.method).toBe('POST')
+    })
+
+    it('fuentesSugeridas() lee GET /sources/sugeridas sin adaptar forma', async () => {
+      const espia = vi.fn(async (..._args: unknown[]) => respuesta([
+        { label: 'Ejemplo', url: 'https://ejemplo/lista.m3u8' },
+      ]))
+      vi.stubGlobal('fetch', espia)
+
+      const sugeridas = await crearHttpCatalog('').fuentesSugeridas()
+
+      expect(String(espia.mock.calls[0][0])).toBe('/sources/sugeridas')
+      expect(sugeridas).toEqual([{ label: 'Ejemplo', url: 'https://ejemplo/lista.m3u8' }])
+    })
+  })
 })

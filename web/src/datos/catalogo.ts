@@ -54,6 +54,17 @@ export interface Mirror {
   webOk: boolean | null
 }
 
+/** Una fuente de canales añadida por el usuario (bring-your-own). */
+export interface Fuente {
+  id: string
+  label: string
+  url: string
+  kind: 'url' | 'file'
+  /** null = nunca sincronizada. El cable manda 0 para ese caso. */
+  ultimoSync: number | null
+  canales: number
+}
+
 /**
  * CatalogSource es la costura entre el gateway vivo y el snapshot estático.
  * El cliente no sabe en cuál está salvo por la línea de frescura.
@@ -70,4 +81,16 @@ export interface CatalogSource {
   frescura(): Promise<Frescura>
   /** El proxy solo existe en el binario local. */
   proxyDisponible(): Promise<boolean>
+  /** Las fuentes añadidas por el usuario (bring-your-own). */
+  fuentes(): Promise<Fuente[]>
+  /** Añade una fuente por URL remota. */
+  anadirFuente(url: string, label?: string): Promise<Fuente>
+  /** Añade una fuente subiendo un fichero local (multipart). */
+  anadirFuenteFichero(f: File): Promise<Fuente>
+  /** Quita una fuente existente. */
+  quitarFuente(id: string): Promise<void>
+  /** Fuerza una resincronización de una fuente existente. */
+  resyncFuente(id: string): Promise<void>
+  /** Fuentes de ejemplo sugeridas para dar de alta rápido. */
+  fuentesSugeridas(): Promise<{ label: string; url: string }[]>
 }
