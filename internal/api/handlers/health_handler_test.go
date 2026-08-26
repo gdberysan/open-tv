@@ -20,7 +20,7 @@ func TestHealthReportaEdadDelSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	h := NewHealthHandler(sqlDB, fakeSyncStatus{last: time.Now().Add(-2 * time.Hour)}, Info{})
 	rec := httptest.NewRecorder()
@@ -51,7 +51,7 @@ func TestHealthDegradadoSiElSyncEsMuyViejo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	h := NewHealthHandler(sqlDB, fakeSyncStatus{last: time.Now().Add(-72 * time.Hour)}, Info{})
 	rec := httptest.NewRecorder()
@@ -72,7 +72,7 @@ func TestHealthDetectaDBCaida(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	h := NewHealthHandler(sqlDB, fakeSyncStatus{last: time.Now()}, Info{})
 	rec := httptest.NewRecorder()
@@ -89,7 +89,7 @@ func TestHealthSinSyncPrevio(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	h := NewHealthHandler(sqlDB, fakeSyncStatus{}, Info{})
 	rec := httptest.NewRecorder()
@@ -110,7 +110,7 @@ func TestHealthPublicaLaInfoDelBinario(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	h := NewHealthHandler(sqlDB, fakeSyncStatus{}, Info{
 		Version: "1.2.3", WebUI: true, ProxyEnabled: true, ProxyRuta: "/proxy/hls?u=",
@@ -139,7 +139,7 @@ func TestHealthPublicaLaRutaDelProxy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	h := NewHealthHandler(sqlDB, fakeSyncStatus{}, Info{ProxyRuta: "/proxy/hls?u="})
 	rec := httptest.NewRecorder()
@@ -161,7 +161,7 @@ func TestHealthVersionPorDefecto(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	h := NewHealthHandler(sqlDB, fakeSyncStatus{}, Info{})
 	rec := httptest.NewRecorder()

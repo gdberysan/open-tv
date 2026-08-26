@@ -21,7 +21,7 @@ func TestProberClasificaYCachea(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewAirplayProber(srv.Client(), time.Hour, 10)
+	p := NewAirplayProber(srv.Client(), time.Hour, 10, true)
 	url := srv.URL + "/a.m3u8"
 
 	if got := p.Veredicto(context.Background(), url); got != domain.AirplayOK {
@@ -41,7 +41,7 @@ func TestProberDevuelveDesconocidoSiElOrigenFalla(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewAirplayProber(srv.Client(), time.Hour, 10)
+	p := NewAirplayProber(srv.Client(), time.Hour, 10, true)
 	if got := p.Veredicto(context.Background(), srv.URL+"/a.m3u8"); got != domain.AirplayUnknown {
 		t.Errorf("veredicto = %v, quiero AirplayUnknown", got)
 	}
@@ -54,7 +54,7 @@ func TestProberNoSondeaLoQueLaURLYaDescarta(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewAirplayProber(srv.Client(), time.Hour, 10)
+	p := NewAirplayProber(srv.Client(), time.Hour, 10, true)
 	if got := p.Veredicto(context.Background(), srv.URL+"/a.mpd"); got != domain.AirplayNo {
 		t.Errorf("veredicto = %v, quiero AirplayNo", got)
 	}
@@ -69,7 +69,7 @@ func TestProberRespetaElTopeDeEntradas(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewAirplayProber(srv.Client(), time.Hour, 2)
+	p := NewAirplayProber(srv.Client(), time.Hour, 2, true)
 	for _, s := range []string{"/a.m3u8", "/b.m3u8", "/c.m3u8"} {
 		p.Veredicto(context.Background(), srv.URL+s)
 	}

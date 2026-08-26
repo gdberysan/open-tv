@@ -209,9 +209,11 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 // el mismo ID en cada sync, de modo que el upsert actualiza en vez de duplicar.
 func streamID(channelID domain.ChannelID, url string) string {
 	h := fnv.New64a()
-	h.Write([]byte(string(channelID)))
-	h.Write([]byte{0})
-	h.Write([]byte(url))
+	// hash.Hash.Write nunca devuelve error (garantía de la interfaz io.Writer
+	// para fnv): se descarta explícitamente en vez de comprobarlo.
+	_, _ = h.Write([]byte(string(channelID)))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(url))
 	return fmt.Sprintf("st-%016x", h.Sum64())
 }
 

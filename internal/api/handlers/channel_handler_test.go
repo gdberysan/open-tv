@@ -165,7 +165,7 @@ func setupRouterWith(provider ports.ProviderPort, streams ports.StreamRepository
 func setupRouterFull(repo ports.ChannelRepository, provider ports.ProviderPort, streams ports.StreamRepository) http.Handler {
 	r := chi.NewRouter()
 	h := NewChannelHandler(slog.New(slog.DiscardHandler), repo, provider, streams,
-		NewAirplayProber(http.DefaultClient, time.Hour, 10))
+		NewAirplayProber(http.DefaultClient, time.Hour, 10, false))
 	r.Get("/channels", h.GetChannels)
 	r.Get("/channels/stream", h.GetStreamURL)
 	r.Get("/channels/{id}/health", h.GetHealth)
@@ -205,7 +205,7 @@ func TestChannelHandler_GetStreamURL(t *testing.T) {
 	}
 
 	var res map[string]string
-	json.NewDecoder(rr.Body).Decode(&res)
+	_ = json.NewDecoder(rr.Body).Decode(&res)
 	if res["url"] != "http://mock.com/123.ts" {
 		t.Errorf("Unexpected url: %v", res["url"])
 	}
@@ -291,7 +291,7 @@ func TestChannelHandler_GetStreamURL_FallbackADB(t *testing.T) {
 		t.Fatalf("status = %v, want %v", rr.Code, http.StatusOK)
 	}
 	var res map[string]string
-	json.NewDecoder(rr.Body).Decode(&res)
+	_ = json.NewDecoder(rr.Body).Decode(&res)
 	if res["url"] != "http://db.example/123.m3u8" {
 		t.Errorf("url = %q, quiere la persistida en DB", res["url"])
 	}
@@ -318,7 +318,7 @@ func TestGetChannelsLogueaLaCausaDelError(t *testing.T) {
 
 	h := NewChannelHandler(logger, &mockRepo{err: errors.New("disco en llamas")},
 		&mockProvider{}, &mockStreamRepo{},
-		NewAirplayProber(http.DefaultClient, time.Hour, 10))
+		NewAirplayProber(http.DefaultClient, time.Hour, 10, false))
 
 	rec := httptest.NewRecorder()
 	h.GetChannels(rec, httptest.NewRequest(http.MethodGet, "/channels", nil))
@@ -438,7 +438,7 @@ func TestGetStreamURLIncluyeAirplayOK(t *testing.T) {
 		},
 	}
 	h := NewChannelHandler(nil, &mockRepo{}, &mockProvider{}, streams,
-		NewAirplayProber(origen.Client(), time.Hour, 10))
+		NewAirplayProber(origen.Client(), time.Hour, 10, true))
 
 	req := httptest.NewRequest(http.MethodGet, "/channels/stream?id=1", nil)
 	rec := httptest.NewRecorder()

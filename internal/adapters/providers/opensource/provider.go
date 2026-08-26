@@ -66,7 +66,7 @@ func (p *Provider) GetLiveChannels(ctx context.Context) ([]domain.Channel, error
 	if err != nil {
 		return nil, fmt.Errorf("opensource.GetLiveChannels (Do): %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("opensource.GetLiveChannels (Status): HTTP %d", resp.StatusCode)
@@ -151,7 +151,7 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("opensource.HealthCheck (Do): %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusMethodNotAllowed {
 		return fmt.Errorf("opensource.HealthCheck (Status): %d", resp.StatusCode)
 	}

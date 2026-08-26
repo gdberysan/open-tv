@@ -92,7 +92,7 @@ func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 			result.Error = fmt.Errorf("error en HEAD request: %w", err)
 			needsGetFallback = true
 		} else {
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode >= 400 {
 				needsGetFallback = true
 			} else {
@@ -122,7 +122,7 @@ func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 			result.Error = fmt.Errorf("error en GET request: %w", errGet)
 			return result
 		}
-		defer respGet.Body.Close()
+		defer func() { _ = respGet.Body.Close() }()
 
 		// Drenar el cuerpo es obligatorio: sin leerlo, la conexión queda
 		// inutilizable y el servidor la ve abortada a media respuesta. Ya que

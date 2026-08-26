@@ -20,7 +20,7 @@ func openStreamTestRepos(t *testing.T) (*db.SQLiteChannelRepository, *db.SQLiteS
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	t.Cleanup(func() { sqlDB.Close() })
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	return db.NewChannelRepository(sqlDB), db.NewStreamRepository(sqlDB)
 }
 
@@ -488,7 +488,7 @@ func repoConCanal(t *testing.T) (*db.SQLiteStreamRepository, *sql.DB) {
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	t.Cleanup(func() { sqlDB.Close() })
+	t.Cleanup(func() { _ = sqlDB.Close() })
 
 	chRepo := db.NewChannelRepository(sqlDB)
 	stRepo := db.NewStreamRepository(sqlDB)

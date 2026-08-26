@@ -1,0 +1,7 @@
+# Formato v2 de golangci-lint. El set "standard" (errcheck, govet,
+# staticcheck, ineffassign, unused) más gosec como capa SAST.
+version: "2"
+linters:
+  default: standard
+  enable:
+    - gosec

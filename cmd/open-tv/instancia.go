@@ -18,15 +18,15 @@ func InstanciaViva(ctx context.Context, base string) bool {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/health", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/health", nil) // #nosec G704 -- base sale de listenAddr (LISTEN_ADDR o 127.0.0.1:8080 por defecto), config local, no de red
 	if err != nil {
 		return false
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) // #nosec G704 -- misma petición local de arriba
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return false
 	}

@@ -103,7 +103,7 @@ func (r *SQLiteChannelRepository) SaveBatch(ctx context.Context, channels []doma
 	if err != nil {
 		return fmt.Errorf("db.SaveBatch (BeginTx): %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck — Rollback es no-op si Commit tuvo éxito
+	defer tx.Rollback() //nolint:errcheck // Rollback es no-op si Commit tuvo éxito
 
 	// Paso 1: upsert de categorías únicas referenciadas por estos canales.
 	// Necesario porque channels.category_id tiene FK hacia categories.id.
@@ -116,7 +116,7 @@ func (r *SQLiteChannelRepository) SaveBatch(ctx context.Context, channels []doma
 	if err != nil {
 		return fmt.Errorf("db.SaveBatch (Prepare): %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	now := time.Now().Unix()
 	for _, ch := range channels {
@@ -154,7 +154,7 @@ func upsertCategories(ctx context.Context, tx *sql.Tx, channels []domain.Channel
 	if err != nil {
 		return fmt.Errorf("upsertCategories (Prepare): %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	now := time.Now().Unix()
 	for catID, provType := range seen {
@@ -258,6 +258,7 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 
 	// Salud agregada incrustada: la lista pinta el indicador de señal sin
 	// N+1 requests a /channels/{id}/health.
+	// #nosec G202 -- whereSQL son solo fragmentos SQL fijos (buildChannelWhere); los valores del usuario van parametrizados en args, nunca concatenados
 	q := "SELECT" + channelColumns + `,
 		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.last_checked IS NOT NULL) AS any_checked,
 		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS any_alive,
@@ -274,7 +275,7 @@ func (r *SQLiteChannelRepository) FindFiltered(ctx context.Context, f ports.Chan
 	if err != nil {
 		return nil, fmt.Errorf("db.FindFiltered: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanChannelsWithHealth(rows)
 }
 
@@ -320,7 +321,7 @@ func (r *SQLiteChannelRepository) Search(ctx context.Context, query string, limi
 	if err != nil {
 		return nil, fmt.Errorf("db.Search: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanChannels(rows)
 }
 
@@ -465,7 +466,7 @@ func (r *SQLiteChannelRepository) Countries(ctx context.Context) ([]ports.Faceta
 	if err != nil {
 		return nil, fmt.Errorf("db.Countries: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []ports.Faceta
 	for rows.Next() {
@@ -493,7 +494,7 @@ func (r *SQLiteChannelRepository) Categories(ctx context.Context) ([]ports.Facet
 	if err != nil {
 		return nil, fmt.Errorf("db.Categories: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	acum := map[string]int{}
 	for rows.Next() {
@@ -532,6 +533,7 @@ func (r *SQLiteChannelRepository) Random(ctx context.Context, f ports.ChannelFil
 	f = f.Normalize()
 	whereSQL, args := buildChannelWhere(f)
 
+	// #nosec G202 -- whereSQL son solo fragmentos SQL fijos (buildChannelWhere); los valores del usuario van parametrizados en args, nunca concatenados
 	q := "SELECT" + channelColumns + `,
 		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.last_checked IS NOT NULL) AS any_checked,
 		EXISTS(SELECT 1 FROM streams s WHERE s.channel_id = channels.id AND s.is_alive = 1) AS any_alive,
@@ -543,7 +545,7 @@ func (r *SQLiteChannelRepository) Random(ctx context.Context, f ports.ChannelFil
 	if err != nil {
 		return domain.Channel{}, fmt.Errorf("db.Random: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	canales, err := scanChannelsWithHealth(rows)
 	if err != nil {

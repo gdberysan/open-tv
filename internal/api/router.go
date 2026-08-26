@@ -47,14 +47,19 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	// nada más (logger, rate limiter, handlers) toque la petición.
 	r.Use(middleware.MismoOrigen(opts.HostsPermitidos))
 	r.Use(chimiddleware.RequestID)
-	r.Use(chimiddleware.RealIP)
+	// Sin RealIP a propósito: este gateway nunca vive detrás de un proxy
+	// inverso de confianza (solo loopback, consumido por la app local), así
+	// que fiarse de X-Forwarded-For/X-Real-IP/True-Client-IP solo abriría la
+	// puerta a que cualquiera falsifique el remote_addr que ve el logger.
 	r.Use(middleware.Logger(logger))
 	r.Use(middleware.Recover(logger))
 	r.Use(middleware.RateLimiter(100))
 
 	// TTL de 12 h: los códecs de un canal no cambian en una tarde, y la caché
-	// se pierde igualmente al reiniciar el gateway.
-	prober := handlers.NewAirplayProber(nil, 12*time.Hour, 2000)
+	// se pierde igualmente al reiniciar el gateway. permitirDestinosPrivados
+	// va siempre false aquí: los streams sondeados llegan de proveedores
+	// externos, nunca de la propia app.
+	prober := handlers.NewAirplayProber(nil, 12*time.Hour, 2000, false)
 	ch := handlers.NewChannelHandler(logger, repo, provider, streams, prober)
 
 	clienteWeb, hayClienteWeb := ui.Handler()

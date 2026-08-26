@@ -134,6 +134,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Petición NUEVA, no un reenvío: las cabeceras del cliente (Origin,
 	// Referer, Cookie) no tienen por qué viajar a un tercero.
+	//
+	// #nosec G704 -- destino ya pasó destinoPrivado (arriba) y el esquema está
+	// restringido a http/https; el análisis de taint de gosec no ve esas
+	// comprobaciones ni tampoco controlConexion/checkRedirect, que cierran
+	// redirecciones y DNS-rebinding más abajo.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, destino.String(), nil)
 	if err != nil {
 		http.Error(w, "no se pudo construir la petición", http.StatusBadGateway)
@@ -145,12 +150,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req.Header.Set("Range", rango)
 	}
 
-	resp, err := h.client.Do(req)
+	resp, err := h.client.Do(req) // #nosec G704 -- misma petición ya filtrada, ver comentario arriba
 	if err != nil {
 		http.Error(w, "el origen no respondió", http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// La URL FINAL: si hubo redirección, las relativas del manifiesto se
 	// resuelven contra el sitio al que se llegó, no contra el que se pidió,

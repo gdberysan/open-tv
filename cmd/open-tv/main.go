@@ -115,25 +115,25 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 	// adelante tiene que cerrar `ln` antes de volver.
 	dbPath, err := datadir.RutaDB()
 	if err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return fmt.Errorf("resolviendo el directorio de datos: %w", err)
 	}
 	sqlDB, err := db.Open(dbPath)
 	if err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return fmt.Errorf("abriendo la base de datos: %w", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	// Pool aparte de solo lectura para los handlers. El de escritura está
 	// limitado a una conexión (evita SQLITE_BUSY), así que compartirlo haría
 	// que cada request se encolara detrás del sync o del health-check en curso.
 	lecturaDB, err := db.OpenReadOnly(dbPath)
 	if err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return fmt.Errorf("abriendo el pool de lectura: %w", err)
 	}
-	defer lecturaDB.Close()
+	defer func() { _ = lecturaDB.Close() }()
 	logger.Info("SQLite abierta", slog.String("path", dbPath))
 
 	// 3. Repositorios y proveedor IPTV-org.

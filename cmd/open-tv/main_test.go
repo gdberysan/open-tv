@@ -40,7 +40,7 @@ func TestRunArrancaYApagaLimpio(t *testing.T) {
 		cancel()
 		t.Fatalf("el servidor no llegó a escuchar: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("/health = %d, quiero 200", resp.StatusCode)
 	}
@@ -71,7 +71,7 @@ func TestRunDevuelveErrorSiNoQuedaPuertoLibre(t *testing.T) {
 	}
 	defer func() {
 		for _, ln := range ocupados {
-			ln.Close()
+			_ = ln.Close()
 		}
 	}()
 
@@ -94,7 +94,7 @@ func TestRunSaltaDePuertoSiEstaOcupado(t *testing.T) {
 	if err != nil {
 		t.Fatalf("preparando el puerto ocupado: %v", err)
 	}
-	defer ocupado.Close()
+	defer func() { _ = ocupado.Close() }()
 
 	t.Setenv("DB_PATH", filepath.Join(t.TempDir(), "test.db"))
 	t.Setenv("LISTEN_ADDR", ocupado.Addr().String())
@@ -120,7 +120,7 @@ func TestRunSaltaDePuertoSiEstaOcupado(t *testing.T) {
 		cancel()
 		t.Fatalf("no escuchó en el puerto siguiente: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	cancel()
 	if err := <-errc; err != nil {

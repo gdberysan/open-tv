@@ -20,7 +20,7 @@ func TestOpenAplicaPragmasEnTodasLasConexiones(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	sqlDB.SetMaxOpenConns(4)
 
@@ -35,7 +35,7 @@ func TestOpenAplicaPragmasEnTodasLasConexiones(t *testing.T) {
 	}
 	defer func() {
 		for _, c := range conns {
-			c.Close()
+			_ = c.Close()
 		}
 	}()
 
@@ -67,7 +67,7 @@ func TestMigrateToleraPuntoYComaEnComentarios(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Open con comentarios en el esquema: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	// Si el troceo hubiera fallado, faltarían tablas.
 	for _, tabla := range []string{"channels", "streams", "providers", "categories"} {
@@ -93,13 +93,13 @@ func TestLecturaNoSeBloqueaDetrasDeUnaEscritura(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	defer escritura.Close()
+	defer func() { _ = escritura.Close() }()
 
 	lectura, err := db.OpenReadOnly(path)
 	if err != nil {
 		t.Fatalf("db.OpenReadOnly: %v", err)
 	}
-	defer lectura.Close()
+	defer func() { _ = lectura.Close() }()
 
 	ctx := context.Background()
 	tx, err := escritura.BeginTx(ctx, nil)
@@ -136,13 +136,13 @@ func TestOpenReadOnlyRechazaEscrituras(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	defer escritura.Close()
+	defer func() { _ = escritura.Close() }()
 
 	lectura, err := db.OpenReadOnly(path)
 	if err != nil {
 		t.Fatalf("db.OpenReadOnly: %v", err)
 	}
-	defer lectura.Close()
+	defer func() { _ = lectura.Close() }()
 
 	_, err = lectura.Exec(`INSERT INTO providers (id, type, base_url, priority, is_active, created_at, updated_at)
 	                       VALUES ('x','opensource','http://x',1,1,0,0)`)

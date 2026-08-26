@@ -57,13 +57,13 @@ func (r *SQLiteStreamRepository) SaveBatch(ctx context.Context, streams []domain
 	if err != nil {
 		return fmt.Errorf("db.Stream.SaveBatch (BeginTx): %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck — Rollback es no-op si Commit tuvo éxito
+	defer tx.Rollback() //nolint:errcheck // Rollback es no-op si Commit tuvo éxito
 
 	stmt, err := tx.PrepareContext(ctx, upsertStreamSQL)
 	if err != nil {
 		return fmt.Errorf("db.Stream.SaveBatch (Prepare): %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	now := time.Now().Unix()
 	for _, s := range streams {
@@ -82,7 +82,7 @@ func (r *SQLiteStreamRepository) FindAll(ctx context.Context) ([]domain.Stream, 
 	if err != nil {
 		return nil, fmt.Errorf("db.Stream.FindAll: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var streams []domain.Stream
 	for rows.Next() {
@@ -104,7 +104,7 @@ func (r *SQLiteStreamRepository) FindByChannelID(ctx context.Context, channelID 
 	if err != nil {
 		return nil, fmt.Errorf("db.Stream.FindByChannelID (channel=%s): %w", channelID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var streams []domain.Stream
 	for rows.Next() {
@@ -130,7 +130,7 @@ func (r *SQLiteStreamRepository) FindBestByChannelID(ctx context.Context, channe
 	if err != nil {
 		return domain.Stream{}, fmt.Errorf("db.Stream.FindBestByChannelID (channel=%s): %w", channelID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
@@ -159,7 +159,7 @@ func (r *SQLiteStreamRepository) FindMirrorsByChannelID(ctx context.Context, cha
 	if err != nil {
 		return nil, fmt.Errorf("db.Stream.FindMirrorsByChannelID (query %s): %w", channelID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var mirrors []ports.MirrorHealth
 	for rows.Next() {
@@ -260,7 +260,7 @@ func (r *SQLiteStreamRepository) MarkBatch(ctx context.Context, resultados []por
 	if err != nil {
 		return fmt.Errorf("db.Stream.MarkBatch (BeginTx): %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck — Rollback es no-op si Commit tuvo éxito
+	defer tx.Rollback() //nolint:errcheck // Rollback es no-op si Commit tuvo éxito
 
 	stmtVivo, err := tx.PrepareContext(ctx,
 		`UPDATE streams
@@ -270,7 +270,7 @@ func (r *SQLiteStreamRepository) MarkBatch(ctx context.Context, resultados []por
 	if err != nil {
 		return fmt.Errorf("db.Stream.MarkBatch (Prepare vivo): %w", err)
 	}
-	defer stmtVivo.Close()
+	defer func() { _ = stmtVivo.Close() }()
 
 	stmtMuerto, err := tx.PrepareContext(ctx,
 		`UPDATE streams
@@ -283,7 +283,7 @@ func (r *SQLiteStreamRepository) MarkBatch(ctx context.Context, resultados []por
 	if err != nil {
 		return fmt.Errorf("db.Stream.MarkBatch (Prepare muerto): %w", err)
 	}
-	defer stmtMuerto.Close()
+	defer func() { _ = stmtMuerto.Close() }()
 
 	now := time.Now().Unix()
 	for _, res := range resultados {

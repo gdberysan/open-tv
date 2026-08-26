@@ -14,7 +14,7 @@ func TestEscuchaConFallbackSaltaAlSiguientePuerto(t *testing.T) {
 	if err != nil {
 		t.Fatalf("preparando el puerto ocupado: %v", err)
 	}
-	defer ocupado.Close()
+	defer func() { _ = ocupado.Close() }()
 
 	_, puertoStr, _ := net.SplitHostPort(ocupado.Addr().String())
 	puerto, _ := strconv.Atoi(puertoStr)
@@ -23,7 +23,7 @@ func TestEscuchaConFallbackSaltaAlSiguientePuerto(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EscuchaConFallback: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	_, obtenidoStr, _ := net.SplitHostPort(ln.Addr().String())
 	obtenido, _ := strconv.Atoi(obtenidoStr)
@@ -40,11 +40,11 @@ func TestEscuchaConFallbackSeRindeYDevuelveError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("preparando el puerto ocupado: %v", err)
 	}
-	defer ocupado.Close()
+	defer func() { _ = ocupado.Close() }()
 
 	// Un solo intento sobre un puerto ocupado: no hay a dónde saltar.
 	if ln, err := netx.EscuchaConFallback(ocupado.Addr().String(), 1); err == nil {
-		ln.Close()
+		_ = ln.Close()
 		t.Fatal("quiero error cuando no queda puerto libre")
 	}
 }
@@ -56,7 +56,7 @@ func TestEscuchaConFallbackRespetaElPuertoCero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EscuchaConFallback: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	if _, p, _ := net.SplitHostPort(ln.Addr().String()); p == "0" {
 		t.Error("el sistema debía asignar un puerto real")
 	}

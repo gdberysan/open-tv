@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -33,6 +36,7 @@ type AirplayProber struct {
 	client      *http.Client
 	ttl         time.Duration
 	maxEntradas int
+	privadasOK  bool
 
 	mu    sync.RWMutex
 	cache map[string]entradaAirplay
@@ -43,7 +47,14 @@ type entradaAirplay struct {
 	expira    time.Time
 }
 
-func NewAirplayProber(client *http.Client, ttl time.Duration, maxEntradas int) *AirplayProber {
+// NewAirplayProber construye el sondeador.
+//
+// permitirDestinosPrivados solo es true en tests: los servidores de httptest
+// viven en 127.0.0.1, que en producción es exactamente lo que hay que
+// bloquear, porque url llega desde streams sincronizados de proveedores
+// IPTV externos (ver channel_handler.go: resolveStreamURL) y no de nada que
+// el usuario tecleé a mano. En el router se monta siempre con false.
+func NewAirplayProber(client *http.Client, ttl time.Duration, maxEntradas int, permitirDestinosPrivados bool) *AirplayProber {
 	if client == nil {
 		client = &http.Client{Timeout: presupuestoSondeo}
 	}
@@ -51,6 +62,7 @@ func NewAirplayProber(client *http.Client, ttl time.Duration, maxEntradas int) *
 		client:      client,
 		ttl:         ttl,
 		maxEntradas: maxEntradas,
+		privadasOK:  permitirDestinosPrivados,
 		cache:       make(map[string]entradaAirplay),
 	}
 }
@@ -71,21 +83,38 @@ func (p *AirplayProber) Veredicto(ctx context.Context, url string) domain.Airpla
 	return v
 }
 
-func (p *AirplayProber) sondear(ctx context.Context, url string) domain.AirplaySupport {
+func (p *AirplayProber) sondear(ctx context.Context, destino string) domain.AirplaySupport {
 	reqCtx, cancel := context.WithTimeout(ctx, presupuestoSondeo)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
+	// destino sale de streams sincronizados de proveedores IPTV externos
+	// (resolveStreamURL), así que se valida como cualquier destino de red
+	// ajeno antes de pedirlo: mismo criterio que el proxy HLS
+	// (internal/proxy/handler.go).
+	u, err := url.Parse(destino)
+	if err != nil {
+		return domain.AirplayUnknown
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return domain.AirplayUnknown
+	}
+	if !p.privadasOK && destinoPrivado(reqCtx, u.Hostname()) {
+		return domain.AirplayUnknown
+	}
+
+	// #nosec G704 -- destino ya pasó la comprobación de esquema y de destino
+	// privado justo arriba; el análisis de taint de gosec no ve esa validación.
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, destino, nil)
 	if err != nil {
 		return domain.AirplayUnknown
 	}
 	req.Header.Set("User-Agent", userAgentSondeo)
 
-	resp, err := p.client.Do(req)
+	resp, err := p.client.Do(req) // #nosec G704 -- misma petición ya filtrada, ver comentario arriba
 	if err != nil {
 		return domain.AirplayUnknown
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return domain.AirplayUnknown
 	}
@@ -94,7 +123,60 @@ func (p *AirplayProber) sondear(ctx context.Context, url string) domain.AirplayS
 	if err != nil {
 		return domain.AirplayUnknown
 	}
-	return domain.ClassifyManifest(url, string(cuerpo))
+	return domain.ClassifyManifest(destino, string(cuerpo))
+}
+
+// destinoPrivado bloquea loopback, red privada, link-local y direcciones sin
+// especificar. Mismo criterio que internal/proxy/handler.go: este sondeo no
+// tiene la protección de dial-time contra DNS-rebinding que sí tiene el
+// proxy (aquí p.client puede venir de fuera, en tests), así que esta
+// comprobación por hostname es la única línea de defensa — motivo de más
+// para no relajarla.
+func destinoPrivado(ctx context.Context, host string) bool {
+	if host == "" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ipPrivada(ip)
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil || len(ips) == 0 {
+		return true
+	}
+	for _, a := range ips {
+		if ipPrivada(a.IP) {
+			return true
+		}
+	}
+	return false
+}
+
+// redesExtraPrivadas: rangos que net.IP.IsPrivate() no cubre pero que
+// tampoco deben alcanzarse — CGNAT (Tailscale y muchos ISP) y el rango de
+// benchmark. Igual que internal/proxy/handler.go.
+var redesExtraPrivadas = func() []*net.IPNet {
+	var nets []*net.IPNet
+	for _, cidr := range []string{"100.64.0.0/10", "198.18.0.0/15"} {
+		_, n, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(fmt.Sprintf("CIDR inválido %q: %v", cidr, err))
+		}
+		nets = append(nets, n)
+	}
+	return nets
+}()
+
+func ipPrivada(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	for _, n := range redesExtraPrivadas {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *AirplayProber) leerCache(url string) (domain.AirplaySupport, bool) {

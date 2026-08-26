@@ -37,11 +37,11 @@ func Open(path string) (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 
 	if err := migrate(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	if err := seedProviders(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return db, nil
@@ -159,7 +159,7 @@ func OpenReadOnly(path string) (*sql.DB, error) {
 	db.SetMaxIdleConns(4)
 
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("db.OpenReadOnly (Ping): %w", err)
 	}
 	return db, nil

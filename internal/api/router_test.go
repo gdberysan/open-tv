@@ -86,7 +86,7 @@ func TestTablaDeRutas(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{},
 		streamsVacio{}, sqlDB, syncVacio{}, api.Options{})
