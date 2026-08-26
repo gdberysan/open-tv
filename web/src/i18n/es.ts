@@ -168,6 +168,34 @@ export const es = {
   'onboarding.sondeo.detalle': 'Puede tardar unos segundos, según el tamaño de la lista.',
   'onboarding.sondeo.agotado': 'La fuente se añadió pero todavía no aparecen canales. Puede tardar más, o la lista puede estar vacía.',
   'onboarding.sondeo.reintentar': 'Reintentar',
+
+  // Tarea 7 (P0.7): vista de gestión de fuentes (#fuentes), accesible desde la
+  // cabecera. Lista lo ya añadido, permite re-sincronizar o quitar, y
+  // reutiliza AnadirFuente.svelte para añadir más.
+  'fuentes.abrir': 'Fuentes',
+  'fuentes.titulo': 'Fuentes',
+  'fuentes.volver': '← Volver',
+  'fuentes.etiquetaLista': 'Fuentes añadidas',
+  'fuentes.kind.url': 'URL',
+  'fuentes.kind.file': 'Fichero',
+  'fuentes.canales': '{n} canales',
+  'fuentes.nuncaSincronizada': 'Nunca sincronizada',
+  'fuentes.relativo.ahora': 'hace un momento',
+  'fuentes.relativo.minutos': 'hace {n} min',
+  'fuentes.relativo.horas': 'hace {n} h',
+  'fuentes.relativo.dias': 'hace {n} d',
+  'fuentes.resincronizar': 'Re-sincronizar',
+  'fuentes.resincronizar.etiqueta': 'Re-sincronizar {label}',
+  'fuentes.resincronizando': 'Sincronizando…',
+  'fuentes.quitar': 'Quitar',
+  'fuentes.quitar.etiqueta': 'Quitar {label}',
+  'fuentes.quitar.confirmar': '¿Seguro? Quitar',
+  'fuentes.quitar.confirmar.etiqueta': 'Confirmar: quitar {label}',
+  'fuentes.quitar.cancelar': 'Cancelar',
+  'fuentes.anadirMas.titulo': 'Añadir otra fuente',
+  'fuentes.cargando': 'Cargando fuentes…',
+  'fuentes.error': 'No se pudieron cargar las fuentes.',
+  'fuentes.vacia': 'Todavía no hay fuentes añadidas.',
 } as const
 
 export type ClaveMensaje = keyof typeof es

@@ -401,3 +401,83 @@ describe('App — fix round 1 (Tarea 6, P0.7): sondeo del catálogo tras añadir
     expect(canales.mock.calls.length).toBe(llamadasAntesDeDesmontar)
   })
 })
+
+describe('App — vista Fuentes (gestión, Tarea 7 de P0.7)', () => {
+  it('(f) el botón «Fuentes» de la cabecera abre la vista y fija el hash #fuentes', async () => {
+    render(App, { fuente: fuenteFalsa() })
+
+    const botonFuentes = await screen.findByRole('button', { name: t('fuentes.abrir') })
+    await fireEvent.click(botonFuentes)
+
+    await screen.findByRole('heading', { name: t('fuentes.titulo') })
+    expect(window.location.hash).toBe('#fuentes')
+  })
+
+  it('montar App con el hash #fuentes ya puesto abre la vista directamente', async () => {
+    window.location.hash = 'fuentes'
+    try {
+      render(App, { fuente: fuenteFalsa() })
+      await screen.findByRole('heading', { name: t('fuentes.titulo') })
+    } finally {
+      window.location.hash = ''
+    }
+  })
+
+  it('(e) quitar la ÚLTIMA fuente desde la vista de gestión hace que el Onboarding vuelva a aparecer', async () => {
+    const fuentes = vi.fn()
+    fuentes
+      .mockResolvedValueOnce([fuenteDePrueba('f0')]) // carga inicial de App (onMount)
+      .mockResolvedValueOnce([fuenteDePrueba('f0')]) // carga inicial de Fuentes.svelte al montar la vista
+      .mockResolvedValueOnce([]) // refetch tras quitar: cero fuentes
+    const quitarFuente = vi.fn(async () => {})
+    const fuente = fuenteFalsa({ fuentes, quitarFuente })
+    render(App, { fuente })
+
+    await screen.findByRole('button', { name: t('accion.aleatorio') }) // shell normal, con la fuente por defecto
+
+    const botonFuentes = await screen.findByRole('button', { name: t('fuentes.abrir') })
+    await fireEvent.click(botonFuentes)
+
+    const etiqueta = `Fuente f0`
+    const botonQuitar = await screen.findByRole('button', { name: t('fuentes.quitar.etiqueta', { label: etiqueta }) })
+    await fireEvent.click(botonQuitar)
+    const confirmar = await screen.findByRole('button', { name: t('fuentes.quitar.confirmar.etiqueta', { label: etiqueta }) })
+    await fireEvent.click(confirmar)
+
+    await vi.waitFor(() => expect(quitarFuente).toHaveBeenCalledWith('f0'))
+    // El Onboarding vuelve solo: App recibió la lista fresca (vacía) vía
+    // alFuentesCambiaron, sinFuentes pasó a true, y esa rama gana sobre
+    // vistaFuentes en el <main> de App.svelte.
+    await screen.findByText(t('onboarding.titulo'))
+    expect(screen.queryByRole('heading', { name: t('fuentes.titulo') })).toBeNull()
+  })
+
+  it('añadir una fuente desde la vista Fuentes cierra la vista y dispara el mismo sondeo que el onboarding', async () => {
+    const nueva: Fuente = {
+      id: 'nueva', label: 'Nueva', url: 'https://ej.test/nueva.m3u', kind: 'url', ultimoSync: null, canales: 0,
+    }
+    const anadirFuente = vi.fn(async () => nueva)
+    const canales = vi.fn()
+    canales
+      .mockResolvedValueOnce({ canales: [], total: 0 }) // carga inicial de App
+      .mockResolvedValue({ canales: [canalDePrueba('a')], total: 1 }) // sondeo inmediato: ya hay canales
+    const fuente = fuenteFalsa({ anadirFuente, canales })
+    render(App, { fuente })
+
+    const botonFuentes = await screen.findByRole('button', { name: t('fuentes.abrir') })
+    await fireEvent.click(botonFuentes)
+    await screen.findByRole('heading', { name: t('fuentes.titulo') })
+
+    const campo = await screen.findByLabelText(t('onboarding.url.etiqueta'))
+    await fireEvent.input(campo, { target: { value: 'https://ej.test/nueva.m3u' } })
+    const botonAnadir = screen.getByRole('button', { name: t('onboarding.anadir') })
+    await fireEvent.click(botonAnadir)
+
+    await vi.waitFor(() => expect(anadirFuente).toHaveBeenCalledWith('https://ej.test/nueva.m3u'))
+    // La vista Fuentes se cierra (mismo hash que #stats: pushState limpia el
+    // hash) y el sondeo de siempre (SincronizandoFuente / rejilla) toma el
+    // relevo — nunca se queda "atascado" mostrando la vista de gestión.
+    await vi.waitFor(() => expect(screen.queryByRole('heading', { name: t('fuentes.titulo') })).toBeNull())
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+  })
+})

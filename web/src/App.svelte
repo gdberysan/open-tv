@@ -21,6 +21,7 @@
   import ContinuarViendo from './componentes/ContinuarViendo.svelte'
   import Onboarding from './componentes/Onboarding.svelte'
   import SincronizandoFuente from './componentes/SincronizandoFuente.svelte'
+  import Fuentes from './componentes/Fuentes.svelte'
 
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
@@ -134,8 +135,14 @@
   // chocar con ninguna ruta de la API.
   let vistaStats = $state(typeof window !== 'undefined' && window.location.hash === '#stats')
 
+  // Tarea 7 (P0.7): vista de gestión de fuentes, mismo patrón de hash que
+  // vistaStats — #fuentes tampoco choca con ninguna ruta del servidor (el
+  // router nunca registra ese path; F5 sirve el SPA de siempre).
+  let vistaFuentes = $state(typeof window !== 'undefined' && window.location.hash === '#fuentes')
+
   function abrirStats(e: MouseEvent) {
     e.preventDefault()
+    vistaFuentes = false
     vistaStats = true
     location.hash = 'stats'
   }
@@ -143,6 +150,43 @@
   function volverDelPanel() {
     vistaStats = false
     history.pushState('', document.title, window.location.pathname + window.location.search)
+  }
+
+  function abrirFuentes(e: MouseEvent) {
+    e.preventDefault()
+    vistaStats = false
+    vistaFuentes = true
+    location.hash = 'fuentes'
+  }
+
+  function volverDeFuentes() {
+    vistaFuentes = false
+    history.pushState('', document.title, window.location.pathname + window.location.search)
+  }
+
+  // Tarea 7 (P0.7): "añadir fuente desde la vista Fuentes" reutiliza EXACTO
+  // el mismo camino de sondeo que Onboarding (alFuenteAnadida más abajo) —
+  // primero se sale de la vista (la nueva fuente ya no es "gestión", es "el
+  // catálogo está sincronizando", el mismo estado visible que el onboarding
+  // usa) y LUEGO se dispara el sondeo real. Sin este orden, sondeandoFuenteNueva
+  // se activaría por debajo de una vista que sigue tapándolo (vistaFuentes se
+  // comprueba antes que el sondeo en el <main> de abajo).
+  function alFuenteAnadidaDesdeFuentes(f: Fuente) {
+    volverDeFuentes()
+    alFuenteAnadida(f)
+  }
+
+  // Tarea 7 (P0.7): tras un «Quitar» en la vista Fuentes, App recibe la lista
+  // fresca del backend (Fuentes.svelte ya la refetcheó) — se adopta tal cual
+  // como la propia copia de `fuentes` (gobierna sinFuentes, Tarea 6) y se
+  // refresca el catálogo para que los canales de la fuente quitada
+  // desaparezcan de la rejilla sin esperar a que el usuario salga de la
+  // vista. `fase.tipo === 'listo'` de guardia: cargarPagina(true) solo tiene
+  // sentido con el catálogo ya arrancado (mismo guardián que el resto de
+  // llamadas a cargarPagina).
+  function alFuentesCambiaron(nuevas: Fuente[]) {
+    fuentes = nuevas
+    if (fase.tipo === 'listo') cargarPagina(true)
   }
 
   function construirConsulta(paginar: boolean): ConsultaCatalogo {
@@ -282,7 +326,9 @@
     // llamar a fuente.aleatorio() sobre un catálogo que se sabe vacío.
     // sondeandoFuenteNueva/sondeoAgotado (fix round 1): mismo motivo mientras
     // se sondea tras añadir una fuente — el catálogo puede seguir en 0.
-    if (canalAbierto || fase.tipo !== 'listo' || vistaStats || sinFuentes || sondeandoFuenteNueva || sondeoAgotado)
+    // vistaFuentes (Tarea 7): mismo motivo que vistaStats — es otra vista, no
+    // el catálogo normal.
+    if (canalAbierto || fase.tipo !== 'listo' || vistaStats || vistaFuentes || sinFuentes || sondeandoFuenteNueva || sondeoAgotado)
       return
     if (!debeHacerSurf(e)) return
     e.preventDefault()
@@ -459,8 +505,11 @@
   // RejillaCanales.svelte: `canales.length === 0 && !cargando`), con
   // 'listo'/sin error/fuera del panel de stats añadidos porque esta cadena
   // vive en App, que ve más fases que RejillaCanales.
+  // vistaFuentes (Tarea 7): mismo motivo que vistaStats — con esa vista
+  // encima, <main> no monta Vacio.svelte, así que la región persistente no
+  // debe anunciar su mensaje.
   let catalogoVacio = $derived(
-    fase.tipo === 'listo' && !vistaStats && !errorCatalogo && !cargando && canales.length === 0,
+    fase.tipo === 'listo' && !vistaStats && !vistaFuentes && !errorCatalogo && !cargando && canales.length === 0,
   )
 
   // Tarea 6 (P0.7): onboarding cuando el catálogo está listo pero NO hay
@@ -578,6 +627,13 @@
              indicador honesto de señal, con el estado REAL derivado más
              arriba de la misma fase que gobierna <main> — nunca decorativo. -->
         <IndicadorSenal estado={estadoSenal} />
+        <!-- Tarea 7 (P0.7): punto de acceso a la gestión de fuentes — en la
+             cabecera (siempre visible, en cualquier fase/vista), no escondido
+             en el pie como #stats: es una función primaria del producto
+             bring-your-own, no una vista de depuración. -->
+        <button type="button" class="fuentes-link" onclick={abrirFuentes}>
+          {t('fuentes.abrir')}
+        </button>
         <button type="button" class="idioma" onclick={alternarIdioma}>
           {idioma.actual === 'es' ? t('idioma.en') : t('idioma.es')}
         </button>
@@ -646,8 +702,26 @@
                  catálogo que se sabe vacío por falta de fuente, no por un
                  filtro. El aside de facetas (arriba) se deja tal cual —
                  vacío hasta que haya canales, pero sin recablear su propio
-                 inert/layout por este caso. -->
+                 inert/layout por este caso.
+
+                 Tarea 7 (P0.7): esta rama va ANTES que vistaFuentes (justo
+                 abajo) a propósito — si se quita la última fuente desde la
+                 vista de gestión, sinFuentes pasa a true y esta rama gana,
+                 así que el Onboarding "vuelve solo" sin que Fuentes.svelte
+                 tenga que saber nada de eso (ver alFuentesCambiaron). -->
             <Onboarding {fuente} {alFuenteAnadida} />
+          {:else if vistaFuentes}
+            <!-- Tarea 7 (P0.7): vista de gestión de fuentes, alcanzada por
+                 #fuentes (botón de la cabecera). alFuenteAnadida está
+                 envuelta (alFuenteAnadidaDesdeFuentes) para que "añadir desde
+                 aquí" cierre esta vista y dispare el MISMO sondeo que el
+                 onboarding — nunca una segunda lógica de sondeo. -->
+            <Fuentes
+              {fuente}
+              alVolver={volverDeFuentes}
+              alFuenteAnadida={alFuenteAnadidaDesdeFuentes}
+              {alFuentesCambiaron}
+            />
           {:else}
             <!-- Tarea 10 (P0.6): héroe "Continuar viendo", ENCIMA de
                  BarraAcciones — se renderiza compacto o nada, según el
@@ -736,6 +810,12 @@
     letter-spacing: var(--tracking-mono);
   }
   .cabecera-derecha { display: flex; align-items: center; gap: var(--space-3, 12px); }
+  /* Mismo estilo neutro que .idioma (constraint global: ámbar solo para el
+     acento/acción activa — esto es navegación, no una CTA). */
+  .fuentes-link {
+    background: none; border: 1px solid var(--border-default); color: var(--text-body);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer;
+  }
   .idioma {
     background: none; border: 1px solid var(--border-default); color: var(--text-body);
     border-radius: 6px; padding: 4px 10px; cursor: pointer;
