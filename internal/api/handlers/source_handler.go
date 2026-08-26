@@ -372,7 +372,7 @@ func (h *SourceHandler) crearFuente(w http.ResponseWriter, r *http.Request, fuen
 	// main.go: es un proceso local de un único usuario, y en el peor caso el
 	// proceso termina un poco antes de que este sync puntual acabe (aceptable
 	// aquí; no lo sería en un servicio multi-usuario).
-	go func(id string) {
+	go func(id string) { //nolint:gosec // context.Background() a propósito: el sync sobrevive al request (ver comentario arriba); el contexto del request se cancelaría al responder y abortaría el sync
 		if err := h.syncer.SyncOne(context.Background(), id); err != nil {
 			h.logger.Error("Sync inicial de fuente nueva fallido",
 				slog.String("fuente", id), slog.Any("error", err))
@@ -533,7 +533,7 @@ func (h *SourceHandler) Sync(w http.ResponseWriter, r *http.Request) {
 	// Mismo trade-off que el sync inicial de crearFuente: goroutine sin
 	// tracking en el WaitGroup de apagado de main.go, aceptable en un proceso
 	// local de un único usuario.
-	go func(id string) {
+	go func(id string) { //nolint:gosec // context.Background() a propósito: el sync sobrevive al request (ver comentario arriba); el contexto del request se cancelaría al responder y abortaría el sync
 		if err := h.syncer.SyncOne(context.Background(), id); err != nil {
 			h.logger.Error("Sync manual fallido", slog.String("fuente", id), slog.Any("error", err))
 		}

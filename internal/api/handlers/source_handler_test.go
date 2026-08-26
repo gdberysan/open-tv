@@ -334,7 +334,7 @@ func TestSourceHandler_PostMultipartValido(t *testing.T) {
 	if !strings.HasPrefix(path, dir) {
 		t.Errorf("el fichero guardado (%q) no está bajo fuentesDir (%q)", path, dir)
 	}
-	contenido, err := os.ReadFile(path)
+	contenido, err := os.ReadFile(path) //nolint:gosec // path verificado justo arriba (HasPrefix(path, dir)); es el fichero que el propio test acaba de guardar
 	if err != nil {
 		t.Fatalf("el fichero no se guardó en disco: %v", err)
 	}

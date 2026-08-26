@@ -128,7 +128,7 @@ func (p *Provider) getLiveChannelsFromFile() ([]domain.Channel, error) {
 		return nil, fmt.Errorf("opensource.GetLiveChannels (file): %w", err)
 	}
 
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // path viene de resolveFilePath(), con guarda de contención (Abs+Clean+Rel bajo el dir permitido); no es entrada de usuario sin validar
 	if err != nil {
 		return nil, fmt.Errorf("opensource.GetLiveChannels (file): no se pudo abrir %q: %w", path, err)
 	}
