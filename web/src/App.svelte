@@ -6,6 +6,7 @@
   import type { CatalogSource, Canal, ConsultaCatalogo, Faceta, Frescura as InfoFrescura, Fuente } from './datos/catalogo'
   import { filtros } from './estado/filtros'
   import { favoritos } from './estado/favoritos'
+  import { preferencias } from './estado/preferencias'
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
   import { reportarDesenlace } from './estado/estadisticas'
   import { historial, type EntradaHistorial } from './estado/historial'
@@ -839,7 +840,17 @@
             {#if errorCatalogo}
               <MensajeError clase={errorCatalogo} />
             {:else}
-              <RejillaCanales {canales} vista={$filtros.vista} {cargando} {alPedirMas} alAbrir={abrirCanal} />
+              <!-- Tarea 5 (P0.8): densidad de la rejilla viene de preferencias
+                   (localStorage) — la UI para cambiarla es la Tarea 6
+                   (#ajustes); aquí solo se lee y se reenvía. -->
+              <RejillaCanales
+                {canales}
+                vista={$filtros.vista}
+                {cargando}
+                {alPedirMas}
+                alAbrir={abrirCanal}
+                densidad={$preferencias.densidad}
+              />
             {/if}
           {/if}
         {/if}

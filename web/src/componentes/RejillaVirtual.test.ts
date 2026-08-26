@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { render } from '@testing-library/svelte'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { render, fireEvent } from '@testing-library/svelte'
 import RejillaVirtual from './RejillaVirtual.svelte'
 import type { Canal } from '../datos/catalogo'
 
@@ -70,5 +70,66 @@ describe('RejillaVirtual', () => {
     await asentar()
 
     expect(container.querySelectorAll('article').length).toBe(0)
+  })
+})
+
+// Tarea 5 (P0.8): densidad de la rejilla. jsdom no hace layout real (ver el
+// comentario de arriba: clientWidth siempre da 0), así que sin más el
+// contenedor mide 0 pase lo que pase ANCHO_MIN/anchoMin y columnas se queda
+// en 1 siempre — no hay forma de que el test observe la diferencia. Se
+// sobrescribe clientWidth en el PROTOTIPO de HTMLElement con un ancho fijo
+// ANTES de renderizar (para que la primera medición del componente, dentro
+// de su propio $effect, ya lo vea) y se restaura al terminar cada test, para
+// no filtrar el mock a los tests de arriba (que dependen del 0 real).
+describe('RejillaVirtual — densidad', () => {
+  let descriptorOriginal: PropertyDescriptor | undefined
+
+  beforeEach(() => {
+    descriptorOriginal = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 })
+  })
+
+  afterEach(() => {
+    if (descriptorOriginal) Object.defineProperty(HTMLElement.prototype, 'clientWidth', descriptorOriginal)
+  })
+
+  async function columnasCon(densidad: 'comoda' | 'compacta'): Promise<number> {
+    const canales = Array.from({ length: 200 }, (_, i) => canalFalso(i))
+    const { container } = render(RejillaVirtual, { canales, alAbrir: () => {}, alPedirMas: () => {}, densidad })
+    await asentar()
+    const rejilla = container.querySelector('.rejilla-virtual') as HTMLElement
+    return Number(rejilla.dataset.columnas)
+  }
+
+  it('compacta cabe más columnas que comoda para el mismo ancho de contenedor', async () => {
+    const columnasComoda = await columnasCon('comoda')
+    const columnasCompacta = await columnasCon('compacta')
+    expect(columnasCompacta).toBeGreaterThan(columnasComoda)
+  })
+
+  // Mismo patrón que el roving tabindex de a11y.test.ts (Tarea 18): cambiar
+  // la densidad no puede degradar el roving tabindex a 2·N tab stops, ni
+  // dejar sin [data-indice] a la tarjeta activa.
+  it('con densidad compacta, el roving tabindex sigue reduciendo la rejilla a 2 tab stops (los de la tarjeta activa)', async () => {
+    const canales = Array.from({ length: 5 }, (_, i) => canalFalso(i))
+    const { container } = render(RejillaVirtual, {
+      canales, alAbrir: () => {}, alPedirMas: () => {}, densidad: 'compacta',
+    })
+    await asentar()
+
+    const abrir = () => [...container.querySelectorAll<HTMLElement>('article .abrir')]
+    expect(abrir()[0].getAttribute('tabindex')).toBe('0')
+    expect(abrir()[1].getAttribute('tabindex')).toBe('-1')
+    expect(container.querySelectorAll('article [tabindex="0"]').length).toBe(2) // abrir + favorito de la activa, nada más
+    expect(container.querySelector('article')?.getAttribute('data-indice')).toBe('0')
+
+    abrir()[0].focus()
+    await fireEvent.keyDown(abrir()[0], { key: 'ArrowRight' })
+    await asentar()
+
+    expect(document.activeElement).toBe(abrir()[1])
+    expect(abrir()[0].getAttribute('tabindex')).toBe('-1')
+    expect(abrir()[1].getAttribute('tabindex')).toBe('0')
+    expect(container.querySelectorAll('article [tabindex="0"]').length).toBe(2)
   })
 })

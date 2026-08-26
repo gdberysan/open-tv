@@ -52,15 +52,26 @@
   // 2·N (dos controles por cada una de las N tarjetas) a 2 (los de la única
   // tarjeta activa) en vez de no cambiar nada — las flechas recorren la
   // colección; Tab la atraviesa.
-  let { canales, alAbrir, alPedirMas }: {
+  // densidad (Tarea 5, P0.8): 'comoda' (por defecto) o 'compacta'. Deriva
+  // anchoMin (más abajo) — el resto del cálculo de ventana (columnas,
+  // altoFila, filaInicio/filaFin, espaciadores, roving tabindex) no sabe nada
+  // de densidad: solo consume anchoMin, así que cambiar de densidad es
+  // exactamente el mismo camino que un resize de ventana (agendarRecalculo
+  // ya se dispara porque columnas es $derived de anchoMin).
+  let { canales, alAbrir, alPedirMas, densidad = 'comoda' }: {
     canales: Canal[]
     alAbrir: (c: Canal) => void
     alPedirMas: () => void
+    densidad?: 'comoda' | 'compacta'
   } = $props()
 
-  // Deben coincidir con el grid CSS de abajo (minmax(160px,1fr), gap 12px):
-  // es la misma cuenta de columnas que hace el navegador con auto-fill.
-  const ANCHO_MIN = 160
+  // Deben coincidir con el grid CSS de abajo (minmax(var(--ancho-min),1fr),
+  // gap 12px): es la misma cuenta de columnas que hace el navegador con
+  // auto-fill — por eso anchoMin se manda también como custom property
+  // inline (ver el <div> de más abajo), en vez de vivir solo en JS.
+  const ANCHO_MIN_COMODA = 160
+  const ANCHO_MIN_COMPACTA = 128
+  const anchoMin = $derived(densidad === 'compacta' ? ANCHO_MIN_COMPACTA : ANCHO_MIN_COMODA)
   const GAP = 12
   // Alto de fila antes de medir una tarjeta real (primer pintado, y en
   // jsdom -sin layout real- durante los tests): evita dividir por 0.
@@ -78,7 +89,7 @@
   let innerHeight = $state(0)
   let innerWidth = $state(0)
 
-  const columnas = $derived(Math.max(1, Math.floor((anchoContenedor + GAP) / (ANCHO_MIN + GAP))))
+  const columnas = $derived(Math.max(1, Math.floor((anchoContenedor + GAP) / (anchoMin + GAP))))
   // Alto de fila con el separador incluido (el "paso" entre una fila y la
   // siguiente): altura real de la tarjeta medida, o el respaldo si aún no
   // se ha medido nada.
@@ -294,6 +305,8 @@
   role="list"
   aria-label={t('rejilla.etiquetaLista')}
   onkeydown={alTecladoRejilla}
+  style:--ancho-min="{anchoMin}px"
+  data-columnas={columnas}
 >
   {#if altoArriba > 0}
     <div class="espaciador" style:height="{altoArriba}px" aria-hidden="true"></div>
@@ -302,6 +315,7 @@
     <TarjetaCanal
       {canal}
       {alAbrir}
+      {densidad}
       indice={indiceInicio + i}
       focoActivo={indiceInicio + i === activeIndex}
     />
@@ -313,7 +327,11 @@
 <div class="centinela" bind:this={centinela} aria-hidden="true"></div>
 
 <style>
-  .rejilla-virtual { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  /* --ancho-min (inline, ver arriba): la MISMA anchoMin que gobierna el
+     cálculo de columnas en JS — nunca dos fuentes de verdad del ancho
+     mínimo de columna. data-columnas es solo un gancho de test (Tarea 5,
+     P0.8): no tiene estilo propio ni afecta el layout. */
+  .rejilla-virtual { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--ancho-min, 160px), 1fr)); gap: 12px; }
   /* Ocupa toda la fila para no intercalarse como si fuera una tarjeta más:
      obliga a que lo siguiente empiece en una fila nueva. */
   .espaciador { grid-column: 1 / -1; }

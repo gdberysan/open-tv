@@ -17,12 +17,24 @@
   // localizar el nodo DOM por [data-indice] tras reajustar la ventana,
   // porque la instancia de esta tarjeta puede no existir todavía cuando se
   // decide a qué índice mover el foco.
+  // densidad (Tarea 5, P0.8): opcional, con 'comoda' por defecto — mismo
+  // criterio que focoActivo, para no romper a nadie que use esta tarjeta
+  // suelta (tests existentes incluidos). Solo cambia padding/tipografía vía
+  // la clase .compacta (más abajo): el punto+ms+resolución (insignias) NO
+  // encogen, para que sigan siendo legibles con la tarjeta más pequeña.
   let {
     canal,
     alAbrir,
     indice,
     focoActivo = true,
-  }: { canal: Canal; alAbrir: (c: Canal) => void; indice?: number; focoActivo?: boolean } = $props()
+    densidad = 'comoda',
+  }: {
+    canal: Canal
+    alAbrir: (c: Canal) => void
+    indice?: number
+    focoActivo?: boolean
+    densidad?: 'comoda' | 'compacta'
+  } = $props()
   const esFavorito = $derived($favoritos.has(canal.id))
   // El fallback img-o-iniciales (logoRoto/onerror) vive en LogoCanal.svelte
   // (fix final, hallazgo 1) — compartido con la fila de RejillaCanales en
@@ -36,7 +48,7 @@
   const metaLinea = $derived([canal.pais, canal.categoriaId].filter(Boolean).join(' · '))
 </script>
 
-<article class="tarjeta" role="listitem" data-indice={indice}>
+<article class="tarjeta" class:compacta={densidad === 'compacta'} role="listitem" data-indice={indice}>
   <button
     class="abrir"
     onclick={() => alAbrir(canal)}
@@ -85,6 +97,14 @@
 
 <style>
   .tarjeta { background: var(--surface-card); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  /* Densidad compacta (Tarea 5, P0.8): menos padding/gap y nombre más
+     pequeño — la miniatura (16:9, ver .logo) ya encoge sola porque la
+     tarjeta es más angosta (más columnas, mismo ancho de contenedor). Las
+     insignias (punto+ms, resolución) NO se tocan aquí a propósito: son las
+     que menos margen tienen para seguir siendo legibles. */
+  .tarjeta.compacta { padding: 5px; gap: 4px; }
+  .tarjeta.compacta .nombre { font-size: 12px; }
+  .tarjeta.compacta .fila-meta { gap: 4px; }
   .abrir { all: unset; cursor: pointer; display: block; }
   /* LogoCanal (fix final, hallazgo 1) no decide tamaño: este contenedor es
      el mismo width:100%/aspect-ratio:16:9 que antes tenían img/.sinlogo
