@@ -441,11 +441,23 @@
   onDestroy(() => {
     destruido = true
     limpiarIntento()
-    // Restaura el foco a quien abrió el reproductor — pero solo si ese nodo
-    // sigue en el documento: la tarjeta que lo abrió pudo haber salido de la
-    // ventana virtualizada (Tarea 17) mientras el reproductor estaba abierto,
-    // y focus() sobre un nodo desconectado no hace nada ni avisa.
-    if (elementoPrevio && document.body.contains(elementoPrevio)) elementoPrevio.focus()
+    // Restaura el foco a quien abrió el reproductor. Se DIFIERE con rAF
+    // (fix round 3 — bug real cazado en el gate manual de teclado en Chrome):
+    // al cerrar, App.svelte limpia el `inert` de <main> Y desmonta este
+    // componente EN EL MISMO flush de Svelte, y este onDestroy corre ANTES
+    // de que Svelte limpie ese inert. focus() sobre un nodo que todavía está
+    // dentro de un <main> inert es un no-op — el foco caía a <body>, un
+    // usuario de teclado varado arriba del documento. El rAF corre tras
+    // aplicar el DOM del flush, con <main> ya no-inert y el nodo focable.
+    // Se captura elementoPrevio en una const local ANTES del rAF: el
+    // componente se está destruyendo, no hay que confiar en que la variable
+    // de instancia siga viva dentro del callback diferido.
+    // Guard de document.body.contains: la tarjeta pudo salir de la ventana
+    // virtualizada (Tarea 17) mientras el reproductor estaba abierto.
+    const previo = elementoPrevio
+    requestAnimationFrame(() => {
+      if (previo && document.body.contains(previo)) previo.focus()
+    })
   })
 </script>
 

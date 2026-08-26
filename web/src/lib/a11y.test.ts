@@ -431,7 +431,19 @@ describe('a11y — reproductor: controles etiquetados, aria-live y foco', () => 
     expect(document.activeElement).toBe(controles[0])
   })
 
-  it('al cerrarse (desmontar), el foco vuelve a quien lo abrió', async () => {
+  it('al cerrarse (desmontar), el foco vuelve a quien lo abrió (diferido a un frame — fix round 3)', async () => {
+    // Fix round 3 (bug real cazado en el gate manual de teclado en Chrome
+    // real, no reproducible por jsdom): la restauración del foco se DIFIERE
+    // con requestAnimationFrame en onDestroy —ver Reproductor.svelte—
+    // porque App.svelte limpia el `inert` de <main> y desmonta este
+    // componente en el MISMO flush, y onDestroy corría ANTES de que ese
+    // inert se limpiara; focus() sobre un nodo aún inert es un no-op y el
+    // foco caía a <body>. jsdom no aplica el bloqueo de foco de `inert`
+    // (esa parte solo la cubre el gate manual en navegador real), pero SÍ
+    // permite comprobar lo que es verificable aquí: que el foco vuelve al
+    // disparador DESPUÉS de un frame, no que "nunca se pierde" — por eso el
+    // `await asentar()` de después de `unmount()`, y no una comprobación
+    // síncrona inmediatamente después.
     document.body.innerHTML = '<button id="disparador">abrir</button>'
     const disparador = document.getElementById('disparador') as HTMLButtonElement
     disparador.focus()
@@ -443,6 +455,14 @@ describe('a11y — reproductor: controles etiquetados, aria-live y foco', () => 
     expect(document.activeElement).not.toBe(disparador) // el foco entró al reproductor al abrir
 
     unmount()
+    // Se espera un frame (asentar) antes de comprobar, a propósito: con la
+    // restauración diferida por rAF (fix round 3) el foco NO vuelve todavía
+    // en el instante justo después de unmount(). Lo falsable aquí: contra
+    // una versión que NO restaure el foco en absoluto (el onDestroy sin la
+    // llamada a .focus(), regresión que revertiría el fix), esta aserción
+    // fallaría incluso después de esperar el frame — document.activeElement
+    // se quedaría en <body>, no en disparador.
+    await asentar()
     expect(document.activeElement).toBe(disparador)
   })
 })
