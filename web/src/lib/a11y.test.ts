@@ -434,7 +434,12 @@ describe('a11y — reproductor: controles etiquetados, aria-live y foco', () => 
     render(Reproductor, { canal, fuente: fuenteFalsa(), alCerrar: () => {} })
     await tick()
 
-    const controles = [...document.querySelectorAll<HTMLElement>('.controles button')]
+    // Todos los botones del diálogo, no solo los de `.controles`: desde la
+    // Tarea 1 (P0.8) el overlay 1b sobre el vídeo (`.overlay-controles`)
+    // también aporta controles focables — el primero del diálogo ya no es
+    // el primero de la barra inferior fija.
+    const dialogo = document.querySelector('[role="dialog"]')!
+    const controles = [...dialogo.querySelectorAll<HTMLElement>('button')]
     expect(controles.length).toBeGreaterThan(1)
     controles.at(-1)!.focus()
     await fireEvent.keyDown(controles.at(-1)!, { key: 'Tab' })

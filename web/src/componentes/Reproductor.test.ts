@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/svelte'
+import { get } from 'svelte/store'
+import { tick } from 'svelte'
 import Reproductor from './Reproductor.svelte'
 import { t } from '../i18n'
 import { urlProxy } from '../reproductor/plan'
 import type { DesenlaceReproduccion } from '../reproductor/failover'
 import type { Canal, Mirror } from '../datos/catalogo'
+import { favoritos } from '../estado/favoritos'
 
 // jsdom no decodifica HLS de verdad: canPlayType() no está implementado (así
 // que motorDelNavegador siempre elige 'hlsjs' aquí) y no hay MediaSource, así
@@ -345,5 +348,89 @@ describe('Reproductor — failover entre mirrors', () => {
       loadSpy.mockRestore()
       playSpy.mockRestore()
     }
+  })
+})
+
+// Tarea 1 (P0.8): overlay 1b sobre el <video> — insignia, línea meta, nombre
+// y controles etiquetados (Silenciar/Favorito). No usa el mock de hls.js de
+// arriba: sin mirrors, cae al camino de destino() único (motor nativo en
+// jsdom), que no exige que el stream real llegue a confirmar para que el
+// overlay ya esté en el DOM (se monta con el resto del marcado del
+// reproductor, no tras alConfirmar()).
+describe('Reproductor — overlay 1b', () => {
+  beforeEach(() => {
+    // El store favoritos es un singleton de módulo: sin esto, un canal
+    // marcado como favorito en un test anterior seguiría marcado aquí.
+    favoritos.set(new Set())
+  })
+
+  function fuenteSinMirrors() {
+    return {
+      mirrors: vi.fn(async () => [] as Mirror[]),
+      destino: vi.fn(async () => ({ url: 'https://unico/x.m3u8', airplayOk: null })),
+      proxyDisponible: vi.fn(async () => false),
+    }
+  }
+
+  it('muestra la insignia «En vivo», el nombre del canal y la línea meta cuando el canal trae resolución/latencia/país', () => {
+    const canalConMeta: Canal = { ...canal, nombre: 'BBC One 1080p', pais: 'GB', latenciaMs: 150 }
+    const { container } = render(Reproductor, { canal: canalConMeta, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+
+    expect(screen.getByText(t('reproductor.envivo'))).toBeTruthy()
+    expect(container.querySelector('.overlay-nombre')?.textContent).toBe('BBC One 1080p')
+    expect(container.querySelector('.overlay-meta')?.textContent).toBe('1080p · 150 ms · GB')
+  })
+
+  it('sin resolución/latencia/país en el canal, la línea meta no se muestra', () => {
+    const canalSinMeta: Canal = { ...canal, nombre: 'X', pais: '', latenciaMs: 0 }
+    const { container } = render(Reproductor, { canal: canalSinMeta, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+
+    expect(container.querySelector('.overlay-meta')).toBeNull()
+  })
+
+  it('el botón Silenciar del overlay togglea video.muted y aria-pressed', async () => {
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+    const video = container.querySelector('video') as HTMLVideoElement
+    const boton = container.querySelector('.overlay-controles .silenciar') as HTMLButtonElement
+
+    expect(boton.getAttribute('aria-label')).toBe(t('reproductor.silenciar'))
+    expect(boton.getAttribute('aria-pressed')).toBe('false')
+    expect(video.muted).toBe(false)
+
+    boton.click()
+    await tick()
+
+    expect(boton.getAttribute('aria-pressed')).toBe('true')
+    expect(video.muted).toBe(true)
+  })
+
+  it('el botón Favorito del overlay togglea el store de favoritos y aria-pressed', async () => {
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+    const boton = container.querySelector('.overlay-controles .favorito') as HTMLButtonElement
+
+    expect(boton.getAttribute('aria-pressed')).toBe('false')
+    expect(boton.getAttribute('aria-label')).toBe(t('canal.favorito.anadir'))
+    expect(get(favoritos).has(canal.id)).toBe(false)
+
+    boton.click()
+    await tick()
+
+    expect(boton.getAttribute('aria-pressed')).toBe('true')
+    expect(boton.getAttribute('aria-label')).toBe(t('canal.favorito.quitar'))
+    expect(get(favoritos).has(canal.id)).toBe(true)
+  })
+
+  it('los controles nuevos del overlay tienen nombre accesible y están dentro del contenedor del diálogo', () => {
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+    const dialogo = container.querySelector('[role="dialog"]')
+    expect(dialogo).toBeTruthy()
+
+    const silenciar = dialogo!.querySelector('.overlay-controles .silenciar')
+    const favorito = dialogo!.querySelector('.overlay-controles .favorito')
+
+    expect(silenciar).toBeTruthy()
+    expect(favorito).toBeTruthy()
+    expect(silenciar?.getAttribute('aria-label')).toBeTruthy()
+    expect(favorito?.getAttribute('aria-label')).toBeTruthy()
   })
 })

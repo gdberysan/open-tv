@@ -52,6 +52,7 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.cerrar': 'Close',
   'reproductor.silenciar': 'Mute',
   'reproductor.pantallaCompleta': 'Full screen',
+  'reproductor.envivo': 'Live',
   'reproductor.error.noArranco': 'The channel never started playing. It may be down, geo-blocked, or its address expired.',
   'reproductor.error.corte': 'The channel stopped broadcasting.',
   'reproductor.error.caido': 'The channel is down or its address expired.',

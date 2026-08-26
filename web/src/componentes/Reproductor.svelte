@@ -8,6 +8,8 @@
   import { clasificarFallo, type ClaseFallo, type InfoFallo } from '../reproductor/diagnostico'
   import { t } from '../i18n'
   import type { ClaveMensaje } from '../i18n/es'
+  import { parsearResolucion } from '../lib/resolucion'
+  import { favoritos } from '../estado/favoritos'
 
   // alAnterior/alSiguiente son opcionales: App los da cuando hay una lista de
   // canales de la que moverse (flechas ← →). fuente es el CatalogSource: el
@@ -42,6 +44,63 @@
   // tras confirmar) porque ninguno de esos tiene un failover que reanudar.
   let numMirrorsDisponibles = $state(0)
   let silenciado = $state(false)
+
+  // Overlay 1b (Tarea 1, P0.8): insignia + línea meta + nombre + controles
+  // etiquetados, sobre el <video>. esFavorito es derivado del store
+  // compartido (mismo patrón que TarjetaCanal.svelte); resolucion, la misma
+  // heurística sobre el nombre que ya usa TarjetaCanal (lib/resolucion.ts) —
+  // el catálogo no trae un campo propio, así que sin match no hay insignia
+  // de resolución, no se inventa un dato que el nombre no dice.
+  const esFavorito = $derived($favoritos.has(canal.id))
+  const resolucion = $derived(parsearResolucion(canal.nombre))
+  const metaLinea = $derived(
+    [resolucion, canal.latenciaMs > 0 ? `${canal.latenciaMs} ms` : null, canal.pais || null]
+      .filter((parte): parte is string => Boolean(parte))
+      .join(' · '),
+  )
+
+  // Auto-ocultar del overlay: visible por defecto (también durante
+  // cargando/error, que tienen su propio estado centrado y no chocan con la
+  // insignia/controles de los bordes). mostrar() se llama al mousemove/
+  // keydown Y cada vez que se confirma la reproducción (el $effect de más
+  // abajo) — solo arma el temporizador de ~3s mientras reproduce de verdad;
+  // en cargando/error se queda visible sin temporizador.
+  let ocultarOverlay = $state(false)
+  let overlayEl: HTMLDivElement | undefined = $state()
+  let temporizadorOverlay: ReturnType<typeof setTimeout> | undefined
+
+  function mostrar() {
+    ocultarOverlay = false
+    if (temporizadorOverlay !== undefined) clearTimeout(temporizadorOverlay)
+    if (cargando || mensajeError) return
+    temporizadorOverlay = setTimeout(ocultarSiProcede, 3000)
+  }
+
+  function ocultarSiProcede() {
+    // NUNCA se oculta si el foco de teclado sigue dentro del overlay: un
+    // usuario de teclado se quedaría con el foco en un control que ya no ve.
+    // Se reprograma el mismo plazo en vez de ocultar.
+    if (overlayEl && document.activeElement && overlayEl.contains(document.activeElement)) {
+      temporizadorOverlay = setTimeout(ocultarSiProcede, 3000)
+      return
+    }
+    ocultarOverlay = true
+  }
+
+  // Si el foco llega al overlay por Tab (no por ratón), tiene que reaparecer
+  // — sin esto, tabular hacia un overlay ya oculto dejaría el foco en un
+  // control invisible.
+  function alRecibirFocoOverlay() {
+    mostrar()
+  }
+
+  // Arranca el ciclo de auto-ocultar en cuanto se confirma la reproducción
+  // (cargando pasa a false sin error) — no hace falta esperar al primer
+  // mousemove/keydown del usuario para que el overlay empiece a poder
+  // ocultarse.
+  $effect(() => {
+    if (!cargando && !mensajeError) mostrar()
+  })
 
   // Foco del diálogo modal (Tarea 18, orden de foco): este componente se
   // monta FUERA de <main> (ver App.svelte), como el único overlay de pantalla
@@ -418,6 +477,10 @@
   }
 
   function alTeclado(e: KeyboardEvent) {
+    // Cualquier tecla reprograma el auto-ocultar del overlay (mismo trato que
+    // el mousemove del contenedor) — teclear para navegar/pausar no debe
+    // dejar los controles desaparecer a mitad de gesto.
+    mostrar()
     switch (e.key) {
       case ' ':
         e.preventDefault()
@@ -477,6 +540,7 @@
   onDestroy(() => {
     destruido = true
     limpiarIntento()
+    if (temporizadorOverlay !== undefined) clearTimeout(temporizadorOverlay)
     // Restaura el foco a quien abrió el reproductor. Se DIFIERE con rAF
     // (fix round 3 — bug real cazado en el gate manual de teclado en Chrome):
     // al cerrar, App.svelte limpia el `inert` de <main> Y desmonta este
@@ -500,7 +564,14 @@
 <svelte:window onkeydown={alTeclado} />
 
 <div class="reproductor" role="dialog" aria-modal="true" aria-label={canal.nombre} bind:this={contenedorDialogo}>
-  <div class="lienzo">
+  <!-- onmousemove aquí, no en el <div role="dialog"> de fuera: mover el
+       ratón sobre el vídeo es lo que reprograma el auto-ocultar del overlay
+       (los botones de la barra fija de abajo ya se auto-muestran solos, al
+       ser siempre visibles). Puesto en el div del diálogo, el linter de a11y
+       exige tabindex por convertirlo en "interactivo" — aquí, sobre un div
+       sin rol, no aplica. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="lienzo" onmousemove={mostrar}>
     <!-- svelte-ignore a11y_media_has_caption -->
     <video bind:this={video} {...{ 'x-webkit-airplay': 'allow' }} playsinline muted={silenciado}></video>
 
@@ -527,13 +598,55 @@
          textContent el que cambia. -->
     <p class="sr-only" aria-live="polite" aria-atomic="true">{cargando ? t('reproductor.cargando') : ''}</p>
     <p class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">{mensajeError ?? ''}</p>
+
+    <!-- Overlay 1b (Tarea 1, P0.8): barra de controles SOBRE el vídeo, con
+         gradiente inferior. Sustituye al título y al botón Silenciar que
+         antes vivían en la barra fija de abajo (ahora ya sin ellos) —
+         Pantalla completa/AirPlay/Cerrar siguen en esa barra; la Tarea 2 los
+         de Pantalla completa/PiP se unen aquí (contenedor .overlay-controles,
+         mismo focus-trap del diálogo). -->
+    <div class="overlay" class:oculto={ocultarOverlay} bind:this={overlayEl} onfocusin={alRecibirFocoOverlay}>
+      <div class="overlay-arriba">
+        <span class="insignia-vivo">
+          <!-- Punto ROJO (--signal-error), no ámbar: excepción deliberada a
+               la regla "ámbar = activo/foco/señal" — aquí el rojo del
+               mockup 1b marca "en directo" (como en un plató de TV), no un
+               error de reproducción. -->
+          <i class="punto-vivo" aria-hidden="true"></i>
+          {t('reproductor.envivo')}
+        </span>
+        {#if metaLinea}
+          <span class="overlay-meta">{metaLinea}</span>
+        {/if}
+      </div>
+      <div class="overlay-abajo">
+        <span class="overlay-nombre">{canal.nombre}</span>
+        <div class="overlay-controles">
+          <button
+            type="button"
+            class="silenciar"
+            class:activo={silenciado}
+            onclick={alternarSilencio}
+            aria-pressed={silenciado}
+            aria-label={t('reproductor.silenciar')}
+          >
+            {silenciado ? '🔇' : '🔊'}
+          </button>
+          <button
+            type="button"
+            class="favorito"
+            class:activo={esFavorito}
+            onclick={() => favoritos.alternar(canal.id)}
+            aria-pressed={esFavorito}
+            aria-label={esFavorito ? t('canal.favorito.quitar') : t('canal.favorito.anadir')}
+          >★</button>
+          <!-- La Tarea 2 (P0.8) añade aquí Pantalla completa y PiP. -->
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="controles">
-    <span class="titulo">{canal.nombre}</span>
-    <button type="button" class:activo={silenciado} onclick={alternarSilencio} aria-pressed={silenciado} aria-label={t('reproductor.silenciar')}>
-      {silenciado ? '🔇' : '🔊'}
-    </button>
     <button type="button" onclick={alternarPantallaCompleta} aria-label={t('reproductor.pantallaCompleta')}>⛶</button>
     {#if soportaAirplay}
       <button type="button" onclick={abrirSelectorAirplay} aria-label="AirPlay">📺</button>
@@ -586,14 +699,77 @@
     font: inherit;
   }
   .probar-mirror:hover { background: var(--tint-amber-line); }
+
+  /* Overlay 1b (Tarea 1, P0.8): barra de controles sobre el vídeo, con
+     gradiente inferior — insignia arriba, nombre+controles abajo. La
+     opacidad (no display:none) es lo que se anima: display:none no
+     transiciona y además sacaría los botones del foco/tab de golpe, algo
+     que el propio auto-ocultar ya evita devolviendo el foco con
+     onfocusin/mostrar(). */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: var(--space-4);
+    background: var(--scrim-gradient);
+    opacity: 1;
+    transition: opacity var(--dur-base) var(--ease-out);
+  }
+  .overlay.oculto { opacity: 0; }
+  @media (prefers-reduced-motion: reduce) {
+    .overlay { transition: none; }
+  }
+  .overlay-arriba { display: flex; align-items: center; gap: var(--space-3); }
+  .insignia-vivo {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font: var(--type-label);
+    color: var(--text-strong);
+  }
+  /* Punto ROJO (--signal-error): ver el comentario junto al marcado — aquí
+     marca "en directo" (mockup 1b), no una señal de error/salud. */
+  .punto-vivo { width: 8px; height: 8px; border-radius: 50%; background: var(--signal-error); flex-shrink: 0; }
+  .overlay-meta {
+    font: var(--type-mono-label);
+    letter-spacing: var(--tracking-mono);
+    color: var(--text-muted);
+  }
+  .overlay-abajo {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+  }
+  .overlay-nombre {
+    font: var(--type-h3);
+    color: var(--text-strong);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .overlay-controles { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
+  .overlay-controles button {
+    all: unset;
+    cursor: pointer;
+    color: var(--text-strong);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+  }
+  .overlay-controles button:hover { background: rgba(255, 255, 255, 0.08); }
+  /* Ámbar solo mientras el botón representa una señal activa (silenciado/favorito). */
+  .overlay-controles button.activo { color: var(--amber-500); }
+
   .controles {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
     background: var(--surface-card);
   }
-  .titulo { color: var(--text-strong); font-weight: 600; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .controles button {
     all: unset;
     cursor: pointer;
@@ -602,7 +778,5 @@
     border-radius: var(--radius-sm);
   }
   .controles button:hover { color: var(--text-body); background: var(--surface-raised); }
-  /* Ámbar solo mientras el botón representa una señal activa (silenciado). */
-  .controles button.activo { color: var(--amber-500); }
   .controles button.cerrar:hover { color: var(--signal-error); }
 </style>

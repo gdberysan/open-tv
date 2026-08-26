@@ -83,6 +83,9 @@ export const es = {
   'reproductor.cerrar': 'Cerrar',
   'reproductor.silenciar': 'Silenciar',
   'reproductor.pantallaCompleta': 'Pantalla completa',
+  // Tarea 1 (P0.8): insignia del overlay 1b sobre el vídeo — "en directo",
+  // no un estado de salud (ese es senal.viva/muerta/sinDatos, en SenalCanal).
+  'reproductor.envivo': 'En vivo',
   'reproductor.error.noArranco': 'El canal no llegó a reproducir. Puede estar caído, geo-bloqueado o su dirección caducó.',
   'reproductor.error.corte': 'El canal dejó de emitir.',
   'reproductor.error.caido': 'El canal está caído o su dirección caducó.',
