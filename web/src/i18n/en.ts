@@ -128,6 +128,7 @@ export const en: Record<ClaveMensaje, string> = {
   'onboarding.sondeo.detalle': "It can take a few seconds, depending on the list's size.",
   'onboarding.sondeo.agotado': 'The source was added but no channels have shown up yet. It may take longer, or the list could be empty.',
   'onboarding.sondeo.reintentar': 'Retry',
+  'onboarding.sondeo.gestionar': 'Manage sources',
 
   'fuentes.abrir': 'Sources',
   'fuentes.titulo': 'Sources',
@@ -149,6 +150,7 @@ export const en: Record<ClaveMensaje, string> = {
   'fuentes.quitar.confirmar': 'Sure? Remove',
   'fuentes.quitar.confirmar.etiqueta': 'Confirm: remove {label}',
   'fuentes.quitar.cancelar': 'Cancel',
+  'fuentes.quitar.error': 'Could not remove the source. Please try again.',
   'fuentes.anadirMas.titulo': 'Add another source',
   'fuentes.cargando': 'Loading sources…',
   'fuentes.error': 'Could not load the sources.',

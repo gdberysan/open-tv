@@ -145,6 +145,34 @@ describe('Fuentes — re-sincronizar', () => {
     await vi.advanceTimersByTimeAsync(3000) // espera documentada antes del refetch
     expect(fuentes).toHaveBeenCalledTimes(2)
   })
+
+  // F6 (fix final-review): el setTimeout de resync() no se trackeaba, así
+  // que desmontar la vista a mitad de la espera de 3s no lo cancelaba — el
+  // timer seguía vivo y, al disparar, escribía sobre un componente ya fuera.
+  // Falsable: sin clearTimeout en onDestroy, fuentes() se seguiría llamando
+  // una segunda vez pasados los 3s aunque el componente ya no exista.
+  it('F6: desmontar durante la espera de resync() cancela el temporizador — no refetchea fuentes() tras desmontar', async () => {
+    vi.useFakeTimers()
+    const fuentes = vi.fn(async () => [fuenteDePrueba('f1', { label: 'Mi lista' })])
+    const resyncFuente = vi.fn(async () => {})
+    const { unmount } = render(Fuentes, {
+      fuente: fuenteFalsa({ fuentes, resyncFuente }),
+      alVolver: vi.fn(),
+      alFuenteAnadida: vi.fn(),
+      alFuentesCambiaron: vi.fn(),
+    })
+
+    await vi.advanceTimersByTimeAsync(0) // carga inicial
+    const boton = screen.getByRole('button', { name: t('fuentes.resincronizar.etiqueta', { label: 'Mi lista' }) })
+    await fireEvent.click(boton)
+    await vi.advanceTimersByTimeAsync(0) // resyncFuente resuelve, arranca el timer de 3s
+
+    const llamadasAntesDeDesmontar = fuentes.mock.calls.length
+    unmount()
+
+    await vi.advanceTimersByTimeAsync(5000) // de sobra para los 3s documentados
+    expect(fuentes.mock.calls.length).toBe(llamadasAntesDeDesmontar)
+  })
 })
 
 describe('Fuentes — quitar (confirmación en dos pasos)', () => {
@@ -230,6 +258,58 @@ describe('Fuentes — quitar (confirmación en dos pasos)', () => {
     await vi.waitFor(() => expect(fuentes).toHaveBeenCalledTimes(2))
     await vi.waitFor(() => expect(alFuentesCambiaron).toHaveBeenCalledWith([]))
     await screen.findByText(t('fuentes.vacia'))
+  })
+
+  // F6 (fix final-review): antes, quitar() tenía un try/finally SIN catch —
+  // un quitarFuente() rechazado salía como un rechazo sin manejar de un
+  // onclick async (vitest lo reporta como "unhandled rejection" si no se
+  // captura aquí) y no dejaba NINGÚN rastro visible.
+  it('F6: un quitarFuente() fallido muestra un error visible (no un rechazo sin manejar) y NO notifica alFuentesCambiaron', async () => {
+    const quitarFuente = vi.fn(async () => {
+      throw new Error('boom')
+    })
+    const alFuentesCambiaron = vi.fn()
+    render(Fuentes, {
+      fuente: fuenteFalsa({
+        fuentes: vi.fn(async () => [fuenteDePrueba('f1', { label: 'Mi lista' })]),
+        quitarFuente,
+      }),
+      alVolver: vi.fn(),
+      alFuenteAnadida: vi.fn(),
+      alFuentesCambiaron,
+    })
+
+    const botonQuitar = await screen.findByRole('button', { name: t('fuentes.quitar.etiqueta', { label: 'Mi lista' }) })
+    await fireEvent.click(botonQuitar)
+    const confirmar = await screen.findByRole('button', { name: t('fuentes.quitar.confirmar.etiqueta', { label: 'Mi lista' }) })
+    await fireEvent.click(confirmar)
+
+    await screen.findByText(t('fuentes.quitar.error'))
+    expect(alFuentesCambiaron).not.toHaveBeenCalled()
+    // La fila sigue ahí: un quitar fallido no la hace desaparecer de la lista.
+    expect(screen.getByText('Mi lista')).not.toBeNull()
+  })
+
+  it('F6: un fuentes() de refetch fallido tras un quitar exitoso también muestra un error visible', async () => {
+    const fuentes = vi.fn()
+    fuentes
+      .mockResolvedValueOnce([fuenteDePrueba('f1', { label: 'Mi lista' })]) // carga inicial
+      .mockRejectedValueOnce(new Error('boom')) // refetch tras quitar
+    const quitarFuente = vi.fn(async () => {})
+    render(Fuentes, {
+      fuente: fuenteFalsa({ fuentes, quitarFuente }),
+      alVolver: vi.fn(),
+      alFuenteAnadida: vi.fn(),
+      alFuentesCambiaron: vi.fn(),
+    })
+
+    const botonQuitar = await screen.findByRole('button', { name: t('fuentes.quitar.etiqueta', { label: 'Mi lista' }) })
+    await fireEvent.click(botonQuitar)
+    const confirmar = await screen.findByRole('button', { name: t('fuentes.quitar.confirmar.etiqueta', { label: 'Mi lista' }) })
+    await fireEvent.click(confirmar)
+
+    await vi.waitFor(() => expect(quitarFuente).toHaveBeenCalledWith('f1'))
+    await screen.findByText(t('fuentes.error'))
   })
 })
 

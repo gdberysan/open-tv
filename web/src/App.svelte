@@ -187,6 +187,14 @@
   // llamadas a cargarPagina).
   function alFuentesCambiaron(nuevas: Fuente[]) {
     fuentes = nuevas
+    // Fix final-review (F3): con `!vistaFuentes` añadido a `sinFuentes` (ver
+    // más abajo), quitar la última fuente DESDE esta misma vista ya no
+    // bastaba por sí solo para que el Onboarding "volviera solo" —
+    // vistaFuentes seguía en true y bloqueaba esa rama. nuevas.length === 0
+    // es el mismo estado que sinFuentes vigila (cero fuentes): se resetea
+    // vistaFuentes aquí para preservar el comportamiento ya cubierto por el
+    // test "(e) quitar la ÚLTIMA fuente... el Onboarding vuelve a aparecer".
+    if (nuevas.length === 0) volverDeFuentes()
     if (fase.tipo === 'listo') cargarPagina(true)
   }
 
@@ -432,6 +440,23 @@
     iniciarSondeoFuente()
   }
 
+  // Fix final-review (F2): salida real del estado "agotado". Sin esto, la
+  // rama sondeo/agotado (primera del <main> de abajo) gana PARA SIEMPRE una
+  // vez sondeoAgotado queda en true — el botón «Fuentes» de la cabecera
+  // seguía "funcionando" (ponía vistaFuentes=true) pero no se notaba: esa
+  // rama sigue evaluándose ANTES que vistaFuentes, así que nada cambiaba en
+  // pantalla y quien añadió una fuente rota (typo, lista vacía) se quedaba
+  // repitiendo "Reintentar" cada ~90s sin poder llegar nunca a borrarla.
+  // Limpiar sondeoAgotado aquí es lo que deja que vistaFuentes gane de
+  // verdad (fuentes.length ya no es 0 — la fuente rota SÍ se añadió del lado
+  // del backend — así que sinFuentes tampoco se interpone).
+  function irAGestionarFuentes() {
+    sondeoAgotado = false
+    vistaStats = false
+    vistaFuentes = true
+    location.hash = 'fuentes'
+  }
+
   // Tarea 6 (P0.7) — fix round 1: Onboarding ya recibió la Fuente creada
   // como valor de retorno de anadirFuente*/fuentesSugeridas (el propio
   // backend la crea al sincronizar) — no hace falta un fetch adicional a
@@ -520,11 +545,24 @@
   // con soloFavoritos ambos podrían discrepar si algún día hay favoritos sin
   // fuente propia, y total es la fuente de verdad de "cuántos hay" en todo
   // el resto de App (ver el comentario de `cargarPagina`).
+  // `!vistaFuentes` (fix final-review, F3): sin este guardián, navegar a
+  // #fuentes desde el propio onboarding (fuentes.length sigue en 0 hasta que
+  // se añade la primera) dejaba `vistaFuentes` en true PERO esta rama seguía
+  // ganando (va antes que vistaFuentes en el <main> de abajo) — el clic en
+  // «Fuentes» parecía no hacer nada, y al sincronizar la primera fuente
+  // añadida desde el propio Onboarding (que sigue montado, vistaFuentes
+  // stuck), sinFuentes pasaba a false y la rama vistaFuentes (nunca
+  // reseteada) ganaba: quien acababa de añadir su primera fuente aterrizaba
+  // en la vista de GESTIÓN en vez de en su catálogo recién sincronizado. Con
+  // el guardián, «Fuentes» siempre abre la vista de gestión de verdad
+  // (incluida su propia AnadirFuente, aunque la lista esté vacía) en cuanto
+  // se pulsa — nunca un clic que no hace nada visible.
   let sinFuentes = $derived(
     fase.tipo === 'listo' &&
       fuentesCargadas &&
       fuentes.length === 0 &&
       !vistaStats &&
+      !vistaFuentes &&
       !errorCatalogo &&
       !cargando &&
       canales.length === 0 &&
@@ -694,7 +732,11 @@
                  backend sincroniza. Sin esta rama PRIMERO, sinFuentes pasaría
                  a false y se vería la rejilla vacía de siempre — exactamente
                  el bug real que cazó el gate en Chrome del controlador. -->
-            <SincronizandoFuente agotado={sondeoAgotado} alReintentar={reintentarSondeoFuente} />
+            <SincronizandoFuente
+              agotado={sondeoAgotado}
+              alReintentar={reintentarSondeoFuente}
+              alGestionarFuentes={irAGestionarFuentes}
+            />
           {:else if sinFuentes}
             <!-- Tarea 6 (P0.7): catálogo listo pero sin ninguna fuente
                  bring-your-own — primer arranque en limpio. Sustituye TODO

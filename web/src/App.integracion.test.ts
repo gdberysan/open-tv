@@ -383,6 +383,51 @@ describe('App — fix round 1 (Tarea 6, P0.7): sondeo del catálogo tras añadir
     expect(main().getByRole('button', { name: t('accion.aleatorio') })).not.toBeNull()
   })
 
+  it('F2: en el estado agotado, «Gestionar fuentes» limpia el aviso y lleva a la vista de gestión, con la fuente rota lista para borrar', async () => {
+    // Antes de este fix: sondeoAgotado se quedaba en true para siempre, y esa
+    // rama del <main> (la primera en el orden de App.svelte) ganaba pase lo
+    // que pasara — ni «Reintentar» (mismo camino, mismo timeout) ni el botón
+    // «Fuentes» de la cabecera (ponía vistaFuentes=true, pero esa rama nunca
+    // se llegaba a evaluar) sacaban de aquí a quien había añadido una fuente
+    // con un typo. Este test es falsable contra ESE código: sin
+    // alGestionarFuentes limpiando sondeoAgotado, «Gestionar fuentes» ni
+    // siquiera existiría en el DOM.
+    vi.useFakeTimers()
+    let fuentesBackend: Fuente[] = []
+    const fuentes = vi.fn(async () => fuentesBackend)
+    const anadirFuente = vi.fn(async () => {
+      const f = nuevaFuenteDePrueba()
+      fuentesBackend = [...fuentesBackend, f] // el backend SÍ crea la fuente — solo nunca trae canales (typo en la URL)
+      return f
+    })
+    const canales = vi.fn(async (): Promise<PaginaCanales> => ({ canales: [], total: 0 })) // nunca hay canales
+    const fuente = fuenteFalsa({ fuentes, anadirFuente, canales })
+
+    const { container } = render(App, { fuente, sondeoFuenteIntervaloMs: INTERVALO_TEST_MS, sondeoFuenteIntentosMax: 3 })
+    const main = () => within(container.querySelector('main') as HTMLElement)
+    await vi.advanceTimersByTimeAsync(0) // carga inicial → Onboarding
+
+    await anadirDesdeOnboarding()
+    await vi.advanceTimersByTimeAsync(0) // intento 1/3
+    await vi.advanceTimersByTimeAsync(INTERVALO_TEST_MS) // intento 2/3
+    await vi.advanceTimersByTimeAsync(INTERVALO_TEST_MS) // intento 3/3: se agota el tope
+    expect(main().getByText(t('onboarding.sondeo.agotado'))).not.toBeNull()
+
+    const gestionar = main().getByRole('button', { name: t('onboarding.sondeo.gestionar') })
+    await fireEvent.click(gestionar)
+    await vi.advanceTimersByTimeAsync(0) // Fuentes.svelte monta y refetchea fuentes()
+
+    // El aviso desaparece Y aparece la vista de gestión de VERDAD — no un
+    // hash cambiado sin ningún efecto visible.
+    expect(screen.queryByText(t('onboarding.sondeo.agotado'))).toBeNull()
+    expect(screen.getByRole('heading', { name: t('fuentes.titulo') })).not.toBeNull()
+    expect(window.location.hash).toBe('#fuentes')
+
+    // La fuente rota SÍ está en la lista: quien llega hasta aquí puede
+    // borrarla, no solo "salir" del aviso de agotado.
+    expect(screen.getByRole('button', { name: t('fuentes.quitar.etiqueta', { label: 'Nueva' }) })).not.toBeNull()
+  })
+
   it('desmontar App durante el sondeo no deja timers sueltos (no llama a canales() otra vez tras desmontar)', async () => {
     vi.useFakeTimers()
     const canales = vi.fn(async () => ({ canales: [], total: 0 })) // nunca hay canales
@@ -479,5 +524,48 @@ describe('App — vista Fuentes (gestión, Tarea 7 de P0.7)', () => {
     // relevo — nunca se queda "atascado" mostrando la vista de gestión.
     await vi.waitFor(() => expect(screen.queryByRole('heading', { name: t('fuentes.titulo') })).toBeNull())
     await screen.findByRole('button', { name: t('accion.aleatorio') })
+  })
+
+  it('F3: sin fuentes, «Fuentes» de la cabecera SÍ abre la vista de gestión (no un clic mudo) y añadir la primera fuente ahí aterriza en el catálogo, no en gestión', async () => {
+    // Antes de este fix: sinFuentes (fuentes.length === 0) ganaba siempre a
+    // vistaFuentes en el <main> de App.svelte, así que pulsar «Fuentes»
+    // durante el onboarding dejaba vistaFuentes=true SIN NINGÚN efecto
+    // visible — y luego, al sincronizar la primera fuente (añadida desde el
+    // Onboarding, que seguía siendo lo que se veía), sinFuentes pasaba a
+    // false y esa vistaFuentes nunca reseteada ganaba: quien acababa de
+    // añadir su primera fuente aterrizaba en la vista de GESTIÓN en vez de
+    // en su catálogo recién sincronizado.
+    const nueva: Fuente = {
+      id: 'nueva', label: 'Nueva', url: 'https://ej.test/nueva.m3u', kind: 'url', ultimoSync: null, canales: 0,
+    }
+    const anadirFuente = vi.fn(async () => nueva)
+    const canales = vi.fn()
+    canales
+      .mockResolvedValueOnce({ canales: [], total: 0 }) // carga inicial: sin fuentes, catálogo vacío
+      .mockResolvedValue({ canales: [canalDePrueba('a')], total: 1 }) // sondeo inmediato tras añadir: ya hay canales
+    const fuente = fuenteFalsa({ fuentes: vi.fn(async () => []), anadirFuente, canales })
+    render(App, { fuente })
+
+    await screen.findByText(t('onboarding.titulo')) // arranque en limpio: onboarding
+
+    const botonFuentes = await screen.findByRole('button', { name: t('fuentes.abrir') })
+    await fireEvent.click(botonFuentes)
+
+    // El clic tiene que verse: la vista de gestión real aparece, aunque la
+    // lista de fuentes esté vacía (con su propio bloque «Añadir otra
+    // fuente» — la MISMA AnadirFuente que el onboarding).
+    await screen.findByRole('heading', { name: t('fuentes.titulo') })
+    expect(window.location.hash).toBe('#fuentes')
+
+    const campo = await screen.findByLabelText(t('onboarding.url.etiqueta'))
+    await fireEvent.input(campo, { target: { value: 'https://ej.test/nueva.m3u' } })
+    const botonAnadir = screen.getByRole('button', { name: t('onboarding.anadir') })
+    await fireEvent.click(botonAnadir)
+
+    await vi.waitFor(() => expect(anadirFuente).toHaveBeenCalledWith('https://ej.test/nueva.m3u'))
+    // Aterriza en el catálogo (rejilla/BarraAcciones) — NUNCA de vuelta en
+    // la vista de gestión, que es justo el bug que este fix cierra.
+    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    expect(screen.queryByRole('heading', { name: t('fuentes.titulo') })).toBeNull()
   })
 })

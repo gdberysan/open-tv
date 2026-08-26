@@ -176,6 +176,12 @@ export const es = {
   'onboarding.sondeo.detalle': 'Puede tardar unos segundos, según el tamaño de la lista.',
   'onboarding.sondeo.agotado': 'La fuente se añadió pero todavía no aparecen canales. Puede tardar más, o la lista puede estar vacía.',
   'onboarding.sondeo.reintentar': 'Reintentar',
+  // Fix final-review (F2): salida del estado "agotado" — sin esto, quien
+  // añadió una fuente con un typo (o una lista vacía) se quedaba atrapado
+  // repitiendo "Reintentar" para siempre, sin forma de llegar a la vista de
+  // gestión a borrar la fuente rota. Limpia sondeoAgotado y abre #fuentes
+  // (ver irAGestionarFuentes en App.svelte).
+  'onboarding.sondeo.gestionar': 'Gestionar fuentes',
 
   // Tarea 7 (P0.7): vista de gestión de fuentes (#fuentes), accesible desde la
   // cabecera. Lista lo ya añadido, permite re-sincronizar o quitar, y
@@ -200,6 +206,11 @@ export const es = {
   'fuentes.quitar.confirmar': '¿Seguro? Quitar',
   'fuentes.quitar.confirmar.etiqueta': 'Confirmar: quitar {label}',
   'fuentes.quitar.cancelar': 'Cancelar',
+  // F6 (fix final-review): quitar() no tenía catch — un DELETE fallido salía
+  // como rechazo sin manejar de un onclick, sin ningún aviso visible. Este
+  // mensaje es el único rastro que ve quien usa la app de que la acción no
+  // se completó.
+  'fuentes.quitar.error': 'No se pudo quitar la fuente. Inténtalo de nuevo.',
   'fuentes.anadirMas.titulo': 'Añadir otra fuente',
   'fuentes.cargando': 'Cargando fuentes…',
   'fuentes.error': 'No se pudieron cargar las fuentes.',

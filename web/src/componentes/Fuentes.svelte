@@ -48,6 +48,14 @@
   // cancela implícitamente cualquier confirmación pendiente.
   let confirmandoId = $state<string | null>(null)
 
+  // F6 (fix final-review): quitar() tenía try/finally SIN catch — un DELETE
+  // fallido (o el refetch de fuentes() que le sigue) salía como un rechazo
+  // sin manejar de un onclick async, sin ningún aviso visible, y
+  // alFuentesCambiaron nunca llegaba a llamarse (la copia de `fuentes` de
+  // App se quedaba desincronizada de la de esta vista). errorQuitar es el
+  // único rastro visible de que la acción no se completó.
+  let errorQuitar = $state('')
+
   // Tarea 11 (P0.7, pase de accesibilidad — fix del ledger): label→url→id.
   // Filas legacy de bases reales pueden tener label Y url vacíos (fuentes
   // creadas antes de que ambos campos fueran obligatorios); sin este tercer
@@ -102,6 +110,14 @@
   let elementoPrevio: HTMLElement | null = null
   let tituloEl = $state<HTMLHeadingElement | undefined>(undefined)
 
+  // F6 (fix final-review): handle del setTimeout de resync() — sin
+  // trackearlo, cerrar esta vista (o quitar App entero) a mitad de la
+  // espera de RESYNC_ESPERA_MS dejaba el timer suelto, escribiendo sobre
+  // `fuentes`/`resincronizandoId` de un componente ya desmontado. Mismo
+  // principio de "cancelar al desmontar" que App.svelte aplica a su propio
+  // sondeo (ver detenerSondeoFuente/onDestroy allí).
+  let temporizadorResync: ReturnType<typeof setTimeout> | undefined
+
   onMount(() => {
     elementoPrevio = document.activeElement instanceof HTMLElement ? document.activeElement : null
     cargar()
@@ -109,6 +125,7 @@
   })
 
   onDestroy(() => {
+    if (temporizadorResync !== undefined) clearTimeout(temporizadorResync)
     if (elementoPrevio && document.body.contains(elementoPrevio)) elementoPrevio.focus()
   })
 
@@ -122,7 +139,8 @@
       // completo con reintentar) — el refetch de más abajo, programado pase
       // lo que pase, deja la fila con los datos reales que tenga el backend.
     }
-    setTimeout(async () => {
+    temporizadorResync = setTimeout(async () => {
+      temporizadorResync = undefined
       try {
         fuentes = await fuente.fuentes()
       } catch {
@@ -143,23 +161,38 @@
   }
 
   async function quitar(id: string) {
+    errorQuitar = ''
     try {
       await fuente.quitarFuente(id)
+    } catch {
+      errorQuitar = t('fuentes.quitar.error')
+      return
     } finally {
       confirmandoId = null
     }
     // Refetch real (no un filter local): la fuente de verdad tras un quitar
     // es el backend, y App necesita la lista fresca para su propia copia de
     // `fuentes` (gobierna sinFuentes) y para refrescar el catálogo.
-    const fuentesFrescas = await fuente.fuentes()
-    fuentes = fuentesFrescas
-    alFuentesCambiaron(fuentesFrescas)
+    try {
+      const fuentesFrescas = await fuente.fuentes()
+      fuentes = fuentesFrescas
+      alFuentesCambiaron(fuentesFrescas)
+    } catch {
+      errorQuitar = t('fuentes.error')
+    }
   }
 </script>
 
 <section class="fuentes" aria-labelledby="fuentes-titulo">
   <button type="button" class="volver" onclick={alVolver}>{t('fuentes.volver')}</button>
   <h2 id="fuentes-titulo" bind:this={tituloEl} tabindex="-1">{t('fuentes.titulo')}</h2>
+
+  <!-- F6 (fix final-review): único rastro visible de un "Quitar" fallido —
+       fuera del {#if estado.tipo} de abajo a propósito, para que se vea sin
+       importar en qué rama de esa lista esté la fila afectada. -->
+  {#if errorQuitar}
+    <p class="mensaje error">{errorQuitar}</p>
+  {/if}
 
   {#if estado.tipo === 'cargando'}
     <p class="mensaje">{t('fuentes.cargando')}</p>

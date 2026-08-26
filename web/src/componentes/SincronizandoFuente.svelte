@@ -9,7 +9,19 @@
   // variantes en un solo componente, sin togglear el nodo raíz entero (mismo
   // principio que Sincronizando/MensajeError): `agotado` cambia el texto y
   // añade "Reintentar" sin desmontar/remontar nada.
-  let { agotado, alReintentar }: { agotado: boolean; alReintentar: () => void } = $props()
+  //
+  // Fix final-review (F2): "Gestionar fuentes" es la SEGUNDA acción del
+  // estado agotado — sin ella, "Reintentar" era la única salida y una fuente
+  // realmente rota (typo en la URL, lista vacía) dejaba a quien la añadió
+  // repitiendo el mismo timeout de ~90s para siempre, sin forma de llegar a
+  // la vista de gestión a borrarla. alGestionarFuentes (ver App.svelte,
+  // irAGestionarFuentes) limpia sondeoAgotado Y abre #fuentes en el mismo
+  // gesto.
+  let { agotado, alReintentar, alGestionarFuentes }: {
+    agotado: boolean
+    alReintentar: () => void
+    alGestionarFuentes: () => void
+  } = $props()
 </script>
 
 <!-- Sin aria-live propio: la transición la anuncia la región polite
@@ -19,9 +31,14 @@
   {#if agotado}
     <h2>{t('onboarding.sondeo.titulo')}</h2>
     <p>{t('onboarding.sondeo.agotado')}</p>
-    <button type="button" class="reintentar" onclick={alReintentar}>
-      {t('onboarding.sondeo.reintentar')}
-    </button>
+    <div class="acciones-agotado">
+      <button type="button" class="reintentar" onclick={alReintentar}>
+        {t('onboarding.sondeo.reintentar')}
+      </button>
+      <button type="button" class="gestionar" onclick={alGestionarFuentes}>
+        {t('onboarding.sondeo.gestionar')}
+      </button>
+    </div>
   {:else}
     <h2>{t('onboarding.sondeo.titulo')}</h2>
     <p>{t('onboarding.sondeo.detalle')}</p>
@@ -76,7 +93,15 @@
     }
   }
 
-  /* Ámbar = única CTA de este estado (constraint global). */
+  /* Fix final-review (F2): dos acciones en fila — "Reintentar" sigue siendo
+     la única CTA ámbar (constraint global); "Gestionar fuentes" es
+     secundaria, mismo estilo neutro que .fuentes-link/.idioma en App.svelte. */
+  .acciones-agotado {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-2, 8px);
+  }
   .reintentar {
     margin-top: var(--space-2, 0.5rem);
     background: var(--tint-amber-weak);
@@ -84,6 +109,16 @@
     border-radius: var(--radius-md, 8px);
     padding: 6px 16px;
     color: var(--amber-500);
+    cursor: pointer;
+    font: inherit;
+  }
+  .gestionar {
+    margin-top: var(--space-2, 0.5rem);
+    background: none;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md, 8px);
+    padding: 6px 16px;
+    color: var(--text-body);
     cursor: pointer;
     font: inherit;
   }

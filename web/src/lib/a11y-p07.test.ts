@@ -90,12 +90,23 @@ describe('a11y P0.7 — Onboarding: campos y sugeridas con nombre accesible', ()
 
 describe('a11y P0.7 — el timeout de sondeo y su «Reintentar» son alcanzables', () => {
   it('«Reintentar» es un <button> nativo, sin tabindex negativo ni disabled — en el orden de tabulación', () => {
-    render(SincronizandoFuente, { agotado: true, alReintentar: vi.fn() })
+    render(SincronizandoFuente, { agotado: true, alReintentar: vi.fn(), alGestionarFuentes: vi.fn() })
 
     const boton = screen.getByRole('button', { name: t('onboarding.sondeo.reintentar') }) as HTMLButtonElement
     expect(boton.tagName).toBe('BUTTON')
     expect(boton.disabled).toBe(false)
     expect(boton.getAttribute('tabindex')).toBeNull() // null = tab-stop natural (0 implícito)
+  })
+
+  // F2 (fix final-review): «Gestionar fuentes» es la salida real del estado
+  // agotado — mismo estándar de alcanzabilidad que «Reintentar».
+  it('«Gestionar fuentes» es un <button> nativo, sin tabindex negativo ni disabled — en el orden de tabulación', () => {
+    render(SincronizandoFuente, { agotado: true, alReintentar: vi.fn(), alGestionarFuentes: vi.fn() })
+
+    const boton = screen.getByRole('button', { name: t('onboarding.sondeo.gestionar') }) as HTMLButtonElement
+    expect(boton.tagName).toBe('BUTTON')
+    expect(boton.disabled).toBe(false)
+    expect(boton.getAttribute('tabindex')).toBeNull()
   })
 })
 

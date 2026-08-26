@@ -182,6 +182,16 @@
     padding: 8px 12px;
     text-align: left;
   }
+  /* F6 (fix final-review): .url:focus quita el outline nativo del input,
+     pero sin esto el campo se quedaba SIN ningún foco visible — y es el
+     primer control con el que se topa quien llega sin fuentes (foco
+     automático, ver enfocarAlMontar/Onboarding.svelte:35). Mismo patrón que
+     .buscar-grupo:focus en BarraLateralFacetas: ámbar en el borde del
+     contenedor, no en el input suelto. */
+  .campo-url:focus-within {
+    outline: none;
+    border-color: var(--tint-amber-line, var(--border-default));
+  }
   .motivo {
     color: var(--amber-500);
     font: var(--type-mono, inherit);
