@@ -94,6 +94,12 @@ export const es = {
   'indicador.sincronizando': 'Sincronizando…',
   'indicador.sinGateway': 'Sin conexión con Open TV',
 
+  // Tarea 10 (P0.6): héroe compacto "Continuar viendo", encima de
+  // BarraAcciones, alimentado por el store `historial` (Tarea 9).
+  'historial.titulo': 'Continuar viendo',
+  'historial.seguir': 'Seguir viendo',
+  'historial.borrar': 'Borrar historial',
+
   'pie.fuente': 'La fuente es la lista pública de televisión abierta de iptv-org. Korven no retransmite nada.',
   'pie.postura': 'Sin canales premium, sin VPN, sin elusión de geobloqueo.',
   'pie.codigo': 'Ver el código',

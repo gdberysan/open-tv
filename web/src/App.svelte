@@ -8,6 +8,7 @@
   import { favoritos } from './estado/favoritos'
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
   import { reportarDesenlace } from './estado/estadisticas'
+  import { historial, type EntradaHistorial } from './estado/historial'
   import BarraLateralFacetas from './componentes/BarraLateralFacetas.svelte'
   import RejillaCanales from './componentes/RejillaCanales.svelte'
   import Reproductor from './componentes/Reproductor.svelte'
@@ -16,6 +17,7 @@
   import PanelStats from './componentes/PanelStats.svelte'
   import IndicadorSenal from './componentes/IndicadorSenal.svelte'
   import BarraAcciones from './componentes/BarraAcciones.svelte'
+  import ContinuarViendo from './componentes/ContinuarViendo.svelte'
 
   // La página son 500 canales, el máximo que acepta el gateway (Tarea 11).
   const PAGINA = 500
@@ -145,10 +147,41 @@
 
   function abrirCanal(canal: Canal) {
     canalAbierto = canal
+    // Tarea 10 (P0.6): se registra al ABRIR, no al confirmar reproducción.
+    // "Continuar viendo" tiene que recordar qué se intentó ver aunque el
+    // mirror fallara y el Reproductor nunca llegara a alConfirmar() — lo
+    // contrario (registrar solo un desenlace 'iniciado') dejaría fuera
+    // justo los canales problemáticos que más interesa poder reabrir rápido.
+    historial.registrar(canal)
   }
 
   function cerrarReproductor() {
     canalAbierto = null
+  }
+
+  // Puente entre EntradaHistorial (solo id/nombre/logo/cuando — lo mínimo
+  // que persiste en localStorage) y el Canal completo que pide abrirCanal.
+  // Si el canal sigue en la página ya cargada se reutiliza tal cual (mismos
+  // datos de salud que vería una tarjeta de la rejilla); si no —history de
+  // otra sesión, canal fuera de la página actual, filtro distinto— se
+  // reconstruye un Canal mínimo con lo que el historial sí guarda: basta
+  // para que el Reproductor abra por id (pide sus propios mirrors/destino)
+  // y muestre nombre/logo, aunque sin badges de salud hasta que reproduzca.
+  function abrirDesdeHistorial(entrada: EntradaHistorial) {
+    const enCatalogo = canales.find((c) => c.id === entrada.canalId)
+    abrirCanal(
+      enCatalogo ?? {
+        id: entrada.canalId,
+        nombre: entrada.nombre,
+        logoUrl: entrada.logoUrl ?? '',
+        categoriaId: '',
+        idioma: '',
+        pais: '',
+        vivo: null,
+        latenciaMs: 0,
+        webOk: null,
+      },
+    )
   }
 
   // ←/→ del reproductor se mueven dentro de la lista ya cargada en pantalla,
@@ -353,6 +386,11 @@
         {:else if fase.tipo === 'error'}
           <MensajeError clase={fase.clase} />
         {:else if fase.tipo === 'listo'}
+          <!-- Tarea 10 (P0.6): héroe "Continuar viendo", ENCIMA de
+               BarraAcciones — se renderiza compacto o nada, según el
+               historial (ver ContinuarViendo.svelte). -->
+          <ContinuarViendo alAbrir={abrirDesdeHistorial} />
+
           <!-- Tarea 7 (P0.6): buscador/facetas/señal viven en el aside
                (BarraLateralFacetas, Tarea 6); "Solo favoritos", "Canal al
                azar", el conmutador de vista, los chips de filtro removibles

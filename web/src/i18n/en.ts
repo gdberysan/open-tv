@@ -69,6 +69,10 @@ export const en: Record<ClaveMensaje, string> = {
   'indicador.sincronizando': 'Syncing…',
   'indicador.sinGateway': 'No connection to Open TV',
 
+  'historial.titulo': 'Continue watching',
+  'historial.seguir': 'Keep watching',
+  'historial.borrar': 'Clear history',
+
   'pie.fuente': 'The source is the public free-to-air list from iptv-org. Korven broadcasts nothing.',
   'pie.postura': 'No premium channels, no VPN, no geo-block circumvention.',
   'pie.codigo': 'View the code',
