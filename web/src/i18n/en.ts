@@ -19,6 +19,8 @@ export const en: Record<ClaveMensaje, string> = {
   'filtro.todos': 'All',
   'filtro.limpiar': 'Clear filters',
   'filtro.mostrarOffline': 'Show the ones not responding',
+  'filtro.verPaises': 'See all {n} countries',
+  'filtro.verMenosPaises': 'Show fewer countries',
   'shell.facetas': 'Facets',
 
   'accion.aleatorio': 'Random channel',
@@ -36,6 +38,9 @@ export const en: Record<ClaveMensaje, string> = {
   'senal.viva': 'Live signal',
   'senal.muerta': 'Not responding',
   'senal.sinDatos': 'Not checked yet',
+
+  'senal.titulo': 'Signal',
+  'senal.soloViva': 'Live signal only',
 
   'reproductor.cargando': 'Connecting to the channel…',
   'reproductor.cerrar': 'Close',

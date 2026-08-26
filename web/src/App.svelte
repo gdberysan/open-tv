@@ -8,7 +8,7 @@
   import { favoritos } from './estado/favoritos'
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
   import { reportarDesenlace } from './estado/estadisticas'
-  import BarraFiltros from './componentes/BarraFiltros.svelte'
+  import BarraLateralFacetas from './componentes/BarraLateralFacetas.svelte'
   import RejillaCanales from './componentes/RejillaCanales.svelte'
   import Reproductor from './componentes/Reproductor.svelte'
   import Sincronizando from './componentes/Sincronizando.svelte'
@@ -41,6 +41,7 @@
   let desplazamiento = $state(0)
   let paises = $state<Faceta[]>([])
   let categorias = $state<Faceta[]>([])
+  let calidades = $state<Faceta[]>([])
   let frescura = $state<InfoFrescura | null>(null)
 
   // Descarta respuestas de peticiones que ya no son la última: cambiar de
@@ -219,9 +220,15 @@
     comprobarSalud()
     ;(async () => {
       try {
-        const [p, c, f] = await Promise.all([fuente.paises(), fuente.categorias(), fuente.frescura()])
+        const [p, c, q, f] = await Promise.all([
+          fuente.paises(),
+          fuente.categorias(),
+          fuente.calidades(),
+          fuente.frescura(),
+        ])
         paises = p
         categorias = c
+        calidades = q
         frescura = f
       } catch {
         // Sin facetas los selectores se quedan solo con "Todos"; no es motivo
@@ -333,11 +340,9 @@
       </button>
 
       <aside class="facetas" id="panel-facetas" data-abierto={lateralAbierto}>
-        <!-- Contenido real de las facetas: Tarea 6 (BarraLateralFacetas). Por
-             ahora solo un encabezado accesible que nombra la región; los
-             desplegables actuales (país/categoría/calidad) se quedan de
-             momento en <main>, sin migrar su lógica todavía. -->
+        <!-- Tarea 6 (P0.6): contenido real de las facetas. -->
         <h2 class="sr-only">{t('shell.facetas')}</h2>
+        <BarraLateralFacetas {paises} {categorias} {calidades} />
       </aside>
 
       <main inert={!!canalAbierto}>
@@ -348,7 +353,34 @@
         {:else if fase.tipo === 'error'}
           <MensajeError clase={fase.clase} />
         {:else if fase.tipo === 'listo'}
-          <BarraFiltros {paises} {categorias} {alAleatorio} />
+          <!-- Tarea 6 (P0.6): buscador/facetas/señal ya viven en el aside
+               (BarraLateralFacetas). "Solo favoritos", "Canal al azar" y el
+               conmutador de vista aún no tienen hogar propio — la Tarea 7
+               (BarraAcciones) se los lleva; hasta entonces se quedan aquí,
+               funcionando. -->
+          <div class="acciones-temporales">
+            <button
+              type="button"
+              class:activo={$filtros.soloFavoritos}
+              aria-pressed={$filtros.soloFavoritos}
+              onclick={() => ($filtros.soloFavoritos = !$filtros.soloFavoritos)}
+            >{t('accion.favoritos')}</button>
+            <button type="button" onclick={alAleatorio}>{t('accion.aleatorio')}</button>
+            <div class="vista">
+              <button
+                type="button"
+                class:activo={$filtros.vista === 'rejilla'}
+                aria-pressed={$filtros.vista === 'rejilla'}
+                onclick={() => ($filtros.vista = 'rejilla')}
+              >{t('accion.rejilla')}</button>
+              <button
+                type="button"
+                class:activo={$filtros.vista === 'lista'}
+                aria-pressed={$filtros.vista === 'lista'}
+                onclick={() => ($filtros.vista = 'lista')}
+              >{t('accion.lista')}</button>
+            </div>
+          </div>
 
           {#if errorCatalogo}
             <MensajeError clase={errorCatalogo} />
@@ -453,6 +485,24 @@
   }
   .resumen { display: flex; align-items: baseline; gap: 12px; margin: 4px 0 12px; }
   .total { color: var(--text-muted); font-size: 13px; margin: 0; }
+
+  /* Tarea 6 (P0.6): hogar temporal de "Canal al azar" y el conmutador de
+     vista, hasta que la Tarea 7 (BarraAcciones) se los lleve. */
+  .acciones-temporales {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 0;
+  }
+  .acciones-temporales button {
+    background: var(--surface-raised); color: var(--text-body); border: 1px solid var(--border-default);
+    border-radius: 6px; padding: 6px 10px; cursor: pointer;
+  }
+  /* Ámbar = filtro/vista activo. */
+  .acciones-temporales button.activo { border-color: var(--amber-500); color: var(--amber-500); }
+  .acciones-temporales .vista { display: flex; gap: 4px; }
 
   .pie {
     max-width: 72rem;

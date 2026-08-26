@@ -23,6 +23,11 @@ export const es = {
   // de macOS (mobile/lib/presentation/widgets/console_bar.dart).
   'filtro.mostrarOffline': 'Mostrar los que no responden',
 
+  // Tarea 6 (P0.6): «Ver los N países» expande la lista de país, colapsada
+  // por defecto porque puede tener decenas de entradas.
+  'filtro.verPaises': 'Ver los {n} países',
+  'filtro.verMenosPaises': 'Ver menos países',
+
   // Shell de dos columnas (Tarea 4): el botón de cajón alterna la barra
   // lateral de facetas en pantallas estrechas; el mismo texto etiqueta el
   // encabezado (accesible, oculto visualmente) del propio aside mientras su
@@ -46,6 +51,11 @@ export const es = {
   'senal.viva': 'Señal viva',
   'senal.muerta': 'No responde',
   'senal.sinDatos': 'Sin comprobar',
+
+  // Tarea 6 (P0.6): bloque «Señal» de la barra lateral de facetas — encabezado
+  // del grupo y la fila que resume el estado por defecto (solo canales vivos).
+  'senal.titulo': 'Señal',
+  'senal.soloViva': 'Solo señal viva',
 
   'reproductor.cargando': 'Conectando con el canal…',
   'reproductor.cerrar': 'Cerrar',
