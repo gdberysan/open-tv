@@ -43,6 +43,7 @@ export const en: Record<ClaveMensaje, string> = {
 
   'epg.ahora': 'Now',
   'epg.siguiente': 'Next',
+  'epg.sinGuia': 'No guide for this source',
 
   'senal.viva': 'Live signal',
   'senal.muerta': 'Not responding',

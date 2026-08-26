@@ -9,6 +9,7 @@
   import { t } from '../i18n'
   import type { ClaveMensaje } from '../i18n/es'
   import { parsearResolucion } from '../lib/resolucion'
+  import { formatearHoraLocal } from '../lib/hora'
   import { favoritos } from '../estado/favoritos'
 
   // alAnterior/alSiguiente son opcionales: App los da cuando hay una lista de
@@ -58,6 +59,56 @@
       .filter((parte): parte is string => Boolean(parte))
       .join(' · '),
   )
+
+  // EPG ahora/después del overlay (Tarea 9, P2): null = todavía sin
+  // resolver (estado neutro, no se pinta nada roto mientras llega) O un
+  // fallo de epgDeCanal (try/catch más abajo) — un fallo de red no es lo
+  // mismo que una fuente que YA confirmó que no tiene guía para este canal,
+  // así que no cae en el mensaje explícito de "sin guía". A diferencia de
+  // TarjetaCanal (Tarea 8, que queda limpia sin guía), aquí SÍ hay un texto
+  // explícito («sin guía para esta fuente», epg.sinGuia) para "ahora=null y
+  // sin próximos": el usuario ya tiene un canal abierto y merece saber que
+  // de verdad no hay guía, no solo que aún no llegó.
+  let epgLinea = $state<string | null>(null)
+  // Mismo patrón que intentoId más arriba: si el usuario abre OTRO canal
+  // mientras esta petición sigue en el aire, la respuesta tardía se descarta
+  // en vez de pintar la guía del canal anterior sobre el nuevo.
+  let epgPeticionId = 0
+
+  async function cargarEpg(idCanal: string) {
+    const miId = ++epgPeticionId
+    epgLinea = null
+    try {
+      const r = await fuente.epgDeCanal(idCanal)
+      if (destruido || miId !== epgPeticionId) return
+      if (r.ahora) {
+        const rango = `${formatearHoraLocal(r.ahora.inicioSeg)}–${formatearHoraLocal(r.ahora.finSeg)}`
+        let texto = `${t('epg.ahora')}: ${r.ahora.titulo} (${rango})`
+        if (r.proximos[0]) texto += ` · ${t('epg.siguiente')}: ${r.proximos[0].titulo}`
+        epgLinea = texto
+      } else if (r.proximos[0]) {
+        // Sin "ahora" pero con algo próximo: no es "sin guía" (el catálogo
+        // sí tiene datos para este canal), pero tampoco hay nada "ahora"
+        // que anunciar.
+        epgLinea = `${t('epg.siguiente')}: ${r.proximos[0].titulo}`
+      } else {
+        epgLinea = t('epg.sinGuia')
+      }
+    } catch {
+      // Un fallo al pedir la guía nunca rompe el reproductor: se queda en
+      // el estado neutro (sin texto), igual que mientras la petición está
+      // en curso.
+      if (destruido || miId !== epgPeticionId) return
+      epgLinea = null
+    }
+  }
+
+  // Se re-suscribe solo cuando canal.id cambia de verdad (abrir OTRO canal):
+  // el CTA de "probar el siguiente mirror" y el failover automático reusan
+  // el MISMO canal.id, así que no disparan una nueva petición de guía.
+  $effect(() => {
+    void cargarEpg(canal.id)
+  })
 
   // Auto-ocultar del overlay: visible por defecto (también durante
   // cargando/error, que tienen su propio estado centrado y no chocan con la
@@ -688,16 +739,28 @@
          mismo focus-trap del diálogo). -->
     <div class="overlay" class:oculto={ocultarOverlay} bind:this={overlayEl} onfocusin={alRecibirFocoOverlay}>
       <div class="overlay-arriba">
-        <span class="insignia-vivo">
-          <!-- Punto ROJO (--signal-error), no ámbar: excepción deliberada a
-               la regla "ámbar = activo/foco/señal" — aquí el rojo del
-               mockup 1b marca "en directo" (como en un plató de TV), no un
-               error de reproducción. -->
-          <i class="punto-vivo" aria-hidden="true"></i>
-          {t('reproductor.envivo')}
-        </span>
-        {#if metaLinea}
-          <span class="overlay-meta">{metaLinea}</span>
+        <div class="overlay-arriba-fila">
+          <span class="insignia-vivo">
+            <!-- Punto ROJO (--signal-error), no ámbar: excepción deliberada a
+                 la regla "ámbar = activo/foco/señal" — aquí el rojo del
+                 mockup 1b marca "en directo" (como en un plató de TV), no un
+                 error de reproducción. -->
+            <i class="punto-vivo" aria-hidden="true"></i>
+            {t('reproductor.envivo')}
+          </span>
+          {#if metaLinea}
+            <span class="overlay-meta">{metaLinea}</span>
+          {/if}
+        </div>
+        <!-- Guía ahora/después (Tarea 9, P2 EPG): línea propia DEBAJO de la
+             fila insignia+meta, dentro del mismo overlay-arriba — así no
+             toca el justify-content:space-between de .overlay (que solo
+             espera dos hijos, arriba/abajo) ni empuja overlay-abajo. Texto
+             plano; SIN aria-live nuevo (las regiones live existentes son
+             para cargando/error, no para esto); sin animación, así que no
+             hay nada que prefers-reduced-motion deba anular aquí. -->
+        {#if epgLinea}
+          <p class="overlay-epg">{epgLinea}</p>
         {/if}
       </div>
       <div class="overlay-abajo">
@@ -833,7 +896,11 @@
     .overlay { transition: none; }
     .reproductor { animation: none; }
   }
-  .overlay-arriba { display: flex; align-items: center; gap: var(--space-3); }
+  /* Columna: la fila insignia+meta (.overlay-arriba-fila) y, debajo, la
+     línea de guía EPG (Tarea 9, P2) cuando la hay. align-items:flex-start
+     para que ninguna de las dos se estire a lo ancho del overlay. */
+  .overlay-arriba { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); }
+  .overlay-arriba-fila { display: flex; align-items: center; gap: var(--space-3); }
   .insignia-vivo {
     display: inline-flex;
     align-items: center;
@@ -845,6 +912,19 @@
      marca "en directo" (mockup 1b), no una señal de error/salud. */
   .punto-vivo { width: 8px; height: 8px; border-radius: 50%; background: var(--signal-error); flex-shrink: 0; }
   .overlay-meta {
+    font: var(--type-mono-label);
+    letter-spacing: var(--tracking-mono);
+    color: var(--text-muted);
+  }
+  /* Guía ahora/después (Tarea 9, P2 EPG): mismo tratamiento tipográfico que
+     .overlay-meta (línea secundaria del overlay), truncada en vez de
+     desbordar u obligar al overlay a crecer con un título largo. */
+  .overlay-epg {
+    margin: 0;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     font: var(--type-mono-label);
     letter-spacing: var(--tracking-mono);
     color: var(--text-muted);

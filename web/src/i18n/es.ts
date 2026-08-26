@@ -71,6 +71,12 @@ export const es = {
   'epg.ahora': 'Ahora',
   'epg.siguiente': 'Sig',
 
+  // Tarea 9 (P2, EPG): overlay del reproductor — a diferencia de la
+  // insignia de TarjetaCanal (que queda limpia sin guía), aquí "sin guía"
+  // es EXPLÍCITO: estar viendo un canal sin saber si hay guía o no es
+  // distinto de hojear el catálogo.
+  'epg.sinGuia': 'Sin guía para esta fuente',
+
   // Usadas por SenalCanal.svelte (Tarea 8, P0.6, extraído en el fix 1):
   // mismo componente en la insignia de la rejilla y en la fila de lista, así
   // que mismo estado, mismo texto en ambas vistas. 'senal.muerta' pasa de

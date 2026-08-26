@@ -6,8 +6,9 @@ import Reproductor from './Reproductor.svelte'
 import { t } from '../i18n'
 import { urlProxy } from '../reproductor/plan'
 import type { DesenlaceReproduccion } from '../reproductor/failover'
-import type { Canal, Mirror } from '../datos/catalogo'
+import type { Canal, Mirror, Programa } from '../datos/catalogo'
 import { favoritos } from '../estado/favoritos'
+import { formatearHoraLocal } from '../lib/hora'
 
 // jsdom no decodifica HLS de verdad: canPlayType() no está implementado (así
 // que motorDelNavegador siempre elige 'hlsjs' aquí) y no hay MediaSource, así
@@ -606,5 +607,79 @@ describe('Reproductor — pantalla completa y Picture-in-Picture', () => {
       // @ts-expect-error limpieza de la propiedad redefinida
       delete document.pictureInPictureEnabled
     }
+  })
+})
+
+// Tarea 9 (P2, EPG): now/next en el overlay del reproductor. A diferencia de
+// TarjetaCanal (Tarea 8), aquí "sin guía" es EXPLÍCITO — el overlay muestra
+// el texto de i18n en vez de quedarse limpio, porque estar viendo un canal
+// sin saber si hay guía o no es una situación distinta a hojear el catálogo.
+describe('Reproductor — EPG ahora/después en el overlay', () => {
+  beforeEach(() => {
+    favoritos.set(new Set())
+  })
+
+  function fuenteConEpg(epgDeCanal: (id: string) => Promise<{ ahora: Programa | null; proximos: Programa[] }>) {
+    return {
+      mirrors: vi.fn(async () => [] as Mirror[]),
+      destino: vi.fn(async () => ({ url: 'https://unico/x.m3u8', airplayOk: null })),
+      proxyDisponible: vi.fn(async () => false),
+      epgDeCanal: vi.fn(epgDeCanal),
+    }
+  }
+
+  it('con guía (ahora + próximo), el overlay muestra "Ahora: <título> (HH:MM–HH:MM)" y "Sig: <título>"', async () => {
+    const ahora: Programa = { titulo: 'Telediario', inicioSeg: 1_700_000_000, finSeg: 1_700_003_000 }
+    const siguiente: Programa = { titulo: 'El Tiempo', inicioSeg: 1_700_003_000, finSeg: 1_700_007_000 }
+    const fuente = fuenteConEpg(async () => ({ ahora, proximos: [siguiente] }))
+
+    const { container } = render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+
+    await vi.waitFor(() => expect(fuente.epgDeCanal).toHaveBeenCalledWith('c1'))
+
+    const horaAhora = `${formatearHoraLocal(ahora.inicioSeg)}–${formatearHoraLocal(ahora.finSeg)}`
+    await vi.waitFor(() => expect(container.textContent).toContain(`${t('epg.ahora')}: Telediario (${horaAhora})`))
+    expect(container.textContent).toContain(`${t('epg.siguiente')}: El Tiempo`)
+    expect(container.textContent).not.toContain(t('epg.sinGuia'))
+  })
+
+  it('sin guía (ahora=null y sin próximos), el overlay muestra el mensaje explícito «sin guía para esta fuente»', async () => {
+    const fuente = fuenteConEpg(async () => ({ ahora: null, proximos: [] }))
+
+    const { container } = render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+
+    await vi.waitFor(() => expect(container.textContent).toContain(t('epg.sinGuia')))
+  })
+
+  it('un fallo de epgDeCanal no rompe el reproductor: sigue montado, sin el mensaje de "sin guía" (eso es para una respuesta confirmada, no un fallo de red)', async () => {
+    const fuente = fuenteConEpg(async () => {
+      throw new Error('epg inalcanzable')
+    })
+
+    const { container } = render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+
+    await vi.waitFor(() => expect(fuente.epgDeCanal).toHaveBeenCalled())
+    // Deja pasar el rechazo de la promesa antes de comprobar que no rompió nada.
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(container.querySelector('[role="dialog"]')).toBeTruthy()
+    expect(container.textContent).not.toContain(t('epg.sinGuia'))
+  })
+
+  it('al abrir otro canal (no un mirror del mismo), se vuelve a pedir la guía y no se pinta la del canal anterior', async () => {
+    const epgPorCanal: Record<string, { ahora: Programa | null; proximos: Programa[] }> = {
+      c1: { ahora: { titulo: 'Programa Uno', inicioSeg: 1_700_000_000, finSeg: 1_700_003_000 }, proximos: [] },
+      c2: { ahora: { titulo: 'Programa Dos', inicioSeg: 1_700_000_000, finSeg: 1_700_003_000 }, proximos: [] },
+    }
+    const fuente = fuenteConEpg(async (id) => epgPorCanal[id])
+
+    const { container, rerender } = render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+    await vi.waitFor(() => expect(container.textContent).toContain('Programa Uno'))
+
+    const canal2 = { ...canal, id: 'c2', nombre: 'Y' } as Canal
+    rerender({ canal: canal2, fuente: fuente as any, alCerrar: () => {} })
+
+    await vi.waitFor(() => expect(container.textContent).toContain('Programa Dos'))
+    expect(container.textContent).not.toContain('Programa Uno')
   })
 })
