@@ -46,6 +46,9 @@ mobile/macos/Flutter/ephemeral/
 # Artefactos locales que no viajan al repo público (P1)
 docs/prompts/
 .claude/
+# Proyecto de diseño de la interfaz: material de trabajo (mockups, modelo
+# 3D del emblema) que vive junto al repo pero NO es fuente del binario.
+open-tv-interface-design/
 
 # Salida de goreleaser (root-anchored: NO afecta a internal/ui/dist, el embed)
 /dist/
