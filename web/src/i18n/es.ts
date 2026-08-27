@@ -98,6 +98,9 @@ export const es = {
   'reproductor.cargando': 'Conectando con el canal…',
   'reproductor.cerrar': 'Cerrar',
   'reproductor.silenciar': 'Silenciar',
+  // Reproductor-primero (spec §5): CTA sobre el vídeo cuando la entrada
+  // auto-reproduce en silencio (los navegadores bloquean autoplay con sonido).
+  'reproductor.activarSonido': 'Toca para activar el sonido',
   // Tarea 2 (P0.8): el botón de pantalla completa ahora refleja el estado
   // real (fullscreenchange sobre el CONTENEDOR, no el <video>) — entrar/salir
   // sustituye al rótulo fijo de antes, igual que el patrón silenciar/

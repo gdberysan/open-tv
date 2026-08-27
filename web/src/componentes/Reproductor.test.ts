@@ -706,3 +706,114 @@ describe('Reproductor — EPG ahora/después en el overlay', () => {
     }
   })
 })
+
+// Reproductor-primero (spec §4): modo panel — el mismo motor, sin envoltorio
+// modal. El modo 'modal' por defecto conserva el comportamiento de siempre
+// (todos los describes de arriba); este describe ejercita SOLO lo que cambia
+// con modo='panel'.
+describe('Reproductor — modo panel (reproductor-primero)', () => {
+  beforeEach(() => {
+    favoritos.set(new Set())
+  })
+
+  function fuenteSinMirrors() {
+    return {
+      mirrors: vi.fn(async () => [] as Mirror[]),
+      destino: vi.fn(async () => ({ url: 'https://unico/x.m3u8', airplayOk: null })),
+      proxyDisponible: vi.fn(async () => false),
+    }
+  }
+
+  it('en modo panel no hay role=dialog ni aria-modal: es una region etiquetada con el canal', () => {
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, modo: 'panel' })
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    expect(container.querySelector('[aria-modal]')).toBeNull()
+    expect(screen.getByRole('region', { name: canal.nombre })).toBeTruthy()
+  })
+
+  it('en modo panel, Escape SIN pantalla completa no llama a alCerrar (ya no hay modal que cerrar)', async () => {
+    const alCerrar = vi.fn()
+    render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, modo: 'panel', alCerrar })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(alCerrar).not.toHaveBeenCalled()
+  })
+
+  it('con activo=false el teclado global del reproductor queda inerte (espacio no reproduce/pausa)', async () => {
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, modo: 'panel', activo: false })
+    const video = container.querySelector('video') as HTMLVideoElement
+    const pause = vi.spyOn(video, 'pause').mockImplementation(() => {})
+    const play = vi.spyOn(video, 'play').mockResolvedValue()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }))
+    expect(pause).not.toHaveBeenCalled()
+    expect(play).not.toHaveBeenCalled()
+  })
+
+  it('en modo panel, una tecla con el foco en un control interactivo AJENO se ignora; sin objetivo interactivo, sí actúa', async () => {
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, modo: 'panel' })
+    const video = container.querySelector('video') as HTMLVideoElement
+    const pause = vi.spyOn(video, 'pause').mockImplementation(() => {})
+    const play = vi.spyOn(video, 'play').mockResolvedValue()
+
+    // Espacio con el foco en un <input> ajeno (el buscador de la lateral):
+    // el evento burbujea hasta window con target=input → se ignora.
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    expect(pause).not.toHaveBeenCalled()
+    expect(play).not.toHaveBeenCalled()
+    input.remove()
+
+    // El mismo espacio despachado sin objetivo interactivo sí llega al
+    // reproductor (video.paused=true en jsdom → play).
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }))
+    expect(play).toHaveBeenCalledTimes(1)
+  })
+
+  it('silenciadoInicial arranca muted y muestra la CTA; pulsarla activa el sonido y la retira', async () => {
+    const { container } = render(Reproductor, {
+      canal,
+      fuente: fuenteSinMirrors() as any,
+      modo: 'panel',
+      silenciadoInicial: true,
+    })
+    const video = container.querySelector('video') as HTMLVideoElement
+    expect(video.muted).toBe(true)
+    const cta = screen.getByRole('button', { name: t('reproductor.activarSonido') })
+    cta.click()
+    await tick()
+    expect(video.muted).toBe(false)
+    expect(screen.queryByRole('button', { name: t('reproductor.activarSonido') })).toBeNull()
+  })
+
+  it('cambiar de canal con la CTA visible activa el sonido solo (elegir canal ES el primer gesto)', async () => {
+    const fuente = fuenteSinMirrors() as any
+    const { container, rerender } = render(Reproductor, {
+      canal,
+      fuente,
+      modo: 'panel',
+      silenciadoInicial: true,
+    })
+    const video = container.querySelector('video') as HTMLVideoElement
+    expect(video.muted).toBe(true)
+
+    await rerender({ canal: { ...canal, id: 'c2', nombre: 'Otro' } as Canal, fuente, modo: 'panel', silenciadoInicial: true })
+    await tick()
+
+    expect(video.muted).toBe(false)
+    expect(screen.queryByRole('button', { name: t('reproductor.activarSonido') })).toBeNull()
+  })
+
+  it('en modo panel el botón AirPlay vive en el overlay y no hay barra inferior con Cerrar', () => {
+    ;(window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent'] = class {}
+    try {
+      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, modo: 'panel' })
+      expect(screen.queryByRole('button', { name: t('reproductor.cerrar') })).toBeNull()
+      const airplay = screen.getByRole('button', { name: 'AirPlay' })
+      expect(airplay.closest('.overlay-controles')).toBeTruthy()
+      expect(container.querySelector('.controles')).toBeNull()
+    } finally {
+      delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
+    }
+  })
+})

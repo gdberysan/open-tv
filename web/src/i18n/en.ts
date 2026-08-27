@@ -58,6 +58,7 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.cargando': 'Connecting to the channel…',
   'reproductor.cerrar': 'Close',
   'reproductor.silenciar': 'Mute',
+  'reproductor.activarSonido': 'Tap to turn on sound',
   'reproductor.pantallaCompleta.entrar': 'Enter full screen',
   'reproductor.pantallaCompleta.salir': 'Exit full screen',
   'reproductor.pip.activar': 'Activate Picture-in-Picture',
