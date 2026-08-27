@@ -1,12 +1,32 @@
-# Korven Open TV
+<!-- markdownlint-disable MD033 MD041 -->
+<div align="center">
 
-Reproductor de televisión abierta (FTA) para tus propias listas M3U. Un solo
-binario en Go sirve la API y un cliente web embebido (Svelte); no trae
-canales de fábrica — tú añades tus fuentes.
+```
+   ▄▄▄▄    ▄▄▄▄   ▄▄▄▄▄   ▄▄   ▄▄        ▄▄▄▄▄▄  ▄▄   ▄▄
+  ██  ██  ██  ██  ██  ██  ███ ███         ██    ██   ██
+  ██  ██  ██████  █████   ██ █ ██         ██    ██   ██
+  ██  ██  ██  ██  ██      ██   ██         ██    ██   ██
+   ▀▀▀▀   ▀▀  ▀▀  ▀▀      ▀▀   ▀▀         ▀▀     ▀▀▀▀▀
+             K  O  R  V  E  N   ·   O P E N   T V
+```
 
-Una obra de [Korven](https://korven.dev) — *del núcleo a la obra*.
+### La televisión abierta, sin cuentas ni nube — corriendo en tu máquina
 
-**Español** · [English](#english)
+Un solo binario Go sirve la API **y** un cliente web embebido (Svelte). No trae
+canales de fábrica: **tú** añades tus fuentes M3U. Sin cuentas, sin telemetría,
+sin relay — todo se sirve desde tu propio equipo.
+
+`● señal honesta`  ·  `⌘K búsqueda difusa`  ·  `guía EPG por fuente`  ·  `MIT + marca Korven`  ·  `macOS · Linux · Windows`
+
+Una obra de **[Korven](https://korven.dev)** — *del núcleo a la obra*
+
+**Español**  ·  **[English ↓](#korven-open-tv-english)**
+
+[Qué es](#qué-es) · [Instalar](#instalar) · [Primer arranque](#primer-arranque) · [Privacidad](#privacidad) · [Lo que no hace](#lo-que-no-hace) · [FAQ](#preguntas-frecuentes) · [Para desarrolladores](#para-desarrolladores)
+
+</div>
+
+---
 
 ## Qué es
 
