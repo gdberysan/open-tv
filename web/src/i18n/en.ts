@@ -36,6 +36,9 @@ export const en: Record<ClaveMensaje, string> = {
 
   'rejilla.etiquetaLista': 'Channel list',
 
+  'lateral.lista': 'Channels',
+  'escenario.reproduciendo': 'Playing',
+
   'canal.favorito.anadir': 'Add to favourites',
   'canal.favorito.quitar': 'Remove from favourites',
   'canal.geo': 'May be geo-blocked in your region',

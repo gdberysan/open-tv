@@ -61,6 +61,11 @@ export const es = {
   // rejilla/lista de canales, para quien navega con lector de pantalla.
   'rejilla.etiquetaLista': 'Lista de canales',
 
+  // Reproductor-primero (2026-08-26): escenario con vídeo persistente y
+  // catálogo lateral (ver la spec del mismo nombre).
+  'lateral.lista': 'Canales',
+  'escenario.reproduciendo': 'Reproduciendo',
+
   'canal.favorito.anadir': 'Añadir a favoritos',
   'canal.favorito.quitar': 'Quitar de favoritos',
   'canal.geo': 'Puede estar bloqueado en tu región',
