@@ -20,9 +20,12 @@ test('la tarjeta con guía real enseña ahora/después y la que no la tiene qued
   page,
 }) => {
   await page.goto('/')
+  // La insignia de guía vive en TarjetaCanal (modo «Ver todo» desde
+  // reproductor-primero); :visible esquiva las filas de la lateral hidden.
+  await page.getByRole('button', { name: 'Ver todo' }).click()
 
-  const conGuia = page.locator('article', { hasText: 'Canal Con CORS' })
-  const sinGuia = page.locator('article', { hasText: 'Canal Sin CORS' })
+  const conGuia = page.locator('article:visible', { hasText: 'Canal Con CORS' })
+  const sinGuia = page.locator('article:visible', { hasText: 'Canal Sin CORS' })
   await expect(conGuia).toBeVisible()
   await expect(sinGuia).toBeVisible()
 

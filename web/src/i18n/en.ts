@@ -36,6 +36,13 @@ export const en: Record<ClaveMensaje, string> = {
 
   'rejilla.etiquetaLista': 'Channel list',
 
+  'lateral.lista': 'Channels',
+  'escenario.reproduciendo': 'Playing',
+  'escenario.verTodo': 'See all',
+  'escenario.volver': 'Back to the player',
+  'escenario.eligeCanal': 'Pick a channel to start',
+  'escenario.anuncioReproduciendo': 'Playing {nombre}',
+
   'canal.favorito.anadir': 'Add to favourites',
   'canal.favorito.quitar': 'Remove from favourites',
   'canal.geo': 'May be geo-blocked in your region',
@@ -53,8 +60,8 @@ export const en: Record<ClaveMensaje, string> = {
   'senal.soloViva': 'Live signal only',
 
   'reproductor.cargando': 'Connecting to the channel…',
-  'reproductor.cerrar': 'Close',
   'reproductor.silenciar': 'Mute',
+  'reproductor.activarSonido': 'Tap to turn on sound',
   'reproductor.pantallaCompleta.entrar': 'Enter full screen',
   'reproductor.pantallaCompleta.salir': 'Exit full screen',
   'reproductor.pip.activar': 'Activate Picture-in-Picture',

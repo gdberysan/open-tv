@@ -11,8 +11,11 @@ test.skip(
 )
 
 async function abrir(page: import('@playwright/test').Page, nombre: string) {
+  // Reproductor-primero: el arranque en limpio muestra el escenario (panel de
+  // vídeo + catálogo lateral) — el canal se abre desde la fila de la lateral,
+  // ya no desde una tarjeta de rejilla.
   await page.goto('/')
-  await page.locator('article', { hasText: nombre }).getByRole('button', { name: nombre }).click()
+  await page.locator('.lista-lateral article', { hasText: nombre }).locator('button.abrir').click()
 }
 
 // ClassifyWeb (internal/domain/web.go) exige HTTPS antes de mirar CORS

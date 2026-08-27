@@ -7,6 +7,7 @@ import type { Canal, CatalogSource, ConsultaCatalogo, Fuente, PaginaCanales } fr
 import { filtros } from './estado/filtros'
 import { favoritos } from './estado/favoritos'
 import { preferencias } from './estado/preferencias'
+import { historial } from './estado/historial'
 import { idioma, t } from './i18n'
 
 // comprobarSalud() de App llama a consultarSalud(), que hace un fetch('/health')
@@ -116,9 +117,157 @@ beforeEach(() => {
     vista: 'rejilla',
   })
   favoritos.set(new Set())
+  // historial es un singleton de módulo (como favoritos): localStorage.clear()
+  // no vacía el store ya vivo — sin borrar(), los canales abiertos en un test
+  // reaparecen como miniaturas de «Continuar viendo» en el siguiente y
+  // vuelven ambiguas las consultas por nombre de canal.
+  historial.borrar()
   preferencias.set({ densidad: 'comoda', recordarVista: true, recordarFiltros: false })
   idioma.actual = 'es'
   FalsoIntersectionObserver.instancias.length = 0
+})
+
+// Reproductor-primero: helpers del escenario. El catálogo por defecto ES el
+// escenario (vídeo persistente + lateral); la rejilla rica de P0.6 vive detrás
+// de «Ver todo». esperarCatalogoListo() es el sentinela de "catálogo listo"
+// (antes se usaba el botón «Canal al azar», que ahora solo existe en ver-todo).
+async function esperarCatalogoListo() {
+  await screen.findByRole('button', { name: t('escenario.verTodo') })
+}
+
+async function abrirVerTodo() {
+  await esperarCatalogoListo()
+  await fireEvent.click(screen.getByRole('button', { name: t('escenario.verTodo') }))
+  await tick()
+}
+
+describe('App — escenario reproductor-primero', () => {
+  function fuenteConCanales(n = 3) {
+    const lista = Array.from({ length: n }, (_, i) => canalDePrueba(`c${i}`))
+    return fuenteFalsa({
+      canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales: lista, total: n })),
+    })
+  }
+
+  // Consulta ACOTADA a la lista lateral: tras abrir un canal, «Continuar
+  // viendo» también expone botones con el nombre del canal — sin el ámbito,
+  // getByRole por nombre se vuelve ambiguo.
+  async function filaLateral(nombre: string) {
+    const lista = await screen.findByRole('list', { name: t('lateral.lista') })
+    return within(lista).getByRole('button', { name: new RegExp(nombre) })
+  }
+
+  it('con catálogo y sin canal en curso, el panel de vídeo muestra «elige un canal» y la lateral lista los canales', async () => {
+    render(App, { fuente: fuenteConCanales() })
+    await vi.waitFor(() => expect(screen.getByText(t('escenario.eligeCanal'))).toBeTruthy())
+    expect(await filaLateral('c1')).toBeTruthy()
+    // No hay modal: nada con role=dialog, y el fondo NO está inert.
+    // `.inert` (propiedad), no hasAttribute: Svelte asigna la propiedad y
+    // jsdom no la refleja al atributo (misma nota que en a11y.test.ts).
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect((document.querySelector('.fondo') as HTMLElement & { inert?: boolean })?.inert).toBe(false)
+  })
+
+  it('clicar un canal en la lateral reproduce EN EL SITIO: aparece el vídeo, sin modal, y cambiar de canal NO desmonta el <video>', async () => {
+    render(App, { fuente: fuenteConCanales() })
+    await fireEvent.click(await filaLateral('c0'))
+    await tick()
+    const video = document.querySelector('video')
+    expect(video).toBeTruthy()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    await fireEvent.click(await filaLateral('c1'))
+    await tick()
+    expect(document.querySelector('video')).toBe(video) // mismo nodo: swap in place
+  })
+
+  it('«Ver todo» abre la rejilla rica (P0.6 conservada), oculta el escenario SIN desmontar el vídeo, y el foco aterriza en «Volver»', async () => {
+    render(App, { fuente: fuenteConCanales() })
+    await fireEvent.click(await filaLateral('c0'))
+    await tick()
+    await abrirVerTodo()
+    // La rejilla/acciones de siempre están de vuelta
+    expect(screen.getByRole('button', { name: t('accion.favoritos') })).toBeTruthy()
+    // El escenario sigue MONTADO (el video existe) pero oculto (hidden)
+    expect(document.querySelector('.escenario[hidden] video')).toBeTruthy()
+    await vi.waitFor(() => expect(document.activeElement?.textContent).toContain(t('escenario.volver')))
+  })
+
+  it('seleccionar un canal en ver-todo vuelve al escenario reproduciéndolo', async () => {
+    render(App, { fuente: fuenteConCanales() })
+    await abrirVerTodo()
+    // La tarjeta c2 de la rejilla (markup de TarjetaCanal: botón con aria-label
+    // del canal). findAll: la ventana virtualizada pinta sus filas tras un
+    // requestAnimationFrame — la consulta tiene que esperar ese primer frame.
+    await fireEvent.click((await screen.findAllByRole('button', { name: 'c2' }))[0])
+    await tick()
+    expect(document.querySelector('.escenario[hidden]')).toBeNull()
+    expect(screen.getByRole('region', { name: 'c2' })).toBeTruthy()
+  })
+
+  it('la región polite anuncia «Reproduciendo <nombre>» al cambiar de canal (sin regiones live nuevas)', async () => {
+    render(App, { fuente: fuenteConCanales() })
+    await fireEvent.click(await filaLateral('c0'))
+    await tick()
+    const politeRegions = document.querySelectorAll('[aria-live="polite"]')
+    const deApp = politeRegions[0] // la persistente de App va primera en el DOM
+    expect(deApp.textContent).toContain(t('escenario.anuncioReproduciendo', { nombre: 'c0' }))
+  })
+
+  it('con historial, el arranque auto-reproduce el último canal EN SILENCIO con la CTA de sonido visible', async () => {
+    // La CTA solo se pinta sin mensajeError (con el canal en error, ofrecer
+    // «activa el sonido» sería absurdo). jsdom no decodifica nada, así que
+    // sin esto el intento falla al instante y esconde la CTA: se fuerza el
+    // motor nativo con la carga colgada — mismo truco que a11y-p08.test.ts.
+    const canPlayTypeSpy = vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('maybe')
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      historial.registrar(canalDePrueba('visto-ayer'))
+      render(App, { fuente: fuenteConCanales() })
+      await vi.waitFor(() => expect(screen.getByRole('region', { name: /visto-ayer/ })).toBeTruthy())
+      const video = document.querySelector('video') as HTMLVideoElement
+      expect(video.muted).toBe(true)
+      expect(screen.getByRole('button', { name: t('reproductor.activarSonido') })).toBeTruthy()
+    } finally {
+      canPlayTypeSpy.mockRestore()
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  it('la auto-reanudación NO re-registra en el historial (sigue habiendo una sola entrada)', async () => {
+    historial.registrar(canalDePrueba('visto-ayer'))
+    render(App, { fuente: fuenteConCanales() })
+    await vi.waitFor(() => expect(screen.getByRole('region', { name: /visto-ayer/ })).toBeTruthy())
+    expect(get(historial)).toHaveLength(1)
+  })
+
+  it('con fuentes pero SIN historial no se auto-reproduce nada: tarjeta «elige un canal», sin <video>', async () => {
+    render(App, { fuente: fuenteConCanales() })
+    await vi.waitFor(() => expect(screen.getByText(t('escenario.eligeCanal'))).toBeTruthy())
+    expect(document.querySelector('video')).toBeNull()
+  })
+
+  it('el surf por barra espaciadora funciona en ver-todo y NO en el escenario (ahí el espacio es del reproductor)', async () => {
+    const fuente = fuenteConCanales()
+    render(App, { fuente })
+    await esperarCatalogoListo()
+    await fireEvent.keyDown(window, { key: ' ', code: 'Space' })
+    expect(fuente.aleatorio).not.toHaveBeenCalled()
+    await abrirVerTodo()
+    await fireEvent.keyDown(window, { key: ' ', code: 'Space' })
+    await vi.waitFor(() => expect(fuente.aleatorio).toHaveBeenCalled())
+  })
+
+  it('⌘K abre la paleta también con un canal reproduciéndose (ya no hay modal que la inhiba) y el fondo queda inert', async () => {
+    render(App, { fuente: fuenteConCanales() })
+    await fireEvent.click(await filaLateral('c0'))
+    await tick()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+    await tick()
+    expect(screen.queryByRole('dialog', { name: t('paleta.titulo') })).not.toBeNull()
+    expect((document.querySelector('.fondo') as HTMLElement & { inert?: boolean })?.inert).toBe(true)
+  })
 })
 
 describe('App — invariantes de integración (los que dejaron pasar los peores bugs de P0)', () => {
@@ -129,6 +278,10 @@ describe('App — invariantes de integración (los que dejaron pasar los peores 
 
     // Carga inicial: un montaje limpio pide una página.
     await vi.waitFor(() => expect(canales).toHaveBeenCalledTimes(1))
+    // Las facetas anchas (con «Mostrar los que no responden») viven en el
+    // modo ver-todo desde el rework reproductor-primero. Abrirlo no dispara
+    // ninguna carga: es un modo de pintar, no un filtro.
+    await abrirVerTodo()
     canales.mockClear()
 
     const offline = await screen.findByLabelText('Mostrar los que no responden')
@@ -151,6 +304,7 @@ describe('App — invariantes de integración (los que dejaron pasar los peores 
     )
     const fuente = fuenteFalsa({ canales })
     render(App, { fuente })
+    await abrirVerTodo()
 
     await screen.findByLabelText('a')
     await screen.findByLabelText('b')
@@ -179,6 +333,7 @@ describe('App — invariantes de integración (los que dejaron pasar los peores 
     render(App, { fuente })
 
     await vi.waitFor(() => expect(canales).toHaveBeenCalledTimes(1))
+    await abrirVerTodo()
     canales.mockClear()
 
     const botonFavoritos = await screen.findByRole('button', { name: 'Solo favoritos' })
@@ -222,9 +377,12 @@ describe('App — invariantes de integración (los que dejaron pasar los peores 
 
   it('el shell tiene aside de facetas y area principal, y el cajon alterna', async () => {
     const { container, getByRole } = render(App, { fuente: fuenteFalsa() })
+    await abrirVerTodo()
     expect(container.querySelector('aside.facetas')).not.toBeNull()
     expect(container.querySelector('main')).not.toBeNull()
-    const boton = getByRole('button', { name: /facetas|filtros/i })
+    // Nombre EXACTO del cajón: con ver-todo montado, un regex laxo
+    // (/facetas|filtros/i) también casa «Limpiar filtros» de BarraAcciones.
+    const boton = getByRole('button', { name: t('shell.facetas') })
     const abiertoAntes = container.querySelector('aside.facetas')?.getAttribute('data-abierto')
     await fireEvent.click(boton)
     expect(container.querySelector('aside.facetas')?.getAttribute('data-abierto')).not.toBe(abiertoAntes)
@@ -245,7 +403,7 @@ describe('App — onboarding cuando no hay fuentes (Tarea 6, P0.7)', () => {
     const fuente = fuenteFalsa() // fuenteFalsa ya trae una fuente por defecto (Tarea 6)
     render(App, { fuente })
 
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
     expect(screen.queryByText(t('onboarding.titulo'))).toBeNull()
   })
 
@@ -272,7 +430,7 @@ describe('App — onboarding cuando no hay fuentes (Tarea 6, P0.7)', () => {
 
     await vi.waitFor(() => expect(anadirFuente).toHaveBeenCalledWith('https://ej.test/nueva.m3u'))
     await vi.waitFor(() => expect(screen.queryByText(t('onboarding.titulo'))).toBeNull())
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
   })
 })
 
@@ -348,7 +506,7 @@ describe('App — fix round 1 (Tarea 6, P0.7): sondeo del catálogo tras añadir
 
     expect(main().queryByText(t('onboarding.sondeo.titulo'))).toBeNull()
     expect(main().queryByText(t('onboarding.titulo'))).toBeNull()
-    expect(main().getByRole('button', { name: t('accion.aleatorio') })).not.toBeNull()
+    expect(main().getByRole('button', { name: t('escenario.verTodo') })).not.toBeNull()
   })
 
   it('total=0 en todos los intentos: al agotar el tope aparece el aviso honesto con «Reintentar»', async () => {
@@ -386,7 +544,7 @@ describe('App — fix round 1 (Tarea 6, P0.7): sondeo del catálogo tras añadir
     await vi.advanceTimersByTimeAsync(0)
 
     expect(main().queryByText(t('onboarding.sondeo.agotado'))).toBeNull()
-    expect(main().getByRole('button', { name: t('accion.aleatorio') })).not.toBeNull()
+    expect(main().getByRole('button', { name: t('escenario.verTodo') })).not.toBeNull()
   })
 
   it('F2: en el estado agotado, «Gestionar fuentes» limpia el aviso y lleva a la vista de gestión, con la fuente rota lista para borrar', async () => {
@@ -484,7 +642,7 @@ describe('App — vista Fuentes (gestión, Tarea 7 de P0.7)', () => {
     const fuente = fuenteFalsa({ fuentes, quitarFuente })
     render(App, { fuente })
 
-    await screen.findByRole('button', { name: t('accion.aleatorio') }) // shell normal, con la fuente por defecto
+    await esperarCatalogoListo() // shell normal, con la fuente por defecto
 
     const botonFuentes = await screen.findByRole('button', { name: t('fuentes.abrir') })
     await fireEvent.click(botonFuentes)
@@ -529,7 +687,7 @@ describe('App — vista Fuentes (gestión, Tarea 7 de P0.7)', () => {
     // hash) y el sondeo de siempre (SincronizandoFuente / rejilla) toma el
     // relevo — nunca se queda "atascado" mostrando la vista de gestión.
     await vi.waitFor(() => expect(screen.queryByRole('heading', { name: t('fuentes.titulo') })).toBeNull())
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
   })
 
   it('F3: sin fuentes, «Fuentes» de la cabecera SÍ abre la vista de gestión (no un clic mudo) y añadir la primera fuente ahí aterriza en el catálogo, no en gestión', async () => {
@@ -571,7 +729,7 @@ describe('App — vista Fuentes (gestión, Tarea 7 de P0.7)', () => {
     await vi.waitFor(() => expect(anadirFuente).toHaveBeenCalledWith('https://ej.test/nueva.m3u'))
     // Aterriza en el catálogo (rejilla/BarraAcciones) — NUNCA de vuelta en
     // la vista de gestión, que es justo el bug que este fix cierra.
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
     expect(screen.queryByRole('heading', { name: t('fuentes.titulo') })).toBeNull()
   })
 })
@@ -598,7 +756,7 @@ describe('App — paleta de comandos ⌘K', () => {
   it('(a) ⌘ (metaKey) + K abre la paleta', async () => {
     const fuente = fuenteFalsa()
     render(App, { fuente })
-    await screen.findByRole('button', { name: t('accion.aleatorio') }) // catálogo listo
+    await esperarCatalogoListo()
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
     await tick()
@@ -609,7 +767,7 @@ describe('App — paleta de comandos ⌘K', () => {
   it('Ctrl+K también la abre (no solo ⌘ de mac)', async () => {
     const fuente = fuenteFalsa()
     render(App, { fuente })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
     await tick()
@@ -620,7 +778,7 @@ describe('App — paleta de comandos ⌘K', () => {
   it('(a) NO se abre con el foco en un input ajeno — no le roba el atajo al buscador de facetas', async () => {
     const fuente = fuenteFalsa()
     render(App, { fuente })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
 
     const buscador = screen.getByLabelText(t('catalogo.buscar')) as HTMLInputElement
     buscador.focus()
@@ -638,10 +796,10 @@ describe('App — paleta de comandos ⌘K', () => {
   // el único criterio, compartido con debeHacerSurf; estas tres pruebas
   // habrían fallado con el guard viejo (ver surf.test.ts para el mismo
   // criterio probado en aislamiento).
-  it('(M1) NO se abre con el foco en un <button> real de la app (p. ej. "Canal al azar")', async () => {
+  it('(M1) NO se abre con el foco en un <button> real de la app (p. ej. «Ver todo»)', async () => {
     const fuente = fuenteFalsa()
     render(App, { fuente })
-    const boton = await screen.findByRole('button', { name: t('accion.aleatorio') })
+    const boton = await screen.findByRole('button', { name: t('escenario.verTodo') })
 
     boton.focus()
     expect(document.activeElement).toBe(boton)
@@ -654,7 +812,7 @@ describe('App — paleta de comandos ⌘K', () => {
   it('(M1) NO se abre con el foco en un <select> ajeno', async () => {
     const fuente = fuenteFalsa()
     render(App, { fuente })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
 
     const select = document.createElement('select')
     document.body.appendChild(select)
@@ -670,7 +828,7 @@ describe('App — paleta de comandos ⌘K', () => {
   it('(M1) NO se abre con el foco en contenido contenteditable', async () => {
     const fuente = fuenteFalsa()
     render(App, { fuente })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
 
     const editable = document.createElement('div')
     editable.setAttribute('contenteditable', 'true')
@@ -687,21 +845,6 @@ describe('App — paleta de comandos ⌘K', () => {
 
     expect(paletaDialogo()).toBeNull()
     editable.remove()
-  })
-
-  it('se INHIBE mientras el reproductor está abierto — RULING: un solo modal a la vez', async () => {
-    const canales = [canalDePrueba('a')]
-    const fuente = fuenteFalsa({ canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })) })
-    render(App, { fuente })
-
-    const abrir = await screen.findByLabelText('a')
-    await fireEvent.click(abrir)
-    await screen.findByRole('dialog', { name: 'a' }) // el reproductor abrió
-
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
-    await tick()
-
-    expect(paletaDialogo()).toBeNull()
   })
 
   // Fix (revisión final, P0.8): al invariante "los dos modales nunca
@@ -722,7 +865,9 @@ describe('App — paleta de comandos ⌘K', () => {
       aleatorio: vi.fn(async () => canalDePrueba('a')),
     })
     render(App, { fuente })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    // El surf vive en el modo ver-todo (reproductor-primero): se abre ANTES
+    // de la paleta para ejercitar justo la guarda paletaAbierta del surf.
+    await abrirVerTodo()
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
     await tick()
@@ -740,14 +885,15 @@ describe('App — paleta de comandos ⌘K', () => {
     await tick()
 
     expect(paletaDialogo()).not.toBeNull() // la paleta sigue abierta
-    expect(screen.queryByRole('dialog', { name: 'a' })).toBeNull() // el reproductor NO se abrió
+    expect(fuente.aleatorio).not.toHaveBeenCalled() // el surf no saltó por debajo
+    expect(screen.queryByRole('region', { name: 'a' })).toBeNull() // ningún canal se abrió
     divNoInteractivo.remove()
   })
 
   it('Esc cierra la paleta (App la desmonta al recibir alCerrar)', async () => {
     const fuente = fuenteFalsa()
     render(App, { fuente })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
     await tick()
@@ -763,7 +909,7 @@ describe('App — paleta de comandos ⌘K', () => {
   it('elegir «Abrir Fuentes» desde la paleta navega a la vista de gestión de fuentes real de App', async () => {
     const fuente = fuenteFalsa()
     render(App, { fuente })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
     await tick()
@@ -774,57 +920,21 @@ describe('App — paleta de comandos ⌘K', () => {
     expect(paletaDialogo()).toBeNull()
   })
 
-  it('elegir un canal desde la paleta abre el MISMO Reproductor que abrir desde la rejilla', async () => {
+  it('elegir un canal desde la paleta lo reproduce en el MISMO panel persistente del escenario', async () => {
     const canales = [canalDePrueba('a')]
     const fuente = fuenteFalsa({ canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })) })
     render(App, { fuente })
-    await screen.findByLabelText('a')
+    await esperarCatalogoListo()
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
     await tick()
 
     await fireEvent.click(screen.getByRole('option', { name: 'a' }))
 
-    await screen.findByRole('dialog', { name: 'a' }) // el Reproductor, no la paleta
+    await screen.findByRole('region', { name: 'a' }) // el panel del Reproductor, no un modal
     expect(paletaDialogo()).toBeNull()
   })
 
-  // M2 del pase de a11y (Tarea 8, P0.8): abrir un canal DESDE la paleta hace
-  // que App cambie canalAbierto Y paletaAbierta EN EL MISMO gesto — la Paleta
-  // se desmonta y el Reproductor se monta en el mismo flush de Svelte. El
-  // onMount del Reproductor enfoca su botón "Cerrar" vía un microtask
-  // (tick().then...); el onDestroy de la Paleta restaura el foco al elemento
-  // previo-a-⌘K vía un macrotask (requestAnimationFrame) — sin guard, ese
-  // rAF corre DESPUÉS y le roba el foco de vuelta al botón "abrir" de la
-  // tarjeta de detrás. El guard de Paleta.svelte (sólo restaura si
-  // document.activeElement sigue en <body>) es lo que se prueba aquí: el
-  // foco correcto (el botón Cerrar del Reproductor) tiene que SOBREVIVIR más
-  // allá del primer rAF, no solo aparecer un instante.
-  it('(M2) tras abrir un canal desde la paleta, el foco queda y se QUEDA en "Cerrar" del Reproductor (no se lo roba el restore de la paleta)', async () => {
-    const canales = [canalDePrueba('a')]
-    const fuente = fuenteFalsa({ canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })) })
-    render(App, { fuente })
-    const abrirTarjeta = await screen.findByLabelText('a')
-    abrirTarjeta.focus()
-
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
-    await tick()
-    await fireEvent.click(screen.getByRole('option', { name: 'a' }))
-
-    const dialogoReproductor = await screen.findByRole('dialog', { name: 'a' })
-    const botonCerrar = within(dialogoReproductor).getByRole('button', { name: t('reproductor.cerrar') })
-    await tick()
-    expect(document.activeElement).toBe(botonCerrar)
-
-    // El "robo" ocurriría en el primer requestAnimationFrame tras el cierre
-    // de la paleta — se espera explícitamente esa vuelta del bucle de
-    // eventos y se reafirma que el foco SIGUE en Cerrar (no volvió a
-    // abrirTarjeta).
-    await new Promise<number>((resolve) => requestAnimationFrame(resolve))
-    await tick()
-    expect(document.activeElement).toBe(botonCerrar)
-    expect(document.activeElement).not.toBe(abrirTarjeta)
-  })
 })
 
 describe('App — vista Ajustes (Tarea 6, P0.8)', () => {
@@ -886,7 +996,7 @@ describe('App — vista Ajustes (Tarea 6, P0.8)', () => {
 
   it('la densidad elegida en Ajustes se refleja en la rejilla (Tarea 5 ya cableada, aquí solo el extremo de UI)', async () => {
     render(App, { fuente: fuenteFalsa() })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
 
     await fireEvent.click(await screen.findByRole('button', { name: t('ajustes.abrir') }))
     await screen.findByRole('heading', { name: t('ajustes.titulo') })
@@ -899,7 +1009,7 @@ describe('App — vista Ajustes (Tarea 6, P0.8)', () => {
 describe('App — recordar vista (preferencias.recordarVista, Tarea 6 de P0.8)', () => {
   it('(c) ON por defecto: cambiar a «lista» y simular un remonte restaura la vista guardada', async () => {
     const { unmount } = render(App, { fuente: fuenteFalsa() })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await abrirVerTodo()
 
     await fireEvent.click(screen.getByRole('button', { name: t('accion.lista') }))
     await vi.waitFor(() => expect(get(filtros).vista).toBe('lista'))
@@ -910,14 +1020,14 @@ describe('App — recordar vista (preferencias.recordarVista, Tarea 6 de P0.8)',
     filtros.update((f) => ({ ...f, vista: 'rejilla' }))
 
     render(App, { fuente: fuenteFalsa() })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await abrirVerTodo()
     expect(screen.getByRole('button', { name: t('accion.lista') }).getAttribute('aria-pressed')).toBe('true')
   })
 
   it('OFF: apagar «recordar vista» hace que un remonte NO restaure la vista', async () => {
     preferencias.set({ densidad: 'comoda', recordarVista: false, recordarFiltros: false })
     const { unmount } = render(App, { fuente: fuenteFalsa() })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await abrirVerTodo()
 
     await fireEvent.click(screen.getByRole('button', { name: t('accion.lista') }))
     await vi.waitFor(() => expect(get(filtros).vista).toBe('lista'))
@@ -926,7 +1036,7 @@ describe('App — recordar vista (preferencias.recordarVista, Tarea 6 de P0.8)',
     filtros.update((f) => ({ ...f, vista: 'rejilla' }))
 
     render(App, { fuente: fuenteFalsa() })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await abrirVerTodo()
     expect(screen.getByRole('button', { name: t('accion.rejilla') }).getAttribute('aria-pressed')).toBe('true')
   })
 })
@@ -939,7 +1049,7 @@ describe('App — recordar filtros (preferencias.recordarFiltros, default OFF, T
 
   it('(d) por defecto (OFF): cambiar un filtro y simular un remonte NO lo restaura', async () => {
     const { unmount } = render(App, { fuente: fuenteFalsa() })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
 
     filtros.update((f) => ({ ...f, pais: 'MX' }))
     await tick()
@@ -948,20 +1058,20 @@ describe('App — recordar filtros (preferencias.recordarFiltros, default OFF, T
     filtros.update((f) => ({ ...f, pais: '' }))
 
     render(App, { fuente: fuenteFalsa() })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
     expect(get(filtros).pais).toBe('')
   })
 
   it('(d) activado desde Ajustes: cambiar un filtro y simular un remonte SÍ lo restaura', async () => {
     const { unmount } = render(App, { fuente: fuenteFalsa() })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
 
     await fireEvent.click(await screen.findByRole('button', { name: t('ajustes.abrir') }))
     const casilla = await screen.findByRole('checkbox', { name: t('ajustes.recordarFiltros.titulo') })
     await fireEvent.click(casilla)
     expect(get(preferencias).recordarFiltros).toBe(true)
     await fireEvent.click(screen.getByRole('button', { name: t('ajustes.volver') }))
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
 
     filtros.update((f) => ({ ...f, pais: 'MX' }))
     await tick()
@@ -970,7 +1080,7 @@ describe('App — recordar filtros (preferencias.recordarFiltros, default OFF, T
     filtros.update((f) => ({ ...f, pais: '' }))
 
     render(App, { fuente: fuenteFalsa() })
-    await screen.findByRole('button', { name: t('accion.aleatorio') })
+    await esperarCatalogoListo()
     expect(get(filtros).pais).toBe('MX')
   })
 })

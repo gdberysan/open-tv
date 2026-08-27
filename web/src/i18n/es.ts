@@ -61,6 +61,15 @@ export const es = {
   // rejilla/lista de canales, para quien navega con lector de pantalla.
   'rejilla.etiquetaLista': 'Lista de canales',
 
+  // Reproductor-primero (2026-08-26): escenario con vídeo persistente y
+  // catálogo lateral (ver la spec del mismo nombre).
+  'lateral.lista': 'Canales',
+  'escenario.reproduciendo': 'Reproduciendo',
+  'escenario.verTodo': 'Ver todo',
+  'escenario.volver': 'Volver al reproductor',
+  'escenario.eligeCanal': 'Elige un canal para empezar',
+  'escenario.anuncioReproduciendo': 'Reproduciendo {nombre}',
+
   'canal.favorito.anadir': 'Añadir a favoritos',
   'canal.favorito.quitar': 'Quitar de favoritos',
   'canal.geo': 'Puede estar bloqueado en tu región',
@@ -91,8 +100,10 @@ export const es = {
   'senal.soloViva': 'Solo señal viva',
 
   'reproductor.cargando': 'Conectando con el canal…',
-  'reproductor.cerrar': 'Cerrar',
   'reproductor.silenciar': 'Silenciar',
+  // Reproductor-primero (spec §5): CTA sobre el vídeo cuando la entrada
+  // auto-reproduce en silencio (los navegadores bloquean autoplay con sonido).
+  'reproductor.activarSonido': 'Toca para activar el sonido',
   // Tarea 2 (P0.8): el botón de pantalla completa ahora refleja el estado
   // real (fullscreenchange sobre el CONTENEDOR, no el <video>) — entrar/salir
   // sustituye al rótulo fijo de antes, igual que el patrón silenciar/

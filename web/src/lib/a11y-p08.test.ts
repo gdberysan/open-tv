@@ -35,61 +35,40 @@ beforeEach(() => {
   idioma.actual = 'es'
 })
 
-describe('a11y P0.8 — overlay del Reproductor: focus-trap completo', () => {
-  // Gap real (sin cobertura previa): NINGÚN test existente ejercitaba el
-  // ciclo de Tab del Reproductor con los controles NUEVOS del overlay
-  // (silenciar/favorito/pantalla-completa/PiP) de por medio — solo se
-  // documenta en un comentario de Reproductor.svelte. Si alTeclado/
-  // elementosFocables dejaran fuera alguno de estos botones (p. ej. por vivir
-  // dentro de .overlay en vez de .controles), Tab desde Cerrar NO envolvería
-  // al primero de ellos y este test fallaría.
-  it('Tab desde "Cerrar" envuelve al primer control del overlay (Silenciar) — PiP incluido cuando está soportado', async () => {
+describe('reproductor-primero — el panel NO atrapa el foco: controles en el orden natural (spec §6)', () => {
+  // Sustituye al describe del focus-trap de P0.8: el Reproductor dejó de ser
+  // un modal — el vídeo y la barra lateral del escenario COEXISTEN en el
+  // orden de tabulación, así que el contrato ahora es el inverso: ningún
+  // trap, ningún tabindex manipulado, ningún role=dialog.
+  it('todos los controles del overlay (PiP y AirPlay incluidos) son focables por orden natural, sin tabindex propio', () => {
     Object.defineProperty(document, 'pictureInPictureEnabled', { value: true, configurable: true })
+    ;(window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent'] = class {}
     try {
-      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
-      const dialogo = container.querySelector('[role="dialog"]') as HTMLElement
-      const silenciar = dialogo.querySelector('.overlay-controles .silenciar') as HTMLButtonElement
-      const pip = dialogo.querySelector('.overlay-controles .pip') as HTMLButtonElement
-      const cerrar = dialogo.querySelector('.controles .cerrar') as HTMLButtonElement
-      expect(pip).toBeTruthy() // si esto falla, el resto del test no dice nada del trap
-
-      cerrar.focus()
-      expect(document.activeElement).toBe(cerrar)
-      // El handler real vive en <svelte:window onkeydown> (App.svelte usa el
-      // mismo patrón) — se dispara sobre window, como el resto de los tests
-      // de teclado de Reproductor.test.ts (Escape, etc.), no sobre un
-      // elemento interno.
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
-
-      expect(document.activeElement).toBe(silenciar)
+      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
+      expect(container.querySelector('[role="dialog"]')).toBeNull()
+      const botones = [...container.querySelectorAll<HTMLButtonElement>('.overlay-controles button')]
+      // silenciar + favorito + pantalla completa + PiP + AirPlay
+      expect(botones.length).toBe(5)
+      for (const boton of botones) {
+        expect(boton.hasAttribute('tabindex')).toBe(false) // orden natural, sin roving ni trap
+      }
     } finally {
       // @ts-expect-error limpieza de la propiedad redefinida
       delete document.pictureInPictureEnabled
+      delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
     }
   })
 
-  it('Shift+Tab desde "Silenciar" (el primero) envuelve al último control ("Cerrar")', async () => {
-    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
-    const dialogo = container.querySelector('[role="dialog"]') as HTMLElement
-    const silenciar = dialogo.querySelector('.overlay-controles .silenciar') as HTMLButtonElement
-    const cerrar = dialogo.querySelector('.controles .cerrar') as HTMLButtonElement
-
-    silenciar.focus()
-    expect(document.activeElement).toBe(silenciar)
-    await fireEvent.keyDown(dialogo, { key: 'Tab', shiftKey: true })
-
-    expect(document.activeElement).toBe(cerrar)
-  })
-
-  // Todos los controles de la barra fija ("Cerrar") también viven DENTRO de
-  // contenedorDialogo — si "Cerrar" se hubiera puesto fuera del diálogo (un
-  // error de refactor plausible: es el único control que NO está dentro de
-  // .overlay), elementosFocables() no lo encontraría y este test fallaría.
-  it('"Cerrar" está DENTRO del contenedor role=dialog, no fuera de él', () => {
-    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
-    const dialogo = container.querySelector('[role="dialog"]') as HTMLElement
-    const cerrar = screen.getByRole('button', { name: t('reproductor.cerrar') })
-    expect(dialogo.contains(cerrar)).toBe(true)
+  it('Tab desde el último control del overlay NO envuelve al primero (sin trap)', async () => {
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
+    const botones = [...container.querySelectorAll<HTMLButtonElement>('.overlay-controles button')]
+    expect(botones.length).toBeGreaterThan(1)
+    botones.at(-1)!.focus()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+    // jsdom no implementa la navegación de Tab del navegador: si el panel no
+    // la intercepta (lo correcto), el foco se queda donde estaba. Contra el
+    // trap viejo, habría saltado al primer control.
+    expect(document.activeElement).toBe(botones.at(-1))
   })
 })
 
@@ -113,7 +92,7 @@ describe('a11y P0.8 — overlay del Reproductor: el guard focus-within impide au
     const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
     vi.useFakeTimers()
     try {
-      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
       const video = container.querySelector('video') as HTMLVideoElement
       const overlay = container.querySelector('.overlay') as HTMLElement
 
@@ -151,7 +130,7 @@ describe('a11y P0.8 — overlay del Reproductor: estado por texto/aria, nunca so
   // t('reproductor.envivo') — si algún día se quitara el texto y se dejara
   // solo el punto de color, este test lo cazaría.
   it('la insignia "en vivo" lleva el punto de color Y el texto, no solo el punto', () => {
-    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
     const insignia = container.querySelector('.insignia-vivo') as HTMLElement
     const punto = insignia.querySelector('.punto-vivo')
     expect(punto).toBeTruthy()
@@ -167,7 +146,7 @@ describe('a11y P0.8 — overlay del Reproductor: estado por texto/aria, nunca so
   it('todo botón del overlay con class:activo lleva también aria-pressed (nunca solo color)', () => {
     const aqui = dirname(fileURLToPath(import.meta.url))
     const fuente = readFileSync(resolve(aqui, '../componentes/Reproductor.svelte'), 'utf-8')
-    const bloqueOverlay = fuente.slice(fuente.indexOf('<div class="overlay-controles">'), fuente.indexOf('</div>\n    </div>\n  </div>\n\n  <div class="controles">'))
+    const bloqueOverlay = fuente.slice(fuente.indexOf('<div class="overlay-controles">'), fuente.indexOf('<style>'))
     const botones = [...bloqueOverlay.matchAll(/<button[\s\S]*?<\/button>/g)].map((m) => m[0])
     expect(botones.length).toBeGreaterThan(0)
     for (const boton of botones) {

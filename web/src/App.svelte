@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount, untrack } from 'svelte'
+  import { onDestroy, onMount, tick, untrack } from 'svelte'
   import { get } from 'svelte/store'
   import { idioma, t } from './i18n'
   import { crearHttpCatalog } from './datos/http'
@@ -27,6 +27,7 @@
   import Ajustes from './componentes/Ajustes.svelte'
   import PieDeMarca from './componentes/PieDeMarca.svelte'
   import Paleta from './componentes/Paleta.svelte'
+  import CatalogoLateral from './componentes/CatalogoLateral.svelte'
   import {
     borrarFiltrosGuardados,
     borrarVistaGuardada,
@@ -127,16 +128,68 @@
   // primera si llega después que la de la segunda.
   let peticionActual = 0
 
-  // Estado del reproductor. Desde la Tarea 5 el propio Reproductor pide sus
+  // Canal en curso del ESCENARIO reproductor-primero (spec §3): desde este
+  // rework el Reproductor es un panel PERSISTENTE, no un modal — canalActual
+  // null solo significa "todavía no se eligió nada" (instalación con fuentes
+  // pero sin historial), nunca "cerrado". El propio Reproductor pide sus
   // mirrors y su destino de compatibilidad (vía CatalogSource): App solo
-  // necesita saber QUÉ canal está abierto, no resolverle antes una URL.
-  let canalAbierto = $state<Canal | null>(null)
+  // necesita saber QUÉ canal está en curso, no resolverle antes una URL.
+  let canalActual = $state<Canal | null>(null)
 
-  // Paleta de comandos ⌘K/Ctrl+K (Tarea 4, P0.8). RULING del plan: se
-  // INHIBE por completo mientras el reproductor está abierto — dos modales
-  // con trap de foco propio anidados (¿qué Esc gana? ¿qué Tab atrapa?) es una
-  // complejidad que un atajo de conveniencia no justifica; más simple es "un
-  // solo modal a la vez" (ver alTeclaVentana, más abajo, y cerrarPaleta).
+  // Modo «ver todo» (spec §7): la rejilla rica de P0.6 conservada a un clic.
+  // Es un modo de App que CUBRE el escenario (hidden), nunca lo desmonta —
+  // el <video> persiste y el audio continúa mientras se hojea el catálogo.
+  let modoVerTodo = $state(false)
+
+  // Última transición vídeo↔lista anunciada («Reproduciendo <nombre>», spec
+  // §9): alimenta la región polite PERSISTENTE de más abajo como rama de
+  // menor prioridad — NUNCA una región aria-live nueva.
+  let anuncioCanal = $state('')
+
+  // Gestión de foco del toggle ver-todo: el botón pulsado desaparece con el
+  // cambio de modo — sin mover el foco a mano caería a <body>.
+  let botonVerTodo = $state<HTMLButtonElement | undefined>()
+  let botonVolverEscenario = $state<HTMLButtonElement | undefined>()
+
+  async function abrirVerTodo() {
+    modoVerTodo = true
+    await tick()
+    botonVolverEscenario?.focus()
+  }
+
+  async function volverAlEscenario() {
+    modoVerTodo = false
+    await tick()
+    botonVerTodo?.focus()
+  }
+
+  // Entrada del escenario (spec §5): con historial, se entra VIENDO — el
+  // último canal, EN SILENCIO (los navegadores bloquean autoplay con sonido;
+  // la CTA del Reproductor ofrece activarlo). Corre UNA sola vez, cuando el
+  // catálogo confirma que hay fuentes; sin historial no se auto-reproduce
+  // nada (la tarjeta «elige un canal» manda). NO pasa por abrirCanal:
+  // reanudar no debe re-registrar la entrada que ya es la más reciente. Sí
+  // anuncia por la región polite (honestidad §9: quien escucha debe saber
+  // que hay vídeo en marcha). Si el último canal está caído, el failover del
+  // propio Reproductor actúa como siempre — nunca un panel negro mudo.
+  let entradaSilenciada = $state(false)
+  let entradaResuelta = false
+  $effect(() => {
+    if (entradaResuelta) return
+    if (fase.tipo !== 'listo' || !fuentesCargadas) return
+    entradaResuelta = true
+    if (fuentes.length === 0 || canalActual) return
+    const ultimo = get(historial)[0]
+    if (!ultimo) return
+    entradaSilenciada = true
+    canalActual = canalDesdeHistorial(ultimo)
+    anuncioCanal = t('escenario.anuncioReproduciendo', { nombre: ultimo.nombre })
+  })
+
+  // Paleta de comandos ⌘K/Ctrl+K (Tarea 4, P0.8). Con el reproductor ya
+  // convertido en panel persistente (reproductor-primero §6) la paleta deja
+  // de inhibirse "con el reproductor abierto": solo la inhibe otro overlay
+  // (ella misma) — ver alTeclaVentana más abajo.
   let paletaAbierta = $state(false)
 
   function cerrarPaleta() {
@@ -338,17 +391,21 @@
   }
 
   function abrirCanal(canal: Canal) {
-    canalAbierto = canal
+    // Cambio de canal EN EL SITIO (spec §3): el panel persistente recarga
+    // por el cambio de canal.id — nunca se abre/cierra un modal.
+    canalActual = canal
     // Tarea 10 (P0.6): se registra al ABRIR, no al confirmar reproducción.
     // "Continuar viendo" tiene que recordar qué se intentó ver aunque el
     // mirror fallara y el Reproductor nunca llegara a alConfirmar() — lo
     // contrario (registrar solo un desenlace 'iniciado') dejaría fuera
     // justo los canales problemáticos que más interesa poder reabrir rápido.
     historial.registrar(canal)
-  }
-
-  function cerrarReproductor() {
-    canalAbierto = null
+    // Transición anunciada con honestidad (spec §9): la región polite
+    // persistente dice qué se está reproduciendo ahora.
+    anuncioCanal = t('escenario.anuncioReproduciendo', { nombre: canal.nombre })
+    // Elegir un canal desde ver-todo vuelve al escenario reproduciéndolo
+    // (spec §7) — mismo camino venga el clic de la rejilla o de la paleta.
+    if (modoVerTodo) volverAlEscenario()
   }
 
   // Puente entre EntradaHistorial (solo id/nombre/logo/cuando — lo mínimo
@@ -359,9 +416,11 @@
   // reconstruye un Canal mínimo con lo que el historial sí guarda: basta
   // para que el Reproductor abra por id (pide sus propios mirrors/destino)
   // y muestre nombre/logo, aunque sin badges de salud hasta que reproduzca.
-  function abrirDesdeHistorial(entrada: EntradaHistorial) {
+  // Extraído como función porque la entrada del escenario (auto-reanudación,
+  // spec §5) necesita el mismo puente SIN pasar por abrirCanal.
+  function canalDesdeHistorial(entrada: EntradaHistorial): Canal {
     const enCatalogo = canales.find((c) => c.id === entrada.canalId)
-    abrirCanal(
+    return (
       enCatalogo ?? {
         id: entrada.canalId,
         nombre: entrada.nombre,
@@ -372,14 +431,18 @@
         vivo: null,
         latenciaMs: 0,
         webOk: null,
-      },
+      }
     )
+  }
+
+  function abrirDesdeHistorial(entrada: EntradaHistorial) {
+    abrirCanal(canalDesdeHistorial(entrada))
   }
 
   // ←/→ del reproductor se mueven dentro de la lista ya cargada en pantalla,
   // no piden más canales: son "el siguiente que ya veo", no paginación.
   function indiceAbierto(): number {
-    return canalAbierto ? canales.findIndex((c) => c.id === canalAbierto!.id) : -1
+    return canalActual ? canales.findIndex((c) => c.id === canalActual!.id) : -1
   }
 
   function canalAnterior() {
@@ -417,11 +480,11 @@
 
   function alTeclaVentana(e: KeyboardEvent) {
     if (esAtajoPaleta(e)) {
-      // RULING (ver `paletaAbierta` más arriba): inhibida con el reproductor
-      // abierto. paletaAbierta ya true: no hay nada que hacer dos veces (su
-      // propio manejador de teclado, dentro de Paleta.svelte, es quien
-      // gobierna el teclado mientras está montada).
-      if (canalAbierto || paletaAbierta) return
+      // Reproductor-primero (spec §6): el reproductor ya no es un modal, así
+      // que ⌘K NO se inhibe por tener un canal en curso — solo la inhibe otro
+      // overlay (la propia paleta ya abierta: su manejador de teclado, dentro
+      // de Paleta.svelte, gobierna mientras está montada).
+      if (paletaAbierta) return
       // No robarle el atajo a un control AJENO ya interactivo (el buscador de
       // facetas, un <select>, un <button> enfocado, contenido
       // contenteditable…): con el foco ya ahí, ⌘K no hace nada — MISMO
@@ -435,6 +498,11 @@
       return
     }
 
+    // Reparto de la barra espaciadora (reproductor-primero): el surf vive
+    // SOLO en el modo ver-todo — en el escenario, el espacio es play/pausa
+    // del panel persistente (su propio manejador global en Reproductor.svelte,
+    // gobernado por `activo`). Dos oyentes de window compitiendo por la misma
+    // tecla sería confuso e imprevisible: `!modoVerTodo` es la línea divisoria.
     // sinFuentes (Tarea 6, P0.7): sin catálogo que surfear, el mismo espacio
     // debe dejar que el navegador haga lo suyo (p. ej. scroll) en vez de
     // llamar a fuente.aleatorio() sobre un catálogo que se sabe vacío.
@@ -442,13 +510,12 @@
     // se sondea tras añadir una fuente — el catálogo puede seguir en 0.
     // vistaFuentes (Tarea 7): mismo motivo que vistaStats — es otra vista, no
     // el catálogo normal.
-    // paletaAbierta: mismo motivo que canalAbierto — con un modal abierto es
-    // ese modal quien gobierna el teclado; sin esta guarda, un clic en el
-    // chrome no interactivo de la paleta (la pista, un título de grupo) saca
-    // el foco del <input> y la barra espaciadora surfea por debajo,
-    // violando el invariante "los dos modales nunca coexisten" (fix, P0.8).
+    // paletaAbierta: con un modal abierto es ese modal quien gobierna el
+    // teclado; sin esta guarda, un clic en el chrome no interactivo de la
+    // paleta (la pista, un título de grupo) saca el foco del <input> y la
+    // barra espaciadora surfea por debajo (fix, P0.8).
     if (
-      canalAbierto ||
+      !modoVerTodo ||
       paletaAbierta ||
       fase.tipo !== 'listo' ||
       vistaStats ||
@@ -739,6 +806,26 @@
       total === 0,
   )
 
+  // Los tres estados de nivel superior del rework reproductor-primero (spec
+  // §2): sinFuentes → Onboarding; modoVerTodo → rejilla completa; por defecto
+  // → escenario. enCatalogo = "el catálogo normal es lo que toca ver" (nada
+  // de fases previas, sondeos ni vistas-hash encima); escenarioVisible añade
+  // el toggle ver-todo. El escenario se MONTA con menos condiciones que estas
+  // (ver el markup): las vistas lo cubren con `hidden`, no lo desmontan.
+  let enCatalogo = $derived(
+    fase.tipo === 'listo' &&
+      !sinFuentes &&
+      !sondeandoFuenteNueva &&
+      !sondeoAgotado &&
+      !vistaFuentes &&
+      !vistaAjustes &&
+      !vistaStats,
+  )
+  let escenarioVisible = $derived(enCatalogo && !modoVerTodo)
+  // El teclado global del panel (espacio/f/m/flechas) solo mientras el
+  // escenario es lo visible y ningún overlay lo tapa.
+  let reproductorActivo = $derived(escenarioVisible && !paletaAbierta)
+
   // `catalogoVacio && !sinFuentes`: cuando NO hay fuentes, App renderiza
   // Onboarding en vez de RejillaCanales/Vacio (ver el <main> más abajo) — sin
   // este guardián, esta región seguiría anunciando "Ningún canal casa con el
@@ -760,7 +847,7 @@
           ? t('onboarding.sondeo.agotado')
           : catalogoVacio && !sinFuentes
             ? t('catalogo.vacio')
-            : '',
+            : anuncioCanal,
   )
   let mensajeErrorAccesible = $derived(
     fase.tipo === 'error'
@@ -824,7 +911,10 @@
      existía, un solo nodo — alimenta esEstrecho para el inert del cajón. -->
 <svelte:window onkeydown={alTeclaVentana} bind:innerWidth />
 
-<div class="fondo" inert={!!canalAbierto || paletaAbierta}>
+<!-- Reproductor-primero (spec §6): por defecto NO hay inert de fondo — el
+     panel de vídeo y la barra lateral coexisten en el orden de tabulación.
+     Solo el ÚNICO overlay real restante (la paleta ⌘K) deja el fondo inert. -->
+<div class="fondo" inert={paletaAbierta}>
   <div class="sala">
     <header class="cabecera">
       <div class="marca">
@@ -855,43 +945,96 @@
       </div>
     </header>
 
-    <div class="cuerpo">
-      <!-- Botón de cajón: solo tiene sentido visualmente bajo el breakpoint de
-           ~900px (CSS lo oculta en escritorio, donde el aside ya es la columna
-           fija de siempre); se deja siempre montado para que aria-controls /
-           aria-expanded describan un control real y estable. -->
-      <button
-        type="button"
-        class="boton-cajon"
-        aria-controls="panel-facetas"
-        aria-expanded={lateralAbierto}
-        onclick={alternarLateral}
-      >
-        {t('shell.facetas')}
-      </button>
+    <div class="cuerpo" class:solo-escenario={escenarioVisible}>
+      <!-- Facetas anchas + cajón: pertenecen al modo ver-todo y a las vistas
+           (el escenario trae sus facetas COMPACTAS dentro de la lateral,
+           spec §3) — con el escenario visible ni se montan, y .cuerpo pasa a
+           una sola columna (.solo-escenario). -->
+      {#if !escenarioVisible}
+        <!-- Botón de cajón: solo tiene sentido visualmente bajo el breakpoint de
+             ~900px (CSS lo oculta en escritorio, donde el aside ya es la columna
+             fija de siempre); se deja montado junto al aside para que
+             aria-controls / aria-expanded describan un control real y estable. -->
+        <button
+          type="button"
+          class="boton-cajon"
+          aria-controls="panel-facetas"
+          aria-expanded={lateralAbierto}
+          onclick={alternarLateral}
+        >
+          {t('shell.facetas')}
+        </button>
 
-      <!-- Fix round 1 (Tarea 15): en viewport estrecho el cajón cerrado se
-           saca de pantalla solo con transform (ver <style> .facetas bajo el
-           breakpoint) — sin inert, sus controles (buscador, filas de
-           facetas) seguían siendo alcanzables por Tab estando invisibles. Se
-           gatea con inert SOLO cuando esEstrecho Y está cerrado: en
-           escritorio (esEstrecho=false) la barra lateral es la columna fija
-           de siempre, nunca inert pase lo que pase lateralAbierto; con el
-           cajón abierto (lateralAbierto=true), tampoco. El botón que lo abre
-           vive FUERA de este aside (arriba, en .cuerpo), así que sigue
-           siendo alcanzable incluso con el aside inert. -->
-      <aside
-        class="facetas"
-        id="panel-facetas"
-        data-abierto={lateralAbierto}
-        inert={esEstrecho && !lateralAbierto}
-      >
-        <!-- Tarea 6 (P0.6): contenido real de las facetas. -->
-        <h2 class="sr-only">{t('shell.facetas')}</h2>
-        <BarraLateralFacetas {paises} {categorias} {calidades} />
-      </aside>
+        <!-- Fix round 1 (Tarea 15): en viewport estrecho el cajón cerrado se
+             saca de pantalla solo con transform (ver <style> .facetas bajo el
+             breakpoint) — sin inert, sus controles (buscador, filas de
+             facetas) seguían siendo alcanzables por Tab estando invisibles. Se
+             gatea con inert SOLO cuando esEstrecho Y está cerrado: en
+             escritorio (esEstrecho=false) la barra lateral es la columna fija
+             de siempre, nunca inert pase lo que pase lateralAbierto; con el
+             cajón abierto (lateralAbierto=true), tampoco. El botón que lo abre
+             vive FUERA de este aside (arriba, en .cuerpo), así que sigue
+             siendo alcanzable incluso con el aside inert. -->
+        <aside
+          class="facetas"
+          id="panel-facetas"
+          data-abierto={lateralAbierto}
+          inert={esEstrecho && !lateralAbierto}
+        >
+          <!-- Tarea 6 (P0.6): contenido real de las facetas. -->
+          <h2 class="sr-only">{t('shell.facetas')}</h2>
+          <BarraLateralFacetas {paises} {categorias} {calidades} />
+        </aside>
+      {/if}
 
-      <main inert={!!canalAbierto || paletaAbierta}>
+      <main inert={paletaAbierta}>
+        <!-- ESCENARIO reproductor-primero (spec §3): montado siempre que hay
+             catálogo con fuentes — las otras vistas (ver-todo, #ajustes/
+             #fuentes/#stats, el sondeo) lo CUBREN con `hidden` pero NUNCA lo
+             desmontan: el <video> persiste y el audio continúa (metáfora de
+             televisor encendido; y es lo que hace verificable el «sin
+             desmontar/remontar» de la spec §10). `hidden` como ATRIBUTO, no
+             una clase con display:none: así el árbol de accesibilidad y los
+             tests lo ven oculto de verdad, y el CSS solo refuerza
+             ([hidden] { display: none }) para que .escenario (display:grid)
+             no lo anule. -->
+        {#if fase.tipo === 'listo' && fuentesCargadas && !sinFuentes}
+          <div class="escenario" hidden={!escenarioVisible}>
+            <div class="panel-video">
+              {#if canalActual}
+                <Reproductor
+                  canal={canalActual}
+                  {fuente}
+                  activo={reproductorActivo}
+                  silenciadoInicial={entradaSilenciada}
+                  alDesenlace={reportarDesenlace}
+                  alAnterior={canalAnterior}
+                  alSiguiente={canalSiguiente}
+                />
+              {:else}
+                <!-- Con fuentes pero sin nada en curso (spec §5): tarjeta de
+                     invitación, sin auto-reproducir nada. -->
+                <div class="panel-espera"><p>{t('escenario.eligeCanal')}</p></div>
+              {/if}
+              <ContinuarViendo alAbrir={abrirDesdeHistorial} />
+            </div>
+            <aside class="lateral">
+              <button type="button" class="ver-todo" bind:this={botonVerTodo} onclick={abrirVerTodo}>
+                {t('escenario.verTodo')}
+              </button>
+              <CatalogoLateral
+                {canales}
+                {total}
+                {cargando}
+                {paises}
+                {categorias}
+                canalActualId={canalActual?.id ?? null}
+                alAbrir={abrirCanal}
+                {alPedirMas}
+              />
+            </aside>
+          </div>
+        {/if}
         {#if vistaAjustes}
           <!-- Tarea 6 (P0.8): vista de ajustes, alcanzada por #ajustes (botón
                de la cabecera) — TOP-LEVEL como vistaStats, no anidada bajo
@@ -947,7 +1090,20 @@
               alFuenteAnadida={alFuenteAnadidaDesdeFuentes}
               {alFuentesCambiaron}
             />
-          {:else}
+          {:else if modoVerTodo}
+            <!-- Modo «ver todo» (spec §7): la rejilla rica de P0.6 tal cual,
+                 ahora como modo secundario detrás del escenario. Con
+                 escenarioVisible ninguna rama de esta cadena pinta nada: el
+                 escenario de arriba es lo que se ve. -->
+            <button
+              type="button"
+              class="volver-escenario"
+              bind:this={botonVolverEscenario}
+              onclick={volverAlEscenario}
+            >
+              ← {t('escenario.volver')}
+            </button>
+
             <!-- Tarea 10 (P0.6): héroe "Continuar viendo", ENCIMA de
                  BarraAcciones — se renderiza compacto o nada, según el
                  historial (ver ContinuarViendo.svelte). -->
@@ -991,7 +1147,7 @@
     </div>
   </div>
 
-  <footer class="pie" inert={!!canalAbierto || paletaAbierta}>
+  <footer class="pie" inert={paletaAbierta}>
     <p>{t('pie.fuente')}</p>
     <p>{t('pie.postura')}</p>
     {#if !vistaStats}
@@ -1006,22 +1162,11 @@
   </footer>
 </div>
 
-{#if canalAbierto}
-  <Reproductor
-    canal={canalAbierto}
-    {fuente}
-    alDesenlace={reportarDesenlace}
-    alCerrar={cerrarReproductor}
-    alAnterior={canalAnterior}
-    alSiguiente={canalSiguiente}
-  />
-{/if}
-
 {#if paletaAbierta}
-  <!-- Tarea 4 (P0.8): montada FUERA de .fondo, como Reproductor arriba —
-       vive su propio ciclo de foco (ver Paleta.svelte) mientras .fondo/
-       main/footer quedan inert (arriba). Nunca coexiste con canalAbierto
-       (RULING: ⌘K inhibida con el reproductor abierto — ver alTeclaVentana). -->
+  <!-- Tarea 4 (P0.8): montada FUERA de .fondo — vive su propio ciclo de foco
+       (ver Paleta.svelte) mientras .fondo/main/footer quedan inert (arriba).
+       Desde el rework reproductor-primero es el ÚNICO overlay con trap: el
+       Reproductor ya es un panel dentro del escenario, no un modal. -->
   <Paleta
     {canales}
     {paises}
@@ -1094,6 +1239,78 @@
     display: grid;
     grid-template-columns: 248px minmax(0, 1fr);
     align-items: start;
+  }
+  /* Con el escenario visible el aside de facetas anchas ni se monta: main
+     ocupa todo el ancho (el escenario trae sus facetas compactas dentro). */
+  .cuerpo.solo-escenario {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* ESCENARIO reproductor-primero (spec §3): vídeo 1fr | catálogo lateral con
+     el ancho del artboard 1b como token (--ancho-catalogo, tokens/spacing.css). */
+  .escenario {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--ancho-catalogo, 372px);
+    gap: var(--space-4, 16px);
+    align-items: start;
+  }
+  /* Refuerzo del atributo hidden: .escenario declara display:grid, que sin
+     esto ganaría al display:none del estilo de agente del navegador. */
+  .escenario[hidden] {
+    display: none;
+  }
+  .panel-video {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3, 12px);
+  }
+  .panel-espera {
+    aspect-ratio: 16 / 9;
+    display: grid;
+    place-items: center;
+    background: var(--graphite-900);
+    border-radius: var(--radius-md, 8px);
+    color: var(--text-muted);
+  }
+  .panel-espera p {
+    margin: 0;
+  }
+  .lateral {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3, 12px);
+    position: sticky;
+    top: var(--space-4, 1rem);
+    height: calc(100dvh - 2 * var(--space-4, 1rem));
+    min-height: 0;
+  }
+  /* Mismo estilo neutro que .fuentes-link/.idioma: navegación, no CTA. */
+  .ver-todo,
+  .volver-escenario {
+    background: none;
+    border: 1px solid var(--border-default);
+    color: var(--text-body);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    align-self: flex-start;
+  }
+  .volver-escenario {
+    margin-bottom: var(--space-3, 12px);
+  }
+
+  /* Responsive estrecho del escenario (spec §8): apilado — vídeo arriba 16:9,
+     catálogo debajo. El vídeo NO se pierde al navegar la lista. */
+  @media (max-width: 900px) {
+    .escenario {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .lateral {
+      position: static;
+      height: auto;
+      max-height: 60dvh;
+    }
   }
 
   .boton-cajon {

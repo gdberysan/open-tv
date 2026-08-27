@@ -33,6 +33,9 @@
   --border-thick:  2px;
 
   /* ---- Layout ---- */
+  /* Ancho de la barra lateral de catálogo del escenario reproductor-primero
+     (artboard 1b): token, nunca un 372 mágico repetido. */
+  --ancho-catalogo: 372px;
   --container-sm:   640px;
   --container-md:   860px;
   --container-lg:   1100px;
