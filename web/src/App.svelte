@@ -28,6 +28,7 @@
   import PieDeMarca from './componentes/PieDeMarca.svelte'
   import Paleta from './componentes/Paleta.svelte'
   import CatalogoLateral from './componentes/CatalogoLateral.svelte'
+  import EmblemaKorven from './componentes/EmblemaKorven.svelte'
   import {
     borrarFiltrosGuardados,
     borrarVistaGuardada,
@@ -918,8 +919,17 @@
   <div class="sala">
     <header class="cabecera">
       <div class="marca">
-        <h1 class="wordmark">KORVEN <span class="acento">OPEN TV</span></h1>
-        <p class="subtitulo">{t('app.lema')}</p>
+        <!-- Emblema de marca, quieto y a 20px: la cabecera es la única
+             superficie que se ve SIEMPRE, así que aquí el listón es
+             "discreto", no "vistoso" — sin animación ninguna (el basculado
+             solo vive en el panel de espera, donde no compite con nada).
+             Decorativo (aria-hidden dentro del componente): el wordmark de
+             al lado ya nombra la marca. -->
+        <EmblemaKorven />
+        <div class="marca-texto">
+          <h1 class="wordmark">KORVEN <span class="acento">OPEN TV</span></h1>
+          <p class="subtitulo">{t('app.lema')}</p>
+        </div>
       </div>
       <div class="cabecera-derecha">
         <!-- Tarea 5 (P0.6): sustituye el hueco de layout de la Tarea 4 por el
@@ -1013,8 +1023,17 @@
                 />
               {:else}
                 <!-- Con fuentes pero sin nada en curso (spec §5): tarjeta de
-                     invitación, sin auto-reproducir nada. -->
-                <div class="panel-espera"><p>{t('escenario.eligeCanal')}</p></div>
+                     invitación, sin auto-reproducir nada. Es el ÚNICO
+                     momento en que la app no tiene nada que enseñar, así que
+                     es el único sitio donde el emblema se permite ser
+                     grande y moverse (basculado + pulso ámbar, ambos
+                     anulados por prefers-reduced-motion dentro del propio
+                     componente). En cuanto hay canal, el Reproductor lo
+                     sustituye y el movimiento desaparece con él. -->
+                <div class="panel-espera">
+                  <EmblemaKorven tamano="grande" animado />
+                  <p>{t('escenario.eligeCanal')}</p>
+                </div>
               {/if}
               <ContinuarViendo alAbrir={abrirDesdeHistorial} />
             </div>
@@ -1203,7 +1222,10 @@
     padding: var(--space-4, 1rem) var(--space-6, 2rem);
     border-bottom: 1px solid var(--border-default);
   }
-  .marca { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  /* La marca pasa a fila (emblema + bloque de texto); el bloque de texto
+     conserva la columna que .marca tenía antes. */
+  .marca { display: flex; flex-direction: row; align-items: center; gap: 10px; min-width: 0; }
+  .marca-texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .wordmark {
     margin: 0;
     font: var(--type-h4);
@@ -1267,10 +1289,15 @@
     flex-direction: column;
     gap: var(--space-3, 12px);
   }
+  /* De `grid + place-items` a columna centrada: ahora hay dos hijos
+     (emblema y copy) y hacen falta el orden y el hueco entre ellos. */
   .panel-espera {
     aspect-ratio: 16 / 9;
-    display: grid;
-    place-items: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-4, 1rem);
     background: var(--graphite-900);
     border-radius: var(--radius-md, 8px);
     color: var(--text-muted);

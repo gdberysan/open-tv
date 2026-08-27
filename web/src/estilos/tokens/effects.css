@@ -28,6 +28,14 @@
   --dur-base:   200ms; /* @kind other */
   --dur-slow:   360ms; /* @kind other */
 
+  /* Emblema de marca (EmblemaKorven.svelte): movimiento de ambiente, fuera
+     de la escala de micro-interacción de arriba — no responde a un gesto
+     del usuario, acompaña un estado de espera. --giro es medio basculado
+     (la animación es `alternate`: el ciclo completo son 48s); --pulso
+     replica el periodo del emisivo del modelo 3D, 2pi/2.1 ~ 3s. */
+  --dur-emblema-giro:  24s; /* @kind other */
+  --dur-emblema-pulso:  3s; /* @kind other */
+
   /* ---- Backdrop ---- */
   --backdrop:   rgba(10, 14, 21, 0.72); /* @kind color */
   --blur-panel: blur(12px); /* @kind other */

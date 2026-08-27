@@ -44,6 +44,7 @@ const FICHEROS = [
   '../componentes/PanelStats.svelte',
   '../componentes/Paleta.svelte',
   '../componentes/Reproductor.svelte',
+  '../componentes/EmblemaKorven.svelte',
 ]
 
 describe('micro-interacciones: tokens, nunca valores mágicos', () => {
