@@ -12,7 +12,10 @@ export function reportarDesenlace(o: DesenlaceReproduccion, base = ''): void {
       motor: o.motor,
       via: o.via,
       mirror_index: o.mirrorIndex,
-      ms_primer_frame: o.msPrimerFrame ?? 0,
+      // Redondeado: performance.now() trae decimales y un backend que
+      // decodifique a int rechazaría el cuerpo entero con 400 (bug real:
+      // los desenlaces 'iniciado' se perdían). Milisegundos enteros bastan.
+      ms_primer_frame: Math.round(o.msPrimerFrame ?? 0),
     })
     void fetch(`${base}/stats/playback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
       .catch(() => {})

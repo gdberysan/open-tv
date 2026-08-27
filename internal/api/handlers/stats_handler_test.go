@@ -77,3 +77,28 @@ func TestStatsHandlerRechazaCamposObligatoriosFaltantes(t *testing.T) {
 		t.Fatalf("código = %d, quiero 400 sin canal_id/resultado", rec.Code)
 	}
 }
+
+// Bug real cazado en el gate en Chrome (2026-08-26): el cliente manda
+// ms_primer_frame FRACCIONARIO (performance.now() devuelve milisegundos con
+// decimales) y el decode a int lo rechazaba con 400 — TODOS los desenlaces
+// 'iniciado' reales se perdían en silencio y /stats quedaba sesgado hacia el
+// fallo. Un número JSON es un número: se acepta y se redondea.
+func TestStatsHandlerAceptaMsPrimerFrameFraccionario(t *testing.T) {
+	h := handlers.NewStatsHandler(stats.NuevoAgregador(), nil)
+
+	rec := httptest.NewRecorder()
+	h.PostPlayback(rec, httptest.NewRequest(http.MethodPost, "/stats/playback",
+		strings.NewReader(`{"canal_id":"c1","resultado":"iniciado","motor":"hlsjs","via":"proxy","ms_primer_frame":3128.5}`)))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("POST con ms_primer_frame fraccionario: código %d, se esperaba 204", rec.Code)
+	}
+
+	rec2 := httptest.NewRecorder()
+	h.GetStats(rec2, httptest.NewRequest(http.MethodGet, "/stats", nil))
+	var got map[string]any
+	_ = json.Unmarshal(rec2.Body.Bytes(), &got)
+	repro := got["reproduccion"].(map[string]any)
+	if repro["iniciados"].(float64) != 1 {
+		t.Errorf("iniciados = %v, el desenlace fraccionario no se registró", repro["iniciados"])
+	}
+}

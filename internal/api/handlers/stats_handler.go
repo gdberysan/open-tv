@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 
 	"github.com/gdberysan/open-tv/internal/stats"
@@ -84,13 +85,18 @@ func NewStatsHandler(agg *stats.Agregador, catalogo CatalogoStats) *StatsHandler
 // playbackBody es el contrato con el cliente web (Tarea 14): canal_id y
 // resultado son obligatorios, el resto describe el desenlace y es opcional.
 type playbackBody struct {
-	CanalID       string `json:"canal_id"`
-	Resultado     string `json:"resultado"`
-	Motivo        string `json:"motivo"`
-	Motor         string `json:"motor"`
-	Via           string `json:"via"`
-	MirrorIndex   int    `json:"mirror_index"`
-	MsPrimerFrame int    `json:"ms_primer_frame"`
+	CanalID     string `json:"canal_id"`
+	Resultado   string `json:"resultado"`
+	Motivo      string `json:"motivo"`
+	Motor       string `json:"motor"`
+	Via         string `json:"via"`
+	MirrorIndex int    `json:"mirror_index"`
+	// float64, no int: el cliente mide con performance.now(), que trae
+	// DECIMALES — un decode a int rechazaba 3128.5 con 400 y todos los
+	// desenlaces 'iniciado' reales se perdían en silencio (bug cazado en el
+	// gate en Chrome de reproductor-primero). Un número JSON es un número;
+	// se redondea al registrar.
+	MsPrimerFrame float64 `json:"ms_primer_frame"`
 }
 
 // PostPlayback registra un desenlace de reproducción. El body se lee acotado
@@ -115,7 +121,7 @@ func (h *StatsHandler) PostPlayback(w http.ResponseWriter, r *http.Request) {
 		Motor:         body.Motor,
 		Via:           body.Via,
 		MirrorIndex:   body.MirrorIndex,
-		MsPrimerFrame: body.MsPrimerFrame,
+		MsPrimerFrame: int(math.Round(body.MsPrimerFrame)),
 	})
 	w.WriteHeader(http.StatusNoContent)
 }
