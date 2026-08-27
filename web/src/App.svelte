@@ -1018,7 +1018,9 @@
               {/if}
               <ContinuarViendo alAbrir={abrirDesdeHistorial} />
             </div>
-            <aside class="lateral">
+            <!-- aria-label: nombra el landmark complementary para el rotor de
+                 VoiceOver — sin él, la lateral era un «complementario» anónimo. -->
+            <aside class="lateral" aria-label={t('lateral.lista')}>
               <button type="button" class="ver-todo" bind:this={botonVerTodo} onclick={abrirVerTodo}>
                 {t('escenario.verTodo')}
               </button>

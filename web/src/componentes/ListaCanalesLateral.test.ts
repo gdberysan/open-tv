@@ -91,6 +91,21 @@ describe('ListaCanalesLateral — virtualización con scroll interno', () => {
     expect(botones()[1].tabIndex).toBe(0)
   })
 
+  it('el foco llegado por CLIC sincroniza el índice activo: la siguiente flecha parte de ahí, no de un índice rancio', async () => {
+    render(ListaCanalesLateral, { canales: muchos.slice(0, 6), alAbrir: vi.fn(), alPedirMas: vi.fn() })
+    const botones = () => Array.from(document.querySelectorAll<HTMLButtonElement>('.lista-lateral button.abrir'))
+    // Un clic enfoca la fila 2 SIN pasar por las flechas (activeIndex seguía
+    // en 0). Sin el onfocus de sincronía, ArrowDown saltaría a la fila 1 —
+    // detrás de donde el usuario está mirando.
+    const fila2 = botones()[2]
+    fila2.focus()
+    await fireEvent.focus(fila2)
+    await fireEvent.keyDown(fila2, { key: 'ArrowDown' })
+    await tick()
+    expect(botones()[3].tabIndex).toBe(0)
+    expect(document.activeElement).toBe(botones()[3])
+  })
+
   it('el centinela al final dispara alPedirMas al intersectar', async () => {
     const alPedirMas = vi.fn()
     render(ListaCanalesLateral, { canales: muchos.slice(0, 5), alAbrir: vi.fn(), alPedirMas })

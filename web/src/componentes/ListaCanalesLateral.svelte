@@ -138,12 +138,19 @@
     {@const resolucion = parsearResolucion(canal.nombre)}
     {@const enCurso = canal.id === canalActualId}
     <article class="fila" role="listitem" data-indice={indice}>
+      <!-- onfocus sincroniza activeIndex con la realidad: el foco puede llegar
+           por CLIC (no solo por flechas), y sin esto la siguiente flecha
+           partiría de un índice rancio — el foco saltaba a una fila lejana o,
+           si esa fila ya no estaba montada en la ventana virtual, caía a
+           body (bug real cazado en el gate de teclado en Chrome). Es el
+           patrón roving estándar: quien RECIBE el foco es el índice activo. -->
       <button
         type="button"
         class="abrir"
         class:en-curso={enCurso}
         tabindex={indice === activeIndex ? 0 : -1}
         aria-current={enCurso ? 'true' : undefined}
+        onfocus={() => (activeIndex = indice)}
         onclick={() => alAbrir(canal)}
       >
         <SenalCanal vivo={canal.vivo} latenciaMs={canal.latenciaMs} />

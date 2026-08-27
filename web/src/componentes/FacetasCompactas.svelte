@@ -39,14 +39,16 @@
 <div class="facetas-compactas">
   <section class="grupo" role="group" aria-label={t('filtro.pais')}>
     {#each chipsPais as f (f.valor)}
-      <!-- El aria-label lleva código + nombre localizado + conteo: el chip
-           visible se queda con el código (compacidad), pero quien navega con
-           lector de pantalla oye el país de verdad, no un ISO críptico. -->
+      <!-- El aria-label EMPIEZA por el texto visible («US 1837») y añade el
+           nombre localizado detrás: quien navega con lector de pantalla oye
+           el país de verdad (no un ISO críptico) y quien dicta comandos por
+           voz puede decir lo que VE — WCAG 2.5.3 Label in Name, cazado por
+           el audit de Lighthouse del gate de reproductor-primero. -->
       <button
         type="button"
         class="chip"
         aria-pressed={$filtros.pais === f.valor}
-        aria-label={`${f.valor} · ${nombreDePais(f.valor, idioma.actual)} · ${f.total}`}
+        aria-label={`${f.valor} ${f.total}, ${nombreDePais(f.valor, idioma.actual)}`}
         onclick={() => alternarPais(f.valor)}
       >
         <span aria-hidden="true">{banderaDePais(f.valor)}</span>
