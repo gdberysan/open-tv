@@ -103,8 +103,13 @@ Crea el directorio de datos si no existe, escucha en el primer puerto libre
 la instalación no trae canales, la primera pantalla pide una fuente: tu
 propia URL M3U, un fichero, o una de las seis sugeridas de iptv-org con un
 clic. En cuanto añades una, la sincronización de esa fuente tarda unos
-segundos y la rejilla se llena; los veredictos de salud de cada stream
-(vivo/caído, calidad) van llegando en los minutos siguientes.
+segundos y aterrizas en el escenario: el panel de vídeo a la izquierda y el
+catálogo en la barra lateral (buscador, facetas y la lista completa de
+canales con su salud). Cambiar de canal intercambia el vídeo en el sitio, y
+«Ver todo» abre la rejilla completa de tarjetas; en visitas posteriores se
+entra viendo el último canal, en silencio, con un toque para activar el
+sonido. Los veredictos de salud de cada stream (vivo/caído, calidad) van
+llegando en los minutos siguientes.
 
 Ctrl-C detiene el proceso. Si ya hay un `open-tv` corriendo, lanzarlo otra vez
 no arranca una segunda instancia: solo abre el navegador en la que ya está

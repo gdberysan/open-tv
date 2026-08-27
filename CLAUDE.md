@@ -65,11 +65,16 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   `Sec-Fetch-Site` en métodos mutantes) contra CSRF/DNS-rebinding; CSP estricta
   (`script-src 'self'`). Reutiliza el cliente HTTP guardado del proxy para
   cualquier fetch server-side de streams.
-- **a11y (P0.6/P0.8):** 2 regiones sr-only PERSISTENTES como ÚNICOS anunciadores
-  (NO añadir regiones aria-live nuevas); fondo `inert` con overlay abierto;
-  roving tabindex en las rejillas; focus-trap + focus-restore en overlays; UN
-  solo overlay atrapando a la vez. **`prefers-reduced-motion` anula TODA
-  animación nueva.**
+- **a11y (P0.6/P0.8, rework reproductor-primero):** 2 regiones sr-only
+  PERSISTENTES de App como ÚNICOS anunciadores nuevos (NO añadir regiones
+  aria-live); roving tabindex en las rejillas y en la lista lateral (con
+  sincronía por `onfocus` — el foco puede llegar por clic); **el Reproductor
+  es un PANEL persistente (`role=region`), NO un modal** — el único overlay
+  con focus-trap + focus-restore + fondo `inert` es la paleta ⌘K; el modo
+  ver-todo y las vistas-hash CUBREN el escenario con `hidden`, nunca lo
+  desmontan (el `<video>` persiste). **`prefers-reduced-motion` anula TODA
+  animación nueva.** WCAG 2.5.3 en controles con aria-label: el nombre
+  accesible EMPIEZA por el texto visible.
 - **Tokens de marca:** ámbar = señal-viva/activo/foco. Nada hardcodeado.
 
 ## Flujo de trabajo
@@ -104,7 +109,11 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
 Ver `MEMORY.md` (personal, se carga por sesión). Resumen: **P0–P2 mergeadas y
 pusheadas al remoto PRIVADO** (cliente web embebido, fiabilidad/failover, sala
 de control UX, fuentes bring-your-own, estado del arte, guía EPG por fuente).
-El flip público está **desbloqueado por el abogado** pero pendiente de: tag
-`v1.0.0` (+ repo tap Homebrew + secret) y el flip, ambos decisión del usuario.
-Specs escritas en cola (gate de revisión): **reproductor-primero** (layout 1b)
-→ **DVR record-now** → **casting AirPlay+Chromecast** → **framecapture**.
+**Reproductor-primero (layout 1b) HECHO y mergeado en main LOCAL (sin push):**
+escenario con vídeo persistente + catálogo lateral, cambio de canal en el
+sitio, modo «ver todo» conservando la rejilla P0.6, entrada muted con CTA de
+sonido. El flip público está **desbloqueado por el abogado** pero pendiente
+de: tag `v1.0.0` (+ repo tap Homebrew + secret) y el flip, ambos decisión del
+usuario. Specs en cola (gate de revisión): **DVR record-now** (su ● Grabar
+vive en el panel persistente ya creado) → **casting AirPlay+Chromecast** →
+**framecapture**.
