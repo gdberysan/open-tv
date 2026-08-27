@@ -213,6 +213,41 @@ describe('App — escenario reproductor-primero', () => {
     expect(deApp.textContent).toContain(t('escenario.anuncioReproduciendo', { nombre: 'c0' }))
   })
 
+  it('con historial, el arranque auto-reproduce el último canal EN SILENCIO con la CTA de sonido visible', async () => {
+    // La CTA solo se pinta sin mensajeError (con el canal en error, ofrecer
+    // «activa el sonido» sería absurdo). jsdom no decodifica nada, así que
+    // sin esto el intento falla al instante y esconde la CTA: se fuerza el
+    // motor nativo con la carga colgada — mismo truco que a11y-p08.test.ts.
+    const canPlayTypeSpy = vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('maybe')
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      historial.registrar(canalDePrueba('visto-ayer'))
+      render(App, { fuente: fuenteConCanales() })
+      await vi.waitFor(() => expect(screen.getByRole('region', { name: /visto-ayer/ })).toBeTruthy())
+      const video = document.querySelector('video') as HTMLVideoElement
+      expect(video.muted).toBe(true)
+      expect(screen.getByRole('button', { name: t('reproductor.activarSonido') })).toBeTruthy()
+    } finally {
+      canPlayTypeSpy.mockRestore()
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  it('la auto-reanudación NO re-registra en el historial (sigue habiendo una sola entrada)', async () => {
+    historial.registrar(canalDePrueba('visto-ayer'))
+    render(App, { fuente: fuenteConCanales() })
+    await vi.waitFor(() => expect(screen.getByRole('region', { name: /visto-ayer/ })).toBeTruthy())
+    expect(get(historial)).toHaveLength(1)
+  })
+
+  it('con fuentes pero SIN historial no se auto-reproduce nada: tarjeta «elige un canal», sin <video>', async () => {
+    render(App, { fuente: fuenteConCanales() })
+    await vi.waitFor(() => expect(screen.getByText(t('escenario.eligeCanal'))).toBeTruthy())
+    expect(document.querySelector('video')).toBeNull()
+  })
+
   it('el surf por barra espaciadora funciona en ver-todo y NO en el escenario (ahí el espacio es del reproductor)', async () => {
     const fuente = fuenteConCanales()
     render(App, { fuente })

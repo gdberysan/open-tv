@@ -163,6 +163,29 @@
     botonVerTodo?.focus()
   }
 
+  // Entrada del escenario (spec §5): con historial, se entra VIENDO — el
+  // último canal, EN SILENCIO (los navegadores bloquean autoplay con sonido;
+  // la CTA del Reproductor ofrece activarlo). Corre UNA sola vez, cuando el
+  // catálogo confirma que hay fuentes; sin historial no se auto-reproduce
+  // nada (la tarjeta «elige un canal» manda). NO pasa por abrirCanal:
+  // reanudar no debe re-registrar la entrada que ya es la más reciente. Sí
+  // anuncia por la región polite (honestidad §9: quien escucha debe saber
+  // que hay vídeo en marcha). Si el último canal está caído, el failover del
+  // propio Reproductor actúa como siempre — nunca un panel negro mudo.
+  let entradaSilenciada = $state(false)
+  let entradaResuelta = false
+  $effect(() => {
+    if (entradaResuelta) return
+    if (fase.tipo !== 'listo' || !fuentesCargadas) return
+    entradaResuelta = true
+    if (fuentes.length === 0 || canalActual) return
+    const ultimo = get(historial)[0]
+    if (!ultimo) return
+    entradaSilenciada = true
+    canalActual = canalDesdeHistorial(ultimo)
+    anuncioCanal = t('escenario.anuncioReproduciendo', { nombre: ultimo.nombre })
+  })
+
   // Paleta de comandos ⌘K/Ctrl+K (Tarea 4, P0.8). Con el reproductor ya
   // convertido en panel persistente (reproductor-primero §6) la paleta deja
   // de inhibirse "con el reproductor abierto": solo la inhibe otro overlay
@@ -983,6 +1006,7 @@
                   canal={canalActual}
                   {fuente}
                   activo={reproductorActivo}
+                  silenciadoInicial={entradaSilenciada}
                   alDesenlace={reportarDesenlace}
                   alAnterior={canalAnterior}
                   alSiguiente={canalSiguiente}
