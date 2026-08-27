@@ -864,6 +864,11 @@
     bottom: 18%;
     left: 50%;
     transform: translateX(-50%);
+    /* Por ENCIMA de .overlay (hermano posterior en el DOM, también absoluto
+       con inset:0): sin esto, el overlay interceptaba el puntero y la CTA
+       era visible pero inclicable — bug real cazado por el e2e del escenario
+       (Playwright: «.overlay intercepts pointer events»). */
+    z-index: 1;
     background: var(--tint-amber-weak);
     border: 1px solid var(--tint-amber-line);
     border-radius: var(--radius-md);

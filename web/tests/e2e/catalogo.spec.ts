@@ -24,8 +24,12 @@ test('la rejilla se llena y el filtro reduce', async ({ page }) => {
 // checker hasta el píxel para cada canal, que es lo que este test dice medir.
 test('el veredicto web_ok llega marcado hasta la tarjeta de cada canal', async ({ page }) => {
   await page.goto('/')
-  const sinCors = page.locator('article', { hasText: 'Canal Sin CORS' })
-  const conCors = page.locator('article', { hasText: 'Canal Con CORS' })
+  // Las tarjetas ricas (con la marca APP) viven en el modo «Ver todo» desde
+  // reproductor-primero; :visible esquiva las filas de la lateral del
+  // escenario, que queda montada pero hidden debajo.
+  await page.getByRole('button', { name: 'Ver todo' }).click()
+  const sinCors = page.locator('article:visible', { hasText: 'Canal Sin CORS' })
+  const conCors = page.locator('article:visible', { hasText: 'Canal Con CORS' })
   await expect(sinCors.getByText('APP')).toBeVisible()
   await expect(conCors.getByText('APP')).toBeVisible()
 })
@@ -40,8 +44,12 @@ test('el idioma cambia y se recuerda', async ({ page }) => {
 
 test('un favorito sobrevive a la recarga', async ({ page }) => {
   await page.goto('/')
-  const tarjeta = page.locator('article', { hasText: 'Canal Con CORS' })
+  await page.getByRole('button', { name: 'Ver todo' }).click()
+  const tarjeta = page.locator('article:visible', { hasText: 'Canal Con CORS' })
   await tarjeta.getByRole('button', { name: /favorit/i }).click()
   await page.reload()
+  // Tras recargar se vuelve al escenario por defecto: la tarjeta vive otra
+  // vez detrás de «Ver todo».
+  await page.getByRole('button', { name: 'Ver todo' }).click()
   await expect(tarjeta.getByRole('button', { name: /favorit/i })).toHaveAttribute('aria-pressed', 'true')
 })
