@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, fireEvent, screen } from '@testing-library/svelte'
+import { render, fireEvent, screen, within } from '@testing-library/svelte'
 import { tick } from 'svelte'
 import App from '../App.svelte'
 import Sincronizando from '../componentes/Sincronizando.svelte'
@@ -256,7 +256,7 @@ describe('a11y — regiones aria-live PERSISTENTES (fix round 1, Hallazgo 1)', (
       }),
       proxyDisponible: vi.fn(async () => false),
     })
-    const { container } = render(Reproductor, { canal, fuente, alCerrar: () => {} })
+    const { container } = render(Reproductor, { canal, fuente })
 
     const polite = container.querySelector('[aria-live="polite"].sr-only')
     const assertive = container.querySelector('[aria-live="assertive"].sr-only')
@@ -405,7 +405,7 @@ describe('a11y — reproductor: controles etiquetados, aria-live y foco', () => 
   const canal: Canal = { ...canalFalso(0), nombre: 'Canal de prueba' }
 
   it('todos los botones de control tienen nombre accesible', () => {
-    render(Reproductor, { canal, fuente: fuenteFalsa(), alCerrar: () => {} })
+    render(Reproductor, { canal, fuente: fuenteFalsa() })
     const botones = screen.getAllByRole('button')
     expect(botones.length).toBeGreaterThan(0)
     for (const boton of botones) {
@@ -414,78 +414,53 @@ describe('a11y — reproductor: controles etiquetados, aria-live y foco', () => 
     }
   })
 
-  it('el diálogo es role=dialog, aria-modal y su nombre accesible es el del canal', () => {
-    const { container } = render(Reproductor, { canal, fuente: fuenteFalsa(), alCerrar: () => {} })
-    const dialogo = container.querySelector('[role="dialog"]')
-    expect(dialogo?.getAttribute('aria-modal')).toBe('true')
-    expect(dialogo?.getAttribute('aria-label')).toBe('Canal de prueba')
+  it('el panel es role=region (sin aria-modal) y su nombre accesible es el del canal', () => {
+    // Reproductor-primero (spec §4/§6): el reproductor dejó de ser un modal —
+    // es una region persistente que coexiste con la lateral en el árbol de
+    // accesibilidad, sin aria-modal que finja lo contrario.
+    const { container } = render(Reproductor, { canal, fuente: fuenteFalsa() })
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    const panel = container.querySelector('[role="region"]')
+    expect(panel?.hasAttribute('aria-modal')).toBe(false)
+    expect(panel?.getAttribute('aria-label')).toBe('Canal de prueba')
   })
 
-  it('al montar, el foco entra en el reproductor en vez de quedarse fuera', async () => {
-    render(Reproductor, { canal, fuente: fuenteFalsa(), alCerrar: () => {} })
-    await tick()
-    await tick() // el enfoque real ocurre en un .then() encadenado tras tick(), dentro de onMount
-
-    // Antes del arreglo, document.activeElement se quedaba en <body> (o en
-    // lo que tuviera el foco antes de abrir el reproductor): esta
-    // comprobación fallaba porque closest('.reproductor') daba null.
-    expect(document.activeElement?.closest('.reproductor')).not.toBeNull()
-  })
-
-  it('Tab en el último control cicla de vuelta al primero (foco atrapado dentro del diálogo)', async () => {
-    render(Reproductor, { canal, fuente: fuenteFalsa(), alCerrar: () => {} })
-    await tick()
-
-    // Todos los botones del diálogo, no solo los de `.controles`: desde la
-    // Tarea 1 (P0.8) el overlay 1b sobre el vídeo (`.overlay-controles`)
-    // también aporta controles focables — el primero del diálogo ya no es
-    // el primero de la barra inferior fija.
-    const dialogo = document.querySelector('[role="dialog"]')!
-    const controles = [...dialogo.querySelectorAll<HTMLElement>('button')]
-    expect(controles.length).toBeGreaterThan(1)
-    controles.at(-1)!.focus()
-    await fireEvent.keyDown(controles.at(-1)!, { key: 'Tab' })
-
-    expect(document.activeElement).toBe(controles[0])
-  })
-
-  it('al cerrarse (desmontar), el foco vuelve a quien lo abrió (diferido a un frame — fix round 3)', async () => {
-    // Fix round 3 (bug real cazado en el gate manual de teclado en Chrome
-    // real, no reproducible por jsdom): la restauración del foco se DIFIERE
-    // con requestAnimationFrame en onDestroy —ver Reproductor.svelte—
-    // porque App.svelte limpia el `inert` de <main> y desmonta este
-    // componente en el MISMO flush, y onDestroy corría ANTES de que ese
-    // inert se limpiara; focus() sobre un nodo aún inert es un no-op y el
-    // foco caía a <body>. jsdom no aplica el bloqueo de foco de `inert`
-    // (esa parte solo la cubre el gate manual en navegador real), pero SÍ
-    // permite comprobar lo que es verificable aquí: que el foco vuelve al
-    // disparador DESPUÉS de un frame, no que "nunca se pierde" — por eso el
-    // `await asentar()` de después de `unmount()`, y no una comprobación
-    // síncrona inmediatamente después.
+  it('al montar NO roba el foco (vive en el orden natural de la página) y al desmontar tampoco lo mueve', async () => {
+    // Inverso exacto del contrato modal de P0.6: el panel persistente no
+    // captura el foco al montar ni tiene un "cerrar" al que devolverlo.
     document.body.innerHTML = '<button id="disparador">abrir</button>'
     const disparador = document.getElementById('disparador') as HTMLButtonElement
     disparador.focus()
     expect(document.activeElement).toBe(disparador)
 
-    const { unmount } = render(Reproductor, { canal, fuente: fuenteFalsa(), alCerrar: () => {} })
+    const { unmount } = render(Reproductor, { canal, fuente: fuenteFalsa() })
     await tick()
     await tick()
-    expect(document.activeElement).not.toBe(disparador) // el foco entró al reproductor al abrir
+    expect(document.activeElement).toBe(disparador) // sigue donde estaba
 
     unmount()
-    // Se espera un frame (asentar) antes de comprobar, a propósito: con la
-    // restauración diferida por rAF (fix round 3) el foco NO vuelve todavía
-    // en el instante justo después de unmount(). Lo falsable aquí: contra
-    // una versión que NO restaure el foco en absoluto (el onDestroy sin la
-    // llamada a .focus(), regresión que revertiría el fix), esta aserción
-    // fallaría incluso después de esperar el frame — document.activeElement
-    // se quedaría en <body>, no en disparador.
     await asentar()
-    expect(document.activeElement).toBe(disparador)
+    expect(document.activeElement).toBe(disparador) // y sigue ahí después
+  })
+
+  it('Tab en el último control NO envuelve: el panel no atrapa el foco (spec §6)', async () => {
+    render(Reproductor, { canal, fuente: fuenteFalsa() })
+    await tick()
+
+    const panel = document.querySelector('.reproductor')!
+    const controles = [...panel.querySelectorAll<HTMLElement>('button')]
+    expect(controles.length).toBeGreaterThan(1)
+    controles.at(-1)!.focus()
+    await fireEvent.keyDown(controles.at(-1)!, { key: 'Tab' })
+
+    // jsdom no implementa la navegación por Tab del navegador: si el
+    // componente NO la intercepta (lo correcto en el panel), el foco se queda
+    // donde estaba. Contra el trap viejo, habría saltado a controles[0].
+    expect(document.activeElement).toBe(controles.at(-1))
   })
 })
 
-describe('a11y — App: el fondo queda inert mientras el reproductor está abierto', () => {
+describe('a11y — App: el fondo queda inert solo con la paleta (el reproductor ya no es modal)', () => {
   // jsdom (a fecha de esta tarea) no implementa la propiedad IDL `inert` del
   // estándar HTML — 'inert' in document.createElement('div') da false — así
   // que Svelte no puede pasar por el mismo camino de reflejo attr↔propiedad
@@ -496,27 +471,37 @@ describe('a11y — App: el fondo queda inert mientras el reproductor está abier
   // `hasAttribute('inert')` (que en jsdom se queda en null pasara lo que
   // pasara, y habría dado un falso verde/rojo sin relación con el fix). En
   // un navegador real ambos caminos —propiedad y atributo— están enlazados.
-  it('<main>/<footer> no son inert sin reproductor, y sí en cuanto se abre uno', async () => {
+  it('<main>/<footer> NO son inert con un canal reproduciéndose (panel, no modal) — y SÍ con la paleta abierta', async () => {
     const canales = [canalFalso(0)]
-    const fuente = fuenteFalsa({ canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })) })
+    const fuente = fuenteFalsa({
+      canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })),
+      // Esta fuenteFalsa trae fuentes vacías por defecto — se da una para que
+      // App monte el escenario (con cero fuentes ganaría el Onboarding).
+      fuentes: vi.fn(async () => [
+        { id: 'f0', label: 'F', url: 'https://ej.test/f.m3u', kind: 'url' as const, ultimoSync: Date.now(), canales: 1 },
+      ]),
+    })
     const { container } = render(App, { fuente })
 
-    const abrirCanal = await screen.findByLabelText('Canal 0')
+    // Abrir un canal desde la lateral del escenario: el panel coexiste con
+    // el resto de la página — NADA queda inert (spec §6).
+    const lista = await screen.findByRole('list', { name: t('lateral.lista') })
+    await fireEvent.click(within(lista).getByRole('button', { name: /Canal 0/ }))
+    await tick()
+
     const main = container.querySelector('main') as (HTMLElement & { inert?: boolean }) | null
     const pie = container.querySelector('footer.pie') as (HTMLElement & { inert?: boolean }) | null
-    // Antes del arreglo, <main>/<footer> no tenían el atributo inert={...}
-    // en absoluto: esta propiedad era simplemente undefined, no false.
     expect(main?.inert).toBe(false)
     expect(pie?.inert).toBe(false)
 
-    await fireEvent.click(abrirCanal)
+    // La paleta ⌘K sigue siendo un overlay REAL: con ella abierta, sí.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
     await tick()
-
     expect(main?.inert).toBe(true)
     expect(pie?.inert).toBe(true)
   })
 
-  it('fix1 Hallazgo 1: la cabecera (con el toggle de idioma) queda dentro de un ancestro inert al abrir el reproductor', async () => {
+  it('fix1 Hallazgo 1: la cabecera (con el toggle de idioma) queda dentro de un ancestro inert al abrir la paleta', async () => {
     // Antes de este arreglo, <header>/el botón de cajón eran HERMANOS de
     // <main> (Tarea 4 los sacó de dentro al reestructurar el shell) y no
     // llevaban inert propio: con el reproductor abierto, el toggle ES/EN
@@ -539,8 +524,14 @@ describe('a11y — App: el fondo queda inert mientras el reproductor está abier
     }
 
     const canales = [canalFalso(0)]
-    const fuente = fuenteFalsa({ canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })) })
+    const fuente = fuenteFalsa({
+      canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })),
+      fuentes: vi.fn(async () => [
+        { id: 'f0', label: 'F', url: 'https://ej.test/f.m3u', kind: 'url' as const, ultimoSync: Date.now(), canales: 1 },
+      ]),
+    })
     const { container } = render(App, { fuente })
+    await screen.findByRole('button', { name: t('escenario.verTodo') })
 
     const cabecera = container.querySelector('header.cabecera') as HTMLElement
     expect(cabecera).not.toBeNull()
@@ -551,8 +542,9 @@ describe('a11y — App: el fondo queda inert mientras el reproductor está abier
     expect(contenedor).not.toBe(cabecera) // el propio <header> no lleva inert; lo hereda de un ancestro
     expect(contenedor?.inert).toBe(false)
 
-    const abrirCanal = await screen.findByLabelText('Canal 0')
-    await fireEvent.click(abrirCanal)
+    // Desde reproductor-primero, quien activa ese boundary es la PALETA (el
+    // único overlay modal que queda), no el reproductor.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
     await tick()
 
     // Mismo nodo, ahora inert: el toggle de idioma (dentro de la cabecera)

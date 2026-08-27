@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, fireEvent, screen } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import App from '../App.svelte'
 import BarraLateralFacetas from '../componentes/BarraLateralFacetas.svelte'
 import BarraAcciones from '../componentes/BarraAcciones.svelte'
@@ -111,6 +112,16 @@ function fijarAnchoVentana(px: number) {
 
 const ANCHO_ESCRITORIO_JSDOM = 1024 // valor por defecto de jsdom; > 900 ⇒ no estrecho
 
+// Reproductor-primero: el catálogo por defecto es el ESCENARIO (vídeo +
+// lateral compacta); el aside de facetas anchas, el cajón responsive y la
+// rejilla de tarjetas viven detrás de «Ver todo». Los tests de esas piezas
+// abren ese modo primero.
+async function abrirVerTodo() {
+  await screen.findByRole('button', { name: t('escenario.verTodo') })
+  await fireEvent.click(screen.getByRole('button', { name: t('escenario.verTodo') }))
+  await tick()
+}
+
 beforeEach(() => {
   filtros.set({
     q: '', pais: '', categoria: '', calidad: '', mostrarOffline: false,
@@ -195,6 +206,7 @@ describe('a11y P0.6 — chips de filtro llevan aria-label (no solo el texto visi
 describe('a11y P0.6 — el botón del cajón responsive expone aria-controls/aria-expanded', () => {
   it('aria-controls apunta al panel real; aria-expanded refleja el estado y cambia al alternarlo', async () => {
     const { container } = render(App, { fuente: fuenteFalsa() })
+    await abrirVerTodo()
 
     const boton = container.querySelector('button.boton-cajon') as HTMLElement
     expect(boton).not.toBeNull()
@@ -260,6 +272,7 @@ describe('a11y P0.6 — el vacío llega a la región polite persistente de App (
       canales: vi.fn(async (): Promise<PaginaCanales> => ({ canales, total: 1 })),
     })
     const { container } = render(App, { fuente })
+    await abrirVerTodo()
 
     await screen.findByLabelText('Canal 0')
 
@@ -283,6 +296,7 @@ describe('a11y P0.6 fix round 1 — el cajón colapsado en viewport estrecho que
   it('viewport estrecho + cajón cerrado: el aside queda inert', async () => {
     fijarAnchoVentana(800)
     const { container } = render(App, { fuente: fuenteFalsa() })
+    await abrirVerTodo()
     // lateralAbierto arranca en true (abierto) — se cierra con el mismo
     // botón que usaría cualquier persona en viewport estrecho.
     const boton = container.querySelector('button.boton-cajon') as HTMLElement
@@ -295,6 +309,7 @@ describe('a11y P0.6 fix round 1 — el cajón colapsado en viewport estrecho que
   it('viewport estrecho + cajón ABIERTO: el aside NO es inert (se puede usar mientras está desplegado)', async () => {
     fijarAnchoVentana(800)
     const { container } = render(App, { fuente: fuenteFalsa() })
+    await abrirVerTodo()
     // lateralAbierto arranca en true (ver App.svelte) — el efecto de
     // fijarAnchoVentana(800) ya corrió en beforeEach de este describe vía
     // el propio test, así que basta esperar a que esEstrecho se asiente.
@@ -311,6 +326,7 @@ describe('a11y P0.6 fix round 1 — el cajón colapsado en viewport estrecho que
 
   it('viewport ANCHO: el aside nunca es inert, ni siquiera con el cajón "cerrado" (ahí no es un cajón, es la columna fija)', async () => {
     const { container } = render(App, { fuente: fuenteFalsa() })
+    await abrirVerTodo()
     const boton = container.querySelector('button.boton-cajon') as HTMLElement
 
     await fireEvent.click(boton) // lateralAbierto pasa a false

@@ -86,7 +86,6 @@ describe('Reproductor — failover entre mirrors', () => {
     const { container } = render(Reproductor, {
       canal,
       fuente: fuente as any,
-      alCerrar: () => {},
       alIntentar: (url: string) => intentadas.push(url),
     })
 
@@ -135,7 +134,6 @@ describe('Reproductor — failover entre mirrors', () => {
     render(Reproductor, {
       canal,
       fuente: fuente as any,
-      alCerrar: () => {},
       alIntentar: (url: string) => intentadas.push(url),
     })
 
@@ -175,7 +173,6 @@ describe('Reproductor — failover entre mirrors', () => {
     render(Reproductor, {
       canal,
       fuente: fuente as any,
-      alCerrar: () => {},
       alIntentar: (url: string) => intentadas.push(url),
     })
 
@@ -201,7 +198,6 @@ describe('Reproductor — failover entre mirrors', () => {
     render(Reproductor, {
       canal: { ...canal, webOk: false },
       fuente: fuente as any,
-      alCerrar: () => {},
       alDesenlace: (d) => desenlaces.push(d),
     })
 
@@ -229,7 +225,7 @@ describe('Reproductor — failover entre mirrors', () => {
       proxyDisponible: vi.fn(async () => false),
     }
 
-    render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+    render(Reproductor, { canal, fuente: fuente as any })
 
     // queryAllByText: mismo motivo que arriba — el mensaje aparece por
     // partida doble (visual + región aria-live persistente) desde el fix
@@ -252,7 +248,7 @@ describe('Reproductor — failover entre mirrors', () => {
       proxyDisponible: vi.fn(async () => false),
     }
 
-    render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+    render(Reproductor, { canal, fuente: fuente as any })
 
     await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
     hlsState.instancias[0].fallar('manifestLoadError')
@@ -286,7 +282,7 @@ describe('Reproductor — failover entre mirrors', () => {
       proxyDisponible: vi.fn(async () => false),
     }
 
-    render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+    render(Reproductor, { canal, fuente: fuente as any })
 
     await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
     hlsState.instancias[0].fallar('manifestLoadError')
@@ -327,7 +323,7 @@ describe('Reproductor — failover entre mirrors', () => {
         proxyDisponible: vi.fn(async () => false),
       }
 
-      const { container } = render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
       const video = container.querySelector('video')! as HTMLVideoElement
 
       // Primer intento: play() confirma que se llegó al final del camino
@@ -375,7 +371,7 @@ describe('Reproductor — overlay 1b', () => {
 
   it('muestra la insignia «En vivo», el nombre del canal y la línea meta cuando el canal trae resolución/latencia/país', () => {
     const canalConMeta: Canal = { ...canal, nombre: 'BBC One 1080p', pais: 'GB', latenciaMs: 150 }
-    const { container } = render(Reproductor, { canal: canalConMeta, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+    const { container } = render(Reproductor, { canal: canalConMeta, fuente: fuenteSinMirrors() as any })
 
     expect(screen.getByText(t('reproductor.envivo'))).toBeTruthy()
     expect(container.querySelector('.overlay-nombre')?.textContent).toBe('BBC One 1080p')
@@ -384,13 +380,13 @@ describe('Reproductor — overlay 1b', () => {
 
   it('sin resolución/latencia/país en el canal, la línea meta no se muestra', () => {
     const canalSinMeta: Canal = { ...canal, nombre: 'X', pais: '', latenciaMs: 0 }
-    const { container } = render(Reproductor, { canal: canalSinMeta, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+    const { container } = render(Reproductor, { canal: canalSinMeta, fuente: fuenteSinMirrors() as any })
 
     expect(container.querySelector('.overlay-meta')).toBeNull()
   })
 
   it('el botón Silenciar del overlay togglea video.muted y aria-pressed', async () => {
-    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
     const video = container.querySelector('video') as HTMLVideoElement
     const boton = container.querySelector('.overlay-controles .silenciar') as HTMLButtonElement
 
@@ -406,7 +402,7 @@ describe('Reproductor — overlay 1b', () => {
   })
 
   it('el botón Favorito del overlay togglea el store de favoritos y aria-pressed', async () => {
-    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
     const boton = container.querySelector('.overlay-controles .favorito') as HTMLButtonElement
 
     expect(boton.getAttribute('aria-pressed')).toBe('false')
@@ -421,13 +417,13 @@ describe('Reproductor — overlay 1b', () => {
     expect(get(favoritos).has(canal.id)).toBe(true)
   })
 
-  it('los controles nuevos del overlay tienen nombre accesible y están dentro del contenedor del diálogo', () => {
-    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
-    const dialogo = container.querySelector('[role="dialog"]')
-    expect(dialogo).toBeTruthy()
+  it('los controles nuevos del overlay tienen nombre accesible y están dentro del contenedor del panel', () => {
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
+    const panel = container.querySelector('.reproductor[role="region"]')
+    expect(panel).toBeTruthy()
 
-    const silenciar = dialogo!.querySelector('.overlay-controles .silenciar')
-    const favorito = dialogo!.querySelector('.overlay-controles .favorito')
+    const silenciar = panel!.querySelector('.overlay-controles .silenciar')
+    const favorito = panel!.querySelector('.overlay-controles .favorito')
 
     expect(silenciar).toBeTruthy()
     expect(favorito).toBeTruthy()
@@ -455,7 +451,7 @@ describe('Reproductor — pantalla completa y Picture-in-Picture', () => {
     favoritos.set(new Set())
   })
 
-  it('el botón de pantalla completa llama a requestFullscreen() sobre el CONTENEDOR del diálogo, no sobre el <video>', async () => {
+  it('el botón de pantalla completa llama a requestFullscreen() sobre el CONTENEDOR del panel, no sobre el <video>', async () => {
     const fullscreenEnabledDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'fullscreenEnabled')
     Object.defineProperty(document, 'fullscreenEnabled', { value: true, configurable: true })
     const contenedorSpy = vi.fn()
@@ -464,7 +460,7 @@ describe('Reproductor — pantalla completa y Picture-in-Picture', () => {
     HTMLVideoElement.prototype.requestFullscreen = videoSpy
 
     try {
-      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
       const boton = container.querySelector('.overlay-controles .pantalla-completa') as HTMLButtonElement
       expect(boton).toBeTruthy()
 
@@ -487,8 +483,8 @@ describe('Reproductor — pantalla completa y Picture-in-Picture', () => {
     document.exitFullscreen = vi.fn().mockResolvedValue(undefined)
 
     try {
-      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
-      const contenedor = container.querySelector('[role="dialog"]') as HTMLElement
+      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
+      const contenedor = container.querySelector('.reproductor') as HTMLElement
       const boton = container.querySelector('.overlay-controles .pantalla-completa') as HTMLButtonElement
 
       expect(boton.getAttribute('aria-pressed')).toBe('false')
@@ -520,19 +516,17 @@ describe('Reproductor — pantalla completa y Picture-in-Picture', () => {
     }
   })
 
-  it('con document.fullscreenElement activo, Escape sale de pantalla completa y NO cierra el modal', async () => {
+  it('con document.fullscreenElement activo, Escape sale de pantalla completa (única función de Esc en el panel)', async () => {
     const contenedorDeMentira = document.createElement('div')
     Object.defineProperty(document, 'fullscreenElement', { value: contenedorDeMentira, configurable: true })
     document.exitFullscreen = vi.fn().mockResolvedValue(undefined)
-    const alCerrar = vi.fn()
 
     try {
-      render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar })
+      render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
 
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
 
       expect(document.exitFullscreen).toHaveBeenCalledTimes(1)
-      expect(alCerrar).not.toHaveBeenCalled()
     } finally {
       // @ts-expect-error limpieza de la propiedad redefinida
       delete document.fullscreenElement
@@ -541,19 +535,10 @@ describe('Reproductor — pantalla completa y Picture-in-Picture', () => {
     }
   })
 
-  it('sin document.fullscreenElement, Escape sigue cerrando el modal como antes', async () => {
-    const alCerrar = vi.fn()
-    render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar })
-
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-
-    expect(alCerrar).toHaveBeenCalledTimes(1)
-  })
-
   it('el botón de PiP solo se renderiza si document.pictureInPictureEnabled es true', async () => {
     Object.defineProperty(document, 'pictureInPictureEnabled', { value: false, configurable: true })
     try {
-      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
       expect(container.querySelector('.overlay-controles .pip')).toBeNull()
     } finally {
       // @ts-expect-error limpieza de la propiedad redefinida
@@ -567,7 +552,7 @@ describe('Reproductor — pantalla completa y Picture-in-Picture', () => {
     HTMLVideoElement.prototype.requestPictureInPicture = requestPipSpy
 
     try {
-      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
       const boton = container.querySelector('.overlay-controles .pip') as HTMLButtonElement
       expect(boton).toBeTruthy()
       expect(boton.getAttribute('aria-label')).toBe(t('reproductor.pip.activar'))
@@ -590,7 +575,7 @@ describe('Reproductor — pantalla completa y Picture-in-Picture', () => {
     document.exitPictureInPicture = exitPipSpy
 
     try {
-      const { container, unmount } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, alCerrar: () => {} })
+      const { container, unmount } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
       const video = container.querySelector('video') as HTMLVideoElement
 
       // Simula que el navegador entró en PiP: dispara el evento nativo que el
@@ -633,7 +618,7 @@ describe('Reproductor — EPG ahora/después en el overlay', () => {
     const siguiente: Programa = { titulo: 'El Tiempo', inicioSeg: 1_700_003_000, finSeg: 1_700_007_000 }
     const fuente = fuenteConEpg(async () => ({ ahora, proximos: [siguiente] }))
 
-    const { container } = render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+    const { container } = render(Reproductor, { canal, fuente: fuente as any })
 
     await vi.waitFor(() => expect(fuente.epgDeCanal).toHaveBeenCalledWith('c1'))
 
@@ -646,7 +631,7 @@ describe('Reproductor — EPG ahora/después en el overlay', () => {
   it('sin guía (ahora=null y sin próximos), el overlay muestra el mensaje explícito «sin guía para esta fuente»', async () => {
     const fuente = fuenteConEpg(async () => ({ ahora: null, proximos: [] }))
 
-    const { container } = render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+    const { container } = render(Reproductor, { canal, fuente: fuente as any })
 
     await vi.waitFor(() => expect(container.textContent).toContain(t('epg.sinGuia')))
   })
@@ -656,13 +641,13 @@ describe('Reproductor — EPG ahora/después en el overlay', () => {
       throw new Error('epg inalcanzable')
     })
 
-    const { container } = render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+    const { container } = render(Reproductor, { canal, fuente: fuente as any })
 
     await vi.waitFor(() => expect(fuente.epgDeCanal).toHaveBeenCalled())
     // Deja pasar el rechazo de la promesa antes de comprobar que no rompió nada.
     await new Promise((r) => setTimeout(r, 0))
 
-    expect(container.querySelector('[role="dialog"]')).toBeTruthy()
+    expect(container.querySelector('.reproductor')).toBeTruthy()
     expect(container.textContent).not.toContain(t('epg.sinGuia'))
   })
 
@@ -673,11 +658,11 @@ describe('Reproductor — EPG ahora/después en el overlay', () => {
     }
     const fuente = fuenteConEpg(async (id) => epgPorCanal[id])
 
-    const { container, rerender } = render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+    const { container, rerender } = render(Reproductor, { canal, fuente: fuente as any })
     await vi.waitFor(() => expect(container.textContent).toContain('Programa Uno'))
 
     const canal2 = { ...canal, id: 'c2', nombre: 'Y' } as Canal
-    rerender({ canal: canal2, fuente: fuente as any, alCerrar: () => {} })
+    rerender({ canal: canal2, fuente: fuente as any })
 
     await vi.waitFor(() => expect(container.textContent).toContain('Programa Dos'))
     expect(container.textContent).not.toContain('Programa Uno')
@@ -690,7 +675,7 @@ describe('Reproductor — EPG ahora/después en el overlay', () => {
         ahora: { titulo: 'En directo', inicioSeg: 1_700_000_000, finSeg: 1_700_003_000 },
         proximos: [],
       }))
-      render(Reproductor, { canal, fuente: fuente as any, alCerrar: () => {} })
+      render(Reproductor, { canal, fuente: fuente as any })
 
       // Deja resolver la petición inicial (al abrir el canal).
       await vi.advanceTimersByTimeAsync(0)
@@ -725,21 +710,20 @@ describe('Reproductor — modo panel (reproductor-primero)', () => {
   }
 
   it('en modo panel no hay role=dialog ni aria-modal: es una region etiquetada con el canal', () => {
-    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, modo: 'panel' })
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
     expect(container.querySelector('[role="dialog"]')).toBeNull()
     expect(container.querySelector('[aria-modal]')).toBeNull()
     expect(screen.getByRole('region', { name: canal.nombre })).toBeTruthy()
   })
 
-  it('en modo panel, Escape SIN pantalla completa no llama a alCerrar (ya no hay modal que cerrar)', async () => {
-    const alCerrar = vi.fn()
-    render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, modo: 'panel', alCerrar })
+  it('Escape SIN pantalla completa no hace nada: el panel sigue montado (ya no hay modal que cerrar)', async () => {
+    render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-    expect(alCerrar).not.toHaveBeenCalled()
+    expect(screen.getByRole('region', { name: canal.nombre })).toBeTruthy()
   })
 
   it('con activo=false el teclado global del reproductor queda inerte (espacio no reproduce/pausa)', async () => {
-    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, modo: 'panel', activo: false })
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, activo: false })
     const video = container.querySelector('video') as HTMLVideoElement
     const pause = vi.spyOn(video, 'pause').mockImplementation(() => {})
     const play = vi.spyOn(video, 'play').mockResolvedValue()
@@ -749,7 +733,7 @@ describe('Reproductor — modo panel (reproductor-primero)', () => {
   })
 
   it('en modo panel, una tecla con el foco en un control interactivo AJENO se ignora; sin objetivo interactivo, sí actúa', async () => {
-    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, modo: 'panel' })
+    const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
     const video = container.querySelector('video') as HTMLVideoElement
     const pause = vi.spyOn(video, 'pause').mockImplementation(() => {})
     const play = vi.spyOn(video, 'play').mockResolvedValue()
@@ -774,7 +758,6 @@ describe('Reproductor — modo panel (reproductor-primero)', () => {
     const { container } = render(Reproductor, {
       canal,
       fuente: fuenteSinMirrors() as any,
-      modo: 'panel',
       silenciadoInicial: true,
     })
     const video = container.querySelector('video') as HTMLVideoElement
@@ -791,13 +774,12 @@ describe('Reproductor — modo panel (reproductor-primero)', () => {
     const { container, rerender } = render(Reproductor, {
       canal,
       fuente,
-      modo: 'panel',
       silenciadoInicial: true,
     })
     const video = container.querySelector('video') as HTMLVideoElement
     expect(video.muted).toBe(true)
 
-    await rerender({ canal: { ...canal, id: 'c2', nombre: 'Otro' } as Canal, fuente, modo: 'panel', silenciadoInicial: true })
+    await rerender({ canal: { ...canal, id: 'c2', nombre: 'Otro' } as Canal, fuente, silenciadoInicial: true })
     await tick()
 
     expect(video.muted).toBe(false)
@@ -807,8 +789,7 @@ describe('Reproductor — modo panel (reproductor-primero)', () => {
   it('en modo panel el botón AirPlay vive en el overlay y no hay barra inferior con Cerrar', () => {
     ;(window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent'] = class {}
     try {
-      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any, modo: 'panel' })
-      expect(screen.queryByRole('button', { name: t('reproductor.cerrar') })).toBeNull()
+      const { container } = render(Reproductor, { canal, fuente: fuenteSinMirrors() as any })
       const airplay = screen.getByRole('button', { name: 'AirPlay' })
       expect(airplay.closest('.overlay-controles')).toBeTruthy()
       expect(container.querySelector('.controles')).toBeNull()

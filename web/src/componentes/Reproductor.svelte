@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick, untrack } from 'svelte'
+  import { onDestroy, untrack } from 'svelte'
   import type { Canal, CatalogSource } from '../datos/catalogo'
   import { PlaybackGuard } from '../reproductor/guard'
   import { planDeReproduccion, motorDelNavegador, urlProxy, type Motor } from '../reproductor/plan'
@@ -19,22 +19,19 @@
   // (Tarea 5) para poder recorrer planDeFailover. alDesenlace y alIntentar son
   // opcionales — no-op en producción salvo que la Tarea 12/el test los den.
   //
-  // Reproductor-primero (spec §4): `modo` distingue el envoltorio, NUNCA el
-  // motor. 'modal' = el diálogo de siempre (role=dialog, focus-trap, Esc
-  // cierra, barra con Cerrar). 'panel' = panel persistente del escenario:
-  // sin trap, sin cerrar, Esc solo sale de pantalla completa, y el teclado
-  // global respeta esObjetivoInteractivo (el buscador de la lateral coexiste
-  // en el orden de tabulación). `activo` apaga el teclado global cuando otra
-  // vista cubre el escenario (ver-todo, vistas-hash, paleta). El modo dual es
-  // andamiaje transitorio del plan reproductor-primero: cuando App conmute al
-  // panel, el modo modal se borra.
+  // Reproductor-primero (spec §4): PANEL persistente del escenario, ya no un
+  // modal — sin role=dialog, sin focus-trap, sin «cerrar» (siempre hay un
+  // canal en curso una vez hay catálogo). Esc solo sale de pantalla completa,
+  // y el teclado global respeta esObjetivoInteractivo (el buscador de la
+  // lateral coexiste en el orden de tabulación). `activo` apaga el teclado
+  // global cuando otra vista cubre el escenario (ver-todo, vistas-hash,
+  // paleta). El MOTOR (failover/guard/EPG/PiP) es el de siempre: solo cambió
+  // el envoltorio y el modelo de foco.
   let {
     canal,
     fuente,
-    modo = 'modal',
     activo = true,
     silenciadoInicial = false,
-    alCerrar = () => {},
     alAnterior,
     alSiguiente,
     alDesenlace = () => {},
@@ -42,10 +39,8 @@
   }: {
     canal: Canal
     fuente: CatalogSource
-    modo?: 'modal' | 'panel'
     activo?: boolean
     silenciadoInicial?: boolean
-    alCerrar?: () => void
     alAnterior?: () => void
     alSiguiente?: () => void
     alDesenlace?: (o: DesenlaceReproduccion) => void
@@ -203,17 +198,11 @@
     if (!cargando && !mensajeError) mostrar()
   })
 
-  // Foco del diálogo modal (Tarea 18, orden de foco): este componente se
-  // monta FUERA de <main> (ver App.svelte), como el único overlay de pantalla
-  // completa — App marca <main>/<footer> como inert mientras está abierto,
-  // así que aquí basta con (1) llevar el foco DENTRO al montar, y (2)
-  // devolverlo a quien lo abrió al desmontar. Sin esto, abrir el reproductor
-  // dejaba el foco donde estaba (la tarjeta de detrás, ahora inert) o lo
-  // perdía en <body> — ninguna de las dos deja a un usuario de teclado/lector
-  // de pantalla saber dónde está.
+  // Contenedor raíz del panel: destino de requestFullscreen (así el overlay
+  // sigue visible en pantalla completa, mismo patrón que P0.8). El panel NO
+  // captura ni restaura el foco: vive en el orden natural de la página
+  // (spec §6) — la maquinaria de foco del modal se fue con el modal.
   let contenedorRaiz: HTMLDivElement | undefined = $state()
-  let botonCerrar: HTMLButtonElement | undefined = $state()
-  let elementoPrevio: HTMLElement | null = null
 
   // AirPlay de Safari: es una llamada y un evento, sin capa nativa. Si el
   // navegador no lo expone, el botón no existe. La app de macOS es la que
@@ -632,28 +621,16 @@
     video?.webkitShowPlaybackTargetPicker()
   }
 
-  // Elementos focables DENTRO del diálogo, en orden de documento: con <main>/
-  // <footer> inert (App.svelte) son los ÚNICOS focables de toda la página,
-  // así que basta con ciclar entre ellos — no hace falta un centinela ni un
-  // "focus sentinel" aparte.
-  function elementosFocables(): HTMLElement[] {
-    if (!contenedorRaiz) return []
-    return Array.from(
-      contenedorRaiz.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'),
-    )
-  }
-
   function alTeclado(e: KeyboardEvent) {
     // Con otra vista encima del escenario (ver-todo, vistas-hash, paleta) el
     // teclado global del reproductor se apaga entero: es esa vista quien
     // gobierna el teclado, no un panel que ni siquiera se ve.
     if (!activo) return
-    // En modo panel el reproductor COEXISTE con controles ajenos (el buscador
-    // de la lateral, sus filas, la cabecera): con el foco en uno de ellos, el
-    // espacio/las flechas son suyos — misma guarda compartida que el surf y
-    // ⌘K (lib/surf.ts). En modal no aplica: el trap garantiza que todo foco
-    // es del propio diálogo.
-    if (modo === 'panel' && esObjetivoInteractivo(e.target)) return
+    // El panel COEXISTE con controles ajenos (el buscador de la lateral, sus
+    // filas, la cabecera): con el foco en uno de ellos, el espacio/las
+    // flechas son suyos — misma guarda compartida que el surf y ⌘K
+    // (lib/surf.ts).
+    if (esObjetivoInteractivo(e.target)) return
     // Cualquier tecla reprograma el auto-ocultar del overlay (mismo trato que
     // el mousemove del contenedor) — teclear para navegar/pausar no debe
     // dejar los controles desaparecer a mitad de gesto.
@@ -678,7 +655,6 @@
         }
         // Panel (spec §4): sin pantalla completa que abandonar, Esc no hace
         // nada — ya no existe un modal que cerrar.
-        if (modo === 'modal') alCerrar()
         break
       case 'f':
         alternarPantallaCompleta()
@@ -692,69 +668,13 @@
       case 'ArrowRight':
         alSiguiente?.()
         break
-      case 'Tab': {
-        // Solo el modal atrapa: en panel, el vídeo y la lateral comparten el
-        // orden de tabulación natural (spec §6) y Tab es del navegador.
-        if (modo === 'panel') break
-        // Atrapa el foco dentro del diálogo: sin esto, Tab desde el último
-        // control saldría del documento (con el resto de la página inert,
-        // ya no hay a dónde ir) en vez de volver al primero — un usuario de
-        // teclado se quedaría sin poder volver a los controles sin Shift+Tab
-        // de vuelta manualmente.
-        const focables = elementosFocables()
-        if (focables.length === 0) break
-        const primero = focables[0]
-        const ultimo = focables[focables.length - 1]
-        if (e.shiftKey && document.activeElement === primero) {
-          e.preventDefault()
-          ultimo.focus()
-        } else if (!e.shiftKey && document.activeElement === ultimo) {
-          e.preventDefault()
-          primero.focus()
-        }
-        break
-      }
     }
   }
-
-  onMount(() => {
-    // Solo el modal captura/mueve el foco: el panel persistente vive en el
-    // orden natural de la página y montarlo no debe robar el foco a nadie.
-    if (modo !== 'modal') return
-    // Recuerda qué tenía el foco antes de abrir el reproductor (normalmente,
-    // el botón "abrir" de la tarjeta pulsada) para devolvérselo al cerrar.
-    elementoPrevio = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    // tick(): botonCerrar ya está bind:this-eado tras el primer render, pero
-    // se espera igualmente por disciplina — no cuesta nada y evita depender
-    // de que Svelte enlace bind:this antes de que onMount corra en todas las
-    // versiones.
-    tick().then(() => botonCerrar?.focus())
-  })
 
   onDestroy(() => {
     destruido = true
     limpiarIntento()
     if (temporizadorOverlay !== undefined) clearTimeout(temporizadorOverlay)
-    // Restaura el foco a quien abrió el reproductor. Se DIFIERE con rAF
-    // (fix round 3 — bug real cazado en el gate manual de teclado en Chrome):
-    // al cerrar, App.svelte limpia el `inert` de <main> Y desmonta este
-    // componente EN EL MISMO flush de Svelte, y este onDestroy corre ANTES
-    // de que Svelte limpie ese inert. focus() sobre un nodo que todavía está
-    // dentro de un <main> inert es un no-op — el foco caía a <body>, un
-    // usuario de teclado varado arriba del documento. El rAF corre tras
-    // aplicar el DOM del flush, con <main> ya no-inert y el nodo focable.
-    // Se captura elementoPrevio en una const local ANTES del rAF: el
-    // componente se está destruyendo, no hay que confiar en que la variable
-    // de instancia siga viva dentro del callback diferido.
-    // Guard de document.body.contains: la tarjeta pudo salir de la ventana
-    // virtualizada (Tarea 17) mientras el reproductor estaba abierto.
-    // Solo modal: el panel nunca capturó el foco, no hay nada que devolver.
-    if (modo === 'modal') {
-      const previo = elementoPrevio
-      requestAnimationFrame(() => {
-        if (previo && document.body.contains(previo)) previo.focus()
-      })
-    }
 
     // Un reproductor cerrado no debe dejar un PiP flotante de un <video> que
     // ya se está desmontando — se cierra explícitamente, no se confía en que
@@ -771,18 +691,10 @@
      que sí lo dispara. -->
 <svelte:document onfullscreenchange={alCambioFullscreen} />
 
-<!-- data-modo gobierna el envoltorio visual (fixed/modal vs panel 16:9, ver
-     el bloque de estilos). role: dialog solo mientras ES un diálogo; el panel
-     es una region con el nombre del canal — coexiste en el árbol de
-     accesibilidad con la lateral, sin aria-modal que finja lo contrario. -->
-<div
-  class="reproductor"
-  data-modo={modo}
-  role={modo === 'modal' ? 'dialog' : 'region'}
-  aria-modal={modo === 'modal' ? 'true' : undefined}
-  aria-label={canal.nombre}
-  bind:this={contenedorRaiz}
->
+<!-- Panel persistente (spec §4): una region con el nombre del canal —
+     coexiste en el árbol de accesibilidad con la lateral del escenario, sin
+     role=dialog ni aria-modal que finjan un modal que ya no existe. -->
+<div class="reproductor" role="region" aria-label={canal.nombre} bind:this={contenedorRaiz}>
   <!-- onmousemove aquí, no en el <div role="dialog"> de fuera: mover el
        ratón sobre el vídeo es lo que reprograma el auto-ocultar del overlay
        (los botones de la barra fija de abajo ya se auto-muestran solos, al
@@ -914,59 +826,35 @@
               aria-label={estaEnPiP ? t('reproductor.pip.desactivar') : t('reproductor.pip.activar')}
             >🗗</button>
           {/if}
-          {#if soportaAirplay && modo === 'panel'}
-            <!-- En panel no existe la barra inferior del modal: AirPlay se
-                 muda aquí, junto a PiP (decisión 4 del plan). -->
+          {#if soportaAirplay}
+            <!-- La barra inferior del modal se fue con el modal: AirPlay vive
+                 aquí, junto a PiP (decisión 4 del plan reproductor-primero). -->
             <button type="button" class="airplay" onclick={abrirSelectorAirplay} aria-label="AirPlay">📺</button>
           {/if}
         </div>
       </div>
     </div>
   </div>
-
-  {#if modo === 'modal'}
-    <div class="controles">
-      {#if soportaAirplay}
-        <button type="button" onclick={abrirSelectorAirplay} aria-label="AirPlay">📺</button>
-      {/if}
-      <button type="button" class="cerrar" bind:this={botonCerrar} onclick={alCerrar} aria-label={t('reproductor.cerrar')}>✕</button>
-    </div>
-  {/if}
 </div>
 
 <style>
+  /* Panel persistente del escenario (spec §3/§4): 16:9 dentro de su columna;
+     en pantalla completa manda el navegador y el aspecto se libera. Sin
+     animación de entrada: el panel persiste, no «entra». */
   .reproductor {
     background: var(--graphite-900);
     display: flex;
     flex-direction: column;
-  }
-  .reproductor[data-modo='modal'] {
-    position: fixed;
-    inset: 0;
-    z-index: var(--z-modal);
-    /* Entrada (Tarea 7, P0.8): monta una vez con {#if canalAbierto} en
-       App.svelte — un fundido corto, nunca un slide (el vídeo ya trae su
-       propio movimiento con .estado/.overlay). El panel NO anima: persiste,
-       no «entra». */
-    animation: entrada-reproductor var(--dur-base) var(--ease-out);
-  }
-  /* Panel persistente del escenario (spec §3/§4): 16:9 dentro de su columna;
-     en pantalla completa manda el navegador y el aspecto se libera. */
-  .reproductor[data-modo='panel'] {
     position: relative;
     width: 100%;
     aspect-ratio: 16 / 9;
     border-radius: var(--radius-md);
     overflow: hidden;
   }
-  .reproductor[data-modo='panel']:fullscreen {
+  .reproductor:fullscreen {
     aspect-ratio: auto;
     border-radius: 0;
     height: 100%;
-  }
-  @keyframes entrada-reproductor {
-    from { opacity: 0; }
-    to { opacity: 1; }
   }
   /* CTA de sonido (spec §5): única acción primaria sobre el vídeo durante la
      entrada silenciosa — mismo relleno ámbar que .probar-mirror (familia de
@@ -1041,7 +929,6 @@
   .overlay.oculto { opacity: 0; }
   @media (prefers-reduced-motion: reduce) {
     .overlay { transition: none; }
-    .reproductor { animation: none; }
   }
   /* Columna: la fila insignia+meta (.overlay-arriba-fila) y, debajo, la
      línea de guía EPG (Tarea 9, P2) cuando la hay. align-items:flex-start
@@ -1100,22 +987,4 @@
   .overlay-controles button:hover { background: rgba(255, 255, 255, 0.08); }
   /* Ámbar solo mientras el botón representa una señal activa (silenciado/favorito). */
   .overlay-controles button.activo { color: var(--amber-500); }
-
-  .controles {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    background: var(--surface-card);
-  }
-  .controles button {
-    all: unset;
-    cursor: pointer;
-    color: var(--text-muted);
-    padding: var(--space-1) var(--space-2);
-    border-radius: var(--radius-sm);
-  }
-  .controles button:hover { color: var(--text-body); background: var(--surface-raised); }
-  .controles button.cerrar:hover { color: var(--signal-error); }
 </style>

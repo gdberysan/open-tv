@@ -65,6 +65,10 @@ export const es = {
   // catálogo lateral (ver la spec del mismo nombre).
   'lateral.lista': 'Canales',
   'escenario.reproduciendo': 'Reproduciendo',
+  'escenario.verTodo': 'Ver todo',
+  'escenario.volver': 'Volver al reproductor',
+  'escenario.eligeCanal': 'Elige un canal para empezar',
+  'escenario.anuncioReproduciendo': 'Reproduciendo {nombre}',
 
   'canal.favorito.anadir': 'Añadir a favoritos',
   'canal.favorito.quitar': 'Quitar de favoritos',
@@ -96,7 +100,6 @@ export const es = {
   'senal.soloViva': 'Solo señal viva',
 
   'reproductor.cargando': 'Conectando con el canal…',
-  'reproductor.cerrar': 'Cerrar',
   'reproductor.silenciar': 'Silenciar',
   // Reproductor-primero (spec §5): CTA sobre el vídeo cuando la entrada
   // auto-reproduce en silencio (los navegadores bloquean autoplay con sonido).
