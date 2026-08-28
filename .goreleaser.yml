@@ -90,31 +90,47 @@ changelog:
       - "Merge pull request"
       - "Merge branch"
 
-# Fórmula de Homebrew empujada al tap propio (gdberysan/homebrew-tap), NO al
-# repo del proyecto. El push real solo ocurre dentro de `goreleaser release`
-# cuando corre contra un tag — este fichero no dispara nada por sí solo.
-# HOMEBREW_TAP_TOKEN tiene que ser un token con permiso de escritura sobre
-# ese repo (secret de Actions), nunca hardcodeado aquí.
-brews:
+# Cask de Homebrew empujado al tap propio (gdberysan/homebrew-tap), NO al repo
+# del proyecto. El push real solo ocurre dentro de `goreleaser release` cuando
+# corre contra un tag — este fichero no dispara nada por sí solo.
+# HOMEBREW_TAP_TOKEN tiene que ser un token con permiso de escritura sobre ese
+# repo (secret de Actions), nunca hardcodeado aquí.
+#
+# CASK y no `brews`: goreleaser deprecó `brews` y `goreleaser check` fallaba por
+# ello. El cambio NO es solo de nombre — los casks son SOLO macOS, así que
+# `brew install` en Linux (Linuxbrew) deja de estar cubierto. Para Linux queda
+# install.sh, que ya detecta sistema y arquitectura y verifica el checksum antes
+# de instalar nada.
+homebrew_casks:
   - name: open-tv
     ids:
       - default
+    binaries:
+      - open-tv
     repository:
       owner: gdberysan
       name: homebrew-tap
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
-    url_template: >-
-      https://github.com/gdberysan/open-tv/releases/download/{{ .Tag }}/{{ .ArtifactName }}
+    directory: Casks
     homepage: "https://github.com/gdberysan/open-tv"
     description: "Reproductor de televisión abierta (FTA): un solo binario, tus propias listas M3U."
-    license: "MIT"
+    url:
+      template: >-
+        https://github.com/gdberysan/open-tv/releases/download/{{ .Tag }}/{{ .ArtifactName }}
+      # El homepage y el dominio de descarga coinciden (los dos son GitHub), y
+      # declararlo es lo que evita que `brew audit` se queje.
+      verified: "github.com/gdberysan/open-tv"
     commit_author:
       name: gdberysan
       email: gdberysan@gmail.com
     commit_msg_template: "chore(tap): actualiza open-tv a {{ .Tag }}"
-    install: |
-      bin.install "open-tv"
-    test: |
-      system "#{bin}/open-tv", "--help"
+    # El binario no va firmado ni notarizado, así que sin esto Gatekeeper lo
+    # pone en cuarentena y no arranca. Es el hook que la propia documentación
+    # de goreleaser recomienda para este caso.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/open-tv"]
+          end
