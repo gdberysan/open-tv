@@ -78,12 +78,12 @@ describe('motorDelNavegador', () => {
     vi.unstubAllGlobals()
   })
 
-  it('Chrome: maybe + MediaSource → hlsjs (el nativo es poco fiable)', () => {
+  it('Chrome y Safari 26.6+: maybe + MediaSource → hlsjs (el nativo es poco fiable)', () => {
     vi.stubGlobal('MediaSource', class {})
     expect(motorDelNavegador(video('maybe'))).toBe('hlsjs')
   })
 
-  it('Safari: probably → nativo aunque haya MediaSource (soporte definitivo)', () => {
+  it('probably → nativo aunque haya MediaSource (Safari anteriores; soporte definitivo)', () => {
     vi.stubGlobal('MediaSource', class {})
     expect(motorDelNavegador(video('probably'))).toBe('nativo')
   })
@@ -103,3 +103,4 @@ describe('motorDelNavegador', () => {
     expect(motorDelNavegador(video(''))).toBe('hlsjs')
   })
 })
+

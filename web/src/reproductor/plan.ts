@@ -59,8 +59,8 @@ export function planDeReproduccion(e: EntradaPlan): Plan {
 }
 
 /**
- * Safari da soporte nativo DEFINITIVO ('probably') para HLS: se queda con el
- * <video> nativo, que además es más eficiente y permite AirPlay. Chrome y
+ * Un veredicto DEFINITIVO ('probably') se queda con el <video> nativo, que
+ * además es más eficiente y permite AirPlay. Chrome y
  * Firefox devuelven 'maybe' (Chrome) o '' (Firefox) — un veredicto ambiguo
  * que en la práctica esconde un HLS nativo poco fiable: el gate manual vio
  * un <video src=proxiedM3U8>+.load() quedarse en readyState 0 en Chrome con
@@ -68,6 +68,15 @@ export function planDeReproduccion(e: EntradaPlan): Plan {
  * (Media Source Extensions, lo que usa hls.js), se prefiere hls.js sobre
  * cualquier soporte nativo que no sea definitivo. Sin MSE (p. ej. iOS, que
  * bloquea MSE fuera de Safari) solo queda el nativo si lo soporta.
+ *
+ * OJO con 'probably': era la respuesta de Safari, pero **Safari 26.6 devuelve
+ * 'maybe'** (comprobado en Safari real por WebDriver el 2026-08-28; también
+ * responde 'maybe' a 'video/mp4', así que parece que redujo la huella que
+ * dejaba `canPlayType`). O sea: en un Safari de hoy esta primera rama NO se
+ * toma y se reproduce por hls.js, con `src` de tipo blob. La rama se queda
+ * porque las versiones anteriores sí dicen 'probably' y ahí el nativo es
+ * mejor. Lo que hay que vigilar es AirPlay, que se lleva mal con fuentes
+ * MSE; confirmarlo necesita un Apple TV de verdad.
  */
 export function motorDelNavegador(video: HTMLVideoElement): Motor {
   const nativo = video.canPlayType('application/vnd.apple.mpegurl')
