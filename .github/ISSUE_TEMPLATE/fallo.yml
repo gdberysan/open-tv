@@ -1,0 +1,55 @@
+name: Reportar un fallo
+description: Algo del programa no hace lo que dice que hace
+labels: ["fallo"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de seguir, dos cosas que llegan a menudo y **no** son fallos del programa:
+
+        - **Un canal concreto no carga.** Las listas las aporta quien usa el programa, y
+          las emisoras cambian sus URLs, se caen o geobloquean por región.
+        - **La instalación arranca vacía.** Es a propósito: tú decides qué añades.
+
+  - type: input
+    id: version
+    attributes:
+      label: Versión
+      description: La que imprime `open-tv --version`.
+      placeholder: open-tv v1.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: entorno
+    attributes:
+      label: Sistema y navegador
+      placeholder: macOS 15.3 arm64 · Safari 18.3
+    validations:
+      required: true
+
+  - type: textarea
+    id: pasos
+    attributes:
+      label: Cómo reproducirlo
+      description: Paso a paso, desde arrancar el binario.
+      placeholder: |
+        1. `open-tv`
+        2. Añado la fuente …
+        3. Elijo un canal y …
+    validations:
+      required: true
+
+  - type: textarea
+    id: esperado
+    attributes:
+      label: Qué esperabas que pasara, y qué pasó
+    validations:
+      required: true
+
+  - type: textarea
+    id: registro
+    attributes:
+      label: Salida del gateway
+      description: Lo que imprime la terminal donde corre `open-tv`. Quita lo que no quieras compartir.
+      render: shell

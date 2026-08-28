@@ -1,0 +1,31 @@
+name: Proponer algo
+description: Una idea para el programa
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Lee antes la lista de [lo que este proyecto no va a aceptar](https://github.com/gdberysan/open-tv/blob/main/CONTRIBUTING.md):
+        catálogos de fábrica, cuentas, telemetría, servicios en la nube de por medio,
+        saltarse protecciones y tocar `mobile/`. No es por cerrazón; son decisiones de diseño.
+
+  - type: textarea
+    id: problema
+    attributes:
+      label: Qué problema resuelve
+      description: El problema, no la solución. Qué intentabas hacer y con qué te topaste.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: Qué tienes en mente
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternativas
+    attributes:
+      label: Qué más consideraste
+      description: Opcional, pero ayuda a entender por qué esto y no otra cosa.

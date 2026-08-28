@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Fallo de seguridad
+    url: https://github.com/gdberysan/open-tv/security/advisories/new
+    about: NO abras un issue público. Repórtalo en privado por aquí.
+  - name: Un canal no reproduce
+    url: https://github.com/gdberysan/open-tv/blob/main/README.md
+    about: Los canales los aporta cada quien y las emisoras cambian o geobloquean sus URLs. Eso no es un fallo del programa.
