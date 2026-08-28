@@ -236,3 +236,37 @@ func TestDurationEnv(t *testing.T) {
 		}
 	})
 }
+
+// La versión tiene que poder consultarse. Antes `--version` moría con
+// "flag provided but not defined" y código 2, y `version` a secas ARRANCABA
+// el servidor: quien instalaba un binario no tenía forma de saber cuál tenía.
+func TestVersionSeConsultaYNoArrancaNada(t *testing.T) {
+	version = "1.2.3-test"
+
+	for _, arg := range []string{"--version", "-version", "-v", "version"} {
+		t.Run(arg, func(t *testing.T) {
+			var sb strings.Builder
+			manejado, code := manejaMetaComando([]string{arg}, &sb)
+			if !manejado {
+				t.Fatalf("%q debería atenderse sin arrancar el servidor", arg)
+			}
+			if code != 0 {
+				t.Errorf("%q: code = %d, quiero 0", arg, code)
+			}
+			if got := sb.String(); !strings.Contains(got, "1.2.3-test") {
+				t.Errorf("%q: la salida %q no lleva la versión", arg, got)
+			}
+		})
+	}
+}
+
+// `serve` y sus banderas siguen su camino: el LaunchAgent arranca con
+// `serve --no-browser` y no puede empezar a imprimir versiones.
+func TestArranqueNormalNoSeConfundeConMetaComando(t *testing.T) {
+	for _, args := range [][]string{{}, {"serve"}, {"serve", "--no-browser"}, {"--no-browser"}} {
+		var sb strings.Builder
+		if manejado, _ := manejaMetaComando(args, &sb); manejado {
+			t.Errorf("%v no debería tratarse como meta-comando (salida %q)", args, sb.String())
+		}
+	}
+}

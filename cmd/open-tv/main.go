@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net"
@@ -43,6 +44,12 @@ func main() {
 	log.SetFlags(0)
 	log.SetOutput(slogWriter{logger})
 
+	// Meta-comandos antes que nada: preguntar la versión no debe arrancar un
+	// servidor ni abrir una base de datos.
+	if manejado, code := manejaMetaComando(os.Args[1:], os.Stdout); manejado {
+		os.Exit(code)
+	}
+
 	// Subcomandos: `serve` es el default. Se acepta explícito para que el
 	// LaunchAgent y los scripts de arranque no dependan del default.
 	args := os.Args[1:]
@@ -62,6 +69,25 @@ func main() {
 		logger.Error("Fallo fatal", slog.Any("error", err))
 		os.Exit(1)
 	}
+}
+
+// manejaMetaComando atiende lo que se responde sin levantar nada: hoy, la
+// versión. Devuelve si consumió los argumentos y con qué código salir.
+//
+// Vive aparte de `serve` a propósito: el FlagSet de serve usa ExitOnError, así
+// que una bandera que no conoce mata el proceso con código 2 —que es
+// exactamente lo que hacía `--version` antes de esto—. Y `version` a secas ni
+// siquiera es una bandera: caía como argumento suelto y el servidor arrancaba.
+func manejaMetaComando(args []string, w io.Writer) (bool, int) {
+	if len(args) == 0 {
+		return false, 0
+	}
+	switch args[0] {
+	case "--version", "-version", "-v", "version":
+		fmt.Fprintf(w, "open-tv %s\n", version)
+		return true, 0
+	}
+	return false, 0
 }
 
 // run monta el stack completo y bloquea hasta que ctx se cancele. Separado de
