@@ -53,13 +53,15 @@ software libre que reproduce enlaces que ya tienes.
 
 ## Instalar
 
-**Homebrew** (macOS y Linux):
+**Homebrew** (solo macOS: la fórmula es un *cask*, y Homebrew no los sirve en
+Linux):
 
 ```bash
 brew install gdberysan/tap/open-tv
 ```
 
-**Instalador por curl** (macOS y Linux, sin marca de cuarentena):
+**Instalador por curl** (macOS y Linux, sin marca de cuarentena). En Linux
+esta es la vía, no Homebrew:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gdberysan/open-tv/main/install.sh | sh
@@ -172,6 +174,7 @@ cuarentena en [Instalar](#instalar).
 open-tv               # arranca el gateway (subcomando `serve` implícito)
 open-tv serve          # lo mismo, explícito
 open-tv --no-browser   # no abre el navegador al arrancar
+open-tv --version      # qué versión tienes, sin arrancar nada
 ```
 
 | Variable | Default | Para qué sirve |
@@ -192,8 +195,18 @@ identidad, no: si publicas un fork, usa tu propio nombre y emblema.
 
 ## Soporte
 
-[GitHub Issues](https://github.com/gdberysan/open-tv/issues) — errores, un
-canal que no se ve, o una idea. No hay soporte por correo personal.
+[GitHub Issues](https://github.com/gdberysan/open-tv/issues) para errores o
+ideas. No hay soporte por correo personal.
+
+Antes de abrir uno: que **un canal concreto no se vea** casi nunca es un fallo
+del programa. Las listas las aportas tú, y las emisoras cambian sus URLs, se
+caen o geobloquean por región.
+
+- ¿Vas a mandar código? [`CONTRIBUTING.md`](CONTRIBUTING.md) dice qué encaja y
+  qué no, para no hacerte perder la tarde.
+- ¿Un fallo de **seguridad**? No abras un issue público:
+  [`SECURITY.md`](SECURITY.md).
+- Cómo se trata la gente por aquí: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 
 ## Para desarrolladores
 
@@ -276,13 +289,15 @@ software that plays links you already have.
 
 ## Install
 
-**Homebrew** (macOS and Linux):
+**Homebrew** (macOS only: it ships as a *cask*, and Homebrew doesn't serve
+those on Linux):
 
 ```bash
 brew install gdberysan/tap/open-tv
 ```
 
-**curl installer** (macOS and Linux, no quarantine flag):
+**curl installer** (macOS and Linux, no quarantine flag). On Linux this is the
+way, not Homebrew:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gdberysan/open-tv/main/install.sh | sh
@@ -389,6 +404,7 @@ quarantine note in [Install](#install).
 open-tv               # starts the gateway (`serve` subcommand is implicit)
 open-tv serve          # same, explicit
 open-tv --no-browser   # don't open the browser on startup
+open-tv --version      # which version you have, without starting anything
 ```
 
 | Variable | Default | What it's for |
@@ -409,8 +425,19 @@ identity is not: if you publish a fork, use your own name and emblem.
 
 ## Support
 
-[GitHub Issues](https://github.com/gdberysan/open-tv/issues) — bugs, a
-channel that doesn't play, or an idea. No support over personal email.
+[GitHub Issues](https://github.com/gdberysan/open-tv/issues) for bugs or ideas.
+No support over personal email.
+
+Before opening one: **a specific channel not playing** is almost never a bug in
+the program. You supply the lists, and broadcasters change their URLs, go down,
+or geo-block by region.
+
+- Sending code? [`CONTRIBUTING.md`](CONTRIBUTING.md) says what fits and what
+  doesn't, so you don't spend an afternoon for nothing.
+- A **security** bug? Don't open a public issue:
+  [`SECURITY.md`](SECURITY.md).
+- How people are treated around here:
+  [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 
 ## For developers
 

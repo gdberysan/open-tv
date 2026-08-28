@@ -77,6 +77,27 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   accesible EMPIEZA por el texto visible.
 - **Tokens de marca:** ámbar = señal-viva/activo/foco. Nada hardcodeado.
 
+## Distribución (P1, cerrado 2026-08-28)
+
+- **Cask, no fórmula.** `.goreleaser.yml` usa `homebrew_casks`; `brews` está
+  deprecado y hacía fallar `goreleaser check`. Consecuencia real: los casks son
+  **solo macOS**, así que `brew install` en Linux ya NO está cubierto — para
+  Linux está `install.sh`, que detecta sistema/arquitectura y verifica checksum.
+  goreleaser genera bloques `on_linux` en el cask, pero Homebrew no soporta
+  `--cask` ahí: no te fíes de ellos.
+- **La credencial del tap es una DEPLOY KEY, no un PAT.** GitHub no tiene API
+  para emitir PATs, pero sí para deploy keys, y una deploy key es menos
+  privilegio (una sola repo, sin acceso a la cuenta, sin caducidad). Vive como
+  secret `HOMEBREW_TAP_SSH_KEY`; el workflow la materializa en `$RUNNER_TEMP`
+  con permisos 600 porque **goreleaser espera la RUTA, no el contenido**.
+- **`{{ .KeyPath }}` NO existe** en el esquema ni en la documentación de
+  goreleaser, aunque ande por ejemplos sueltos. Se usa
+  `{{ .Env.HOMEBREW_TAP_KEY_PATH }}`. Importa: esa línea solo corre DESPUÉS de
+  empujar el tag, y un fallo ahí deja una release a medias contra una etiqueta
+  ya publicada.
+- Rotar la clave: `gh repo deploy-key add … --allow-write` sobre
+  `gdberysan/homebrew-tap` + `gh secret set`. `gh` con scope `repo` basta.
+
 ## Flujo de trabajo
 
 - **subagent-driven-development (SDD):** un implementador fresco por tarea →
@@ -98,6 +119,13 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   entre comandos del shell), restaura `internal/ui/dist/.gitkeep` si el build lo
   borró, mata el proceso `open-tv serve` (launchd lo respawnea con el binario
   nuevo) y espera a que sirva el bundle nuevo.
+- **Las pruebas NO ven maquetación.** `astro check`/`svelte-check` y toda la
+  suite pasan con un CSS roto: en el sitio hermano (korven) se desplegó un
+  televisor cortado por la mitad con 743 pruebas en verde. Cualquier cambio de
+  CSS se comprueba midiendo geometría en un navegador de verdad (anchos,
+  desbordes, opacidad efectiva), no solo con los gates. Y **nunca editar CSS
+  con expresiones regulares**: una borró una declaración y su llave de cierre,
+  fundiendo dos reglas sin que nada se quejara.
 - **TRAMPA de gate visual en Chrome:** una pestaña abierta cachea el bundle
   viejo (SPA en memoria). Verifica el `index-<hash>.js` que sirve el gateway
   (`curl -s :8080/ | grep index-`) y recarga con un query cache-buster
@@ -106,14 +134,29 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
 
 ## Estado y hoja de ruta
 
-Ver `MEMORY.md` (personal, se carga por sesión). Resumen: **P0–P2 mergeadas y
+Ver `MEMORY.md` (personal, se carga por sesión). **Al 2026-08-28: los cinco
+bloqueadores de lanzamiento están CERRADOS y pusheados** (cask válido,
+`--version`, `SECURITY.md`, tap creado, credencial puesta), y el repo tiene ya
+`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` y plantillas de issue/PR. Quedan solo
+los dos pasos irreversibles —tag `v1.0.0` y el flip— que son del usuario.
+Resumen previo: **P0–P2 mergeadas y
 pusheadas al remoto PRIVADO** (cliente web embebido, fiabilidad/failover, sala
 de control UX, fuentes bring-your-own, estado del arte, guía EPG por fuente).
-**Reproductor-primero (layout 1b) HECHO y mergeado en main LOCAL (sin push):**
-escenario con vídeo persistente + catálogo lateral, cambio de canal en el
-sitio, modo «ver todo» conservando la rejilla P0.6, entrada muted con CTA de
-sonido. El flip público está **desbloqueado por el abogado** pero pendiente
-de: tag `v1.0.0` (+ repo tap Homebrew + secret) y el flip, ambos decisión del
-usuario. Specs en cola (gate de revisión): **DVR record-now** (su ● Grabar
+**Reproductor-primero (layout 1b) HECHO, mergeado y PUSHEADO:** escenario con
+vídeo persistente + catálogo lateral, cambio de canal en el sitio, modo «ver
+todo» conservando la rejilla P0.6, entrada muted con CTA de sonido. El flip
+público está **desbloqueado por el abogado**; el tap y su credencial ya están
+puestos, así que solo faltan los dos pasos irreversibles (tag y flip).
+
+**Pasada de Safari REAL hecha** (por `safaridriver`/WebDriver, no el WebKit de
+Playwright): reproducción, ⌘K con trap/`inert`/Esc y landmarks, todo limpio.
+De ahí salió un hallazgo que sigue vivo: **Safari 26.6 devuelve `'maybe'`, no
+`'probably'`**, a `canPlayType('application/vnd.apple.mpegurl')`, así que la
+rama nativa de `web/src/reproductor/plan.ts` no se toma en un Safari de hoy
+(va por hls.js, `src` de tipo blob). NO se borró: los Safari anteriores sí
+dicen `'probably'` y ahí el nativo es mejor. **Riesgo abierto: AirPlay se
+lleva mal con fuentes MSE**, y confirmarlo necesita un Apple TV. Al probar en
+Safari por WebDriver hay que usar **clic real de WebDriver**: un `click()`
+inyectado por JS no es gesto de usuario y Safari bloquea el autoplay. Specs en cola (gate de revisión): **DVR record-now** (su ● Grabar
 vive en el panel persistente ya creado) → **casting AirPlay+Chromecast** →
 **framecapture**.
