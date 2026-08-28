@@ -48,6 +48,17 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
+      # El GITHUB_TOKEN de este workflow solo alcanza a ESTE repo, así que el
+      # cask necesita credencial propia para escribir en el tap. Es una deploy
+      # key (una sola repo, sin acceso a la cuenta, sin caducidad) y goreleaser
+      # espera una RUTA, no el contenido: se materializa aquí, fuera del
+      # workspace y con permisos 600, y el runner es efímero.
+      - name: clave del tap
+        run: |
+          install -m 700 -d "$RUNNER_TEMP/tap"
+          printf '%s\n' "${{ secrets.HOMEBREW_TAP_SSH_KEY }}" > "$RUNNER_TEMP/tap/id_ed25519"
+          chmod 600 "$RUNNER_TEMP/tap/id_ed25519"
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -55,7 +66,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Token con permiso de escritura sobre gdberysan/homebrew-tap: el
-          # GITHUB_TOKEN por defecto de este workflow solo alcanza a ESTE
-          # repo, así que la fórmula de Homebrew necesita un secret aparte.
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_KEY_PATH: ${{ runner.temp }}/tap/id_ed25519

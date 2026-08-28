@@ -93,8 +93,8 @@ changelog:
 # Cask de Homebrew empujado al tap propio (gdberysan/homebrew-tap), NO al repo
 # del proyecto. El push real solo ocurre dentro de `goreleaser release` cuando
 # corre contra un tag — este fichero no dispara nada por sí solo.
-# HOMEBREW_TAP_TOKEN tiene que ser un token con permiso de escritura sobre ese
-# repo (secret de Actions), nunca hardcodeado aquí.
+# La credencial es una deploy key con escritura sobre ese repo, guardada como
+# secret de Actions (HOMEBREW_TAP_SSH_KEY), nunca aquí.
 #
 # CASK y no `brews`: goreleaser deprecó `brews` y `goreleaser check` fallaba por
 # ello. El cambio NO es solo de nombre — los casks son SOLO macOS, así que
@@ -111,7 +111,22 @@ homebrew_casks:
       owner: gdberysan
       name: homebrew-tap
       branch: main
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      # Push por SSH con una DEPLOY KEY del tap, no con un PAT. Un PAT hay
+      # que crearlo a mano en el navegador, caduca y —aunque sea de grano
+      # fino— es una credencial de la cuenta; una deploy key se crea desde la
+      # CLI, no caduca y solo puede escribir en ESE repositorio. Menos
+      # permiso, menos mantenimiento.
+      git:
+        url: "git@github.com:gdberysan/homebrew-tap.git"
+        # goreleaser espera la RUTA del fichero, no la clave: el workflow la
+        # materializa desde el secret antes de llamarlo.
+        private_key: "{{ .Env.HOMEBREW_TAP_KEY_PATH }}"
+        # `.Env.X` es campo de plantilla documentado; se usa el MISMO valor que
+        # `private_key` a propósito. Se evitó `{{ .KeyPath }}` (que aparece en
+        # ejemplos sueltos) porque no está en el esquema ni en la documentación,
+        # y esta línea solo se ejecuta DESPUÉS de empujar el tag: un fallo aquí
+        # se paga con una release a medias contra una etiqueta ya publicada.
+        ssh_command: "ssh -i {{ .Env.HOMEBREW_TAP_KEY_PATH }} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
     directory: Casks
     homepage: "https://github.com/gdberysan/open-tv"
     description: "Reproductor de televisión abierta (FTA): un solo binario, tus propias listas M3U."
