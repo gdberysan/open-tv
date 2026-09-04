@@ -130,6 +130,15 @@ export const es = {
   'reproductor.error.mirrorsDisponibles': 'Hay {n} mirrors con mejor salud.',
   'reproductor.error.probarSiguienteMirror': 'Probar el siguiente mirror',
 
+  // AirPlay (spec 2026-09-03): sin nombre de dispositivo posible — WebKit no
+  // expone uno a la página (ver spec §2.6) — así que el texto es genérico.
+  'reproductor.airplay': 'AirPlay',
+  'reproductor.cast.emitiendo': 'Emitiendo a AirPlay — {canal}',
+  'reproductor.cast.parar': 'Dejar de emitir',
+  'reproductor.cast.fallo': 'Este canal no se puede emitir por AirPlay. Sigue reproduciéndose aquí.',
+  'reproductor.cast.noDisponible': 'Este canal no se pudo emitir por AirPlay antes. Sigue reproduciéndose aquí.',
+  'reproductor.cast.terminada': 'Emisión por AirPlay terminada.',
+
   'estado.sincronizando': 'Sincronizando el catálogo…',
   'estado.sincronizandoDetalle': 'La primera vez tarda unos segundos: se descargan unos 13 000 canales.',
   'estado.gatewayCaido': 'No se pudo contactar con Open TV. ¿Sigue abierto?',

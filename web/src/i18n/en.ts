@@ -77,6 +77,13 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.error.mirrorsDisponibles': 'There are {n} mirrors with better health.',
   'reproductor.error.probarSiguienteMirror': 'Try the next mirror',
 
+  'reproductor.airplay': 'AirPlay',
+  'reproductor.cast.emitiendo': 'Casting to AirPlay — {canal}',
+  'reproductor.cast.parar': 'Stop casting',
+  'reproductor.cast.fallo': "This channel can't cast over AirPlay. Still playing here.",
+  'reproductor.cast.noDisponible': "This channel couldn't cast over AirPlay before. Still playing here.",
+  'reproductor.cast.terminada': 'AirPlay casting ended.',
+
   'estado.sincronizando': 'Syncing the catalogue…',
   'estado.sincronizandoDetalle': 'The first run takes a few seconds: about 13,000 channels are downloaded.',
   'estado.gatewayCaido': 'Could not reach Open TV. Is it still running?',
