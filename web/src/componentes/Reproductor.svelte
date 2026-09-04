@@ -744,10 +744,15 @@
         // nada — ya no existe un modal que cerrar.
         break
       case 'f':
-        alternarPantallaCompleta()
+        // No hay vídeo local visible que expandir durante el cast — está
+        // cubierto por el panel "Emitiendo…" (Step 3 de esta tarea).
+        if (estadoCast === 'idle') alternarPantallaCompleta()
         break
       case 'm':
-        alternarSilencio()
+        // Con estadoCast !== 'idle' el MISMO <video> alimenta al TV (spec
+        // §3/§5): silenciar aquí muy probablemente silencia el TV también.
+        // No-op a propósito mientras se está emitiendo o conectando.
+        if (estadoCast === 'idle') alternarSilencio()
         break
       case 'ArrowLeft':
         alAnterior?.()
@@ -813,6 +818,16 @@
           </button>
         {/if}
       </div>
+    {:else if estadoCast === 'emitiendo'}
+      <!-- estadoCast === 'conectando' ya se ve como "cargando" arriba (sigue
+           en true hasta que PlaybackGuard.alConfirmar() dispara) — sin
+           tercer texto de carga redundante para ese estado. -->
+      <div class="estado cast">
+        <p class="mensaje">{t('reproductor.cast.emitiendo', { canal: canal.nombre })}</p>
+        <button type="button" class="parar-cast" onclick={pararCast}>
+          {t('reproductor.cast.parar')}
+        </button>
+      </div>
     {/if}
 
     <!-- Regiones aria-live PERSISTENTES (fix round 1, Hallazgo 1): los <p>
@@ -822,8 +837,12 @@
          entero) no anunciaría nada al abrirse. Estas dos existen SIEMPRE
          mientras el reproductor existe (vacías cuando no aplican); es su
          textContent el que cambia. -->
-    <p class="sr-only" aria-live="polite" aria-atomic="true">{cargando ? t('reproductor.cargando') : ''}</p>
-    <p class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">{mensajeError ?? ''}</p>
+    <!-- Cast (spec 2026-09-03): reusa estas DOS regiones ya existentes, no
+         añade una tercera — invariante duro del proyecto (CLAUDE.md). -->
+    <p class="sr-only" aria-live="polite" aria-atomic="true">
+      {cargando ? t('reproductor.cargando') : estadoCast === 'emitiendo' ? t('reproductor.cast.emitiendo', { canal: canal.nombre }) : ''}
+    </p>
+    <p class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">{mensajeError ?? avisoCast ?? ''}</p>
 
     <!-- CTA de sonido (spec §5): la entrada auto-reproduce muted; esta es la
          affordance «bien visible» para activar el sonido. Desaparece con el
@@ -915,8 +934,18 @@
           {/if}
           {#if soportaAirplay}
             <!-- La barra inferior del modal se fue con el modal: AirPlay vive
-                 aquí, junto a PiP (decisión 4 del plan reproductor-primero). -->
-            <button type="button" class="airplay" onclick={abrirSelectorAirplay} aria-label="AirPlay">📺</button>
+                 aquí, junto a PiP (decisión 4 del plan reproductor-primero).
+                 class:activo reusa la regla de marca ya existente (ámbar =
+                 señal-viva/activo, .overlay-controles button.activo más
+                 abajo) — sin CSS nuevo. -->
+            <button
+              type="button"
+              class="airplay"
+              class:activo={estadoCast !== 'idle'}
+              onclick={abrirSelectorAirplay}
+              aria-pressed={estadoCast !== 'idle'}
+              aria-label={t('reproductor.airplay')}
+            >📺</button>
           {/if}
         </div>
       </div>
@@ -987,6 +1016,12 @@
   }
   .estado.error .mensaje { color: var(--signal-error); margin: 0; }
   .estado.error .mirrors { color: var(--text-muted); margin: 0; }
+  /* Sin color de error (var(--signal-error)) a propósito: fallar el cast no
+     es un error de reproducción — hls.js sigue funcionando en local. Mismo
+     margin:0 que .estado.error .mensaje, por la misma razón (el <p> suelto
+     traería el margen por defecto del user-agent y desalinearía el gap del
+     flex de .estado). */
+  .estado.cast .mensaje { color: var(--text-body); margin: 0; }
   /* Ámbar = CTA primaria de un estado, mismo tratamiento "relleno" que
      .sugerida en Vacio.svelte (misma familia de estados con una acción
      concreta que sacar de un error). */
@@ -1000,6 +1035,20 @@
     font: inherit;
   }
   .probar-mirror:hover { background: var(--tint-amber-line); }
+  /* Mismo tratamiento visual que .probar-mirror, clase separada porque es
+     una acción distinta (parar un cast, no reintentar un mirror) — mismo
+     criterio que ya usa este fichero de una clase por acción en vez de
+     compartir selector. */
+  .parar-cast {
+    background: var(--tint-amber-weak);
+    border: 1px solid var(--tint-amber-line);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-4);
+    color: var(--amber-500);
+    cursor: pointer;
+    font: inherit;
+  }
+  .parar-cast:hover { background: var(--tint-amber-line); }
 
   /* Overlay 1b (Tarea 1, P0.8): barra de controles sobre el vídeo, con
      gradiente inferior — insignia arriba, nombre+controles abajo. La

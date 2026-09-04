@@ -958,3 +958,235 @@ describe('Reproductor — sesión de cast AirPlay (Tarea 3)', () => {
     }
   })
 })
+
+// Tarea 4 (spec 2026-09-03): superficie visible de la sesión de cast — el
+// panel que reemplaza la vista de vídeo, y las dos guardas de teclado
+// (estadoCast !== 'idle' apaga 'm'/'f', porque el MISMO <video> alimenta al
+// TV mientras dura). No se duplica la lógica de iniciarCast()/pararCast()
+// (Tarea 3): estos tests solo verifican lo que la Tarea 4 añadió.
+describe('Reproductor — interfaz de cast (Tarea 4)', () => {
+  beforeEach(() => {
+    favoritos.set(new Set())
+    localStorage.clear()
+  })
+
+  function fuenteSinMirrors() {
+    return {
+      mirrors: vi.fn(async () => [] as Mirror[]),
+      destino: vi.fn(async () => ({ url: 'https://unico/x.m3u8', airplayOk: null })),
+      proxyDisponible: vi.fn(async () => false),
+    }
+  }
+
+  it('cambiar de canal durante un cast activo sigue emitiendo, sin volver a elegir dispositivo', async () => {
+    ;(window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent'] = class {}
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      // destino varía por id (a diferencia de fuenteSinMirrors de arriba):
+      // hace falta distinguir la url del canal A de la del canal B para
+      // comprobar que el efecto de cambio de canal (canal.id) reanuda con
+      // el destino nuevo sin pasar por abrirSelectorAirplay() de nuevo.
+      const destino = vi.fn(async (id: string) => ({ url: `https://unico/${id}.m3u8`, airplayOk: null }))
+      const fuente = {
+        mirrors: vi.fn(async () => [] as Mirror[]),
+        destino,
+        proxyDisponible: vi.fn(async () => false),
+      }
+      const canalA = { ...canal, id: 'a' } as Canal
+      const canalB = { ...canal, id: 'b' } as Canal
+      const { container, rerender } = render(Reproductor, { canal: canalA, fuente: fuente as any })
+
+      // Deja asentar el intento inicial (motor 'hlsjs', sin cast todavía)
+      // antes de forzar el cast — mismo patrón que los tests de la Tarea 3.
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      hlsState.instancias.length = 0
+
+      const video = container.querySelector('video') as HTMLVideoElement & {
+        webkitCurrentPlaybackTargetIsWireless?: boolean
+      }
+      Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', {
+        value: true,
+        configurable: true,
+      })
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await vi.waitFor(() => expect(video.src).toContain('a.m3u8'))
+
+      await rerender({ canal: canalB, fuente: fuente as any })
+
+      // El $effect existente de cambio de canal (canal.id) llama
+      // limpiarIntento()+reproducir() igual que siempre — motorForzado NO se
+      // tocó, así que el canal nuevo también arranca en motor nativo, sin
+      // que el test dispare el evento de WebKit de nuevo (no hay un segundo
+      // paso por el selector).
+      await vi.waitFor(() => expect(video.src).toContain('b.m3u8'))
+      expect(hlsState.instancias.length).toBe(0)
+    } finally {
+      delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  it("'m' no silencia mientras hay una sesión de AirPlay activa", async () => {
+    ;(window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent'] = class {}
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
+
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      hlsState.instancias.length = 0
+
+      const video = container.querySelector('video') as HTMLVideoElement & {
+        webkitCurrentPlaybackTargetIsWireless?: boolean
+      }
+      Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', {
+        value: true,
+        configurable: true,
+      })
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await vi.waitFor(() => expect(video.src).toContain('x.m3u8'))
+
+      const mutedAntes = video.muted
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'm' }))
+      await tick()
+      expect(video.muted).toBe(mutedAntes)
+    } finally {
+      delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  it("'f' no expande a pantalla completa mientras hay una sesión de AirPlay activa", async () => {
+    ;(window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent'] = class {}
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    // Mismo patrón que el describe de "pantalla completa y Picture-in-Picture"
+    // más arriba en este fichero: soportaFullscreen se lee de
+    // document.fullscreenEnabled al montar, y alternarPantallaCompleta()
+    // llama requestFullscreen() sobre el CONTENEDOR (HTMLDivElement), no
+    // sobre el <video>.
+    Object.defineProperty(document, 'fullscreenEnabled', { value: true, configurable: true })
+    const requestFullscreenSpy = vi.fn()
+    HTMLDivElement.prototype.requestFullscreen = requestFullscreenSpy
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
+
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      hlsState.instancias.length = 0
+
+      const video = container.querySelector('video') as HTMLVideoElement & {
+        webkitCurrentPlaybackTargetIsWireless?: boolean
+      }
+      Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', {
+        value: true,
+        configurable: true,
+      })
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await vi.waitFor(() => expect(video.src).toContain('x.m3u8'))
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f' }))
+      await tick()
+      expect(requestFullscreenSpy).not.toHaveBeenCalled()
+    } finally {
+      delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
+      // @ts-expect-error limpieza del parche de prototipo
+      delete HTMLDivElement.prototype.requestFullscreen
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  it('el botón AirPlay se marca activo (ámbar, aria-pressed) mientras se emite', async () => {
+    ;(window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent'] = class {}
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
+
+      const airplay = screen.getByRole('button', { name: t('reproductor.airplay') })
+      expect(airplay.getAttribute('aria-pressed')).toBe('false')
+      expect(airplay.classList.contains('activo')).toBe(false)
+
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      hlsState.instancias.length = 0
+
+      const video = container.querySelector('video') as HTMLVideoElement & {
+        webkitCurrentPlaybackTargetIsWireless?: boolean
+      }
+      Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', {
+        value: true,
+        configurable: true,
+      })
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await vi.waitFor(() => expect(video.src).toContain('x.m3u8'))
+      await tick()
+
+      expect(airplay.getAttribute('aria-pressed')).toBe('true')
+      expect(airplay.classList.contains('activo')).toBe(true)
+    } finally {
+      delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  it('pararCast() muestra el panel "Emitiendo…" mientras estadoCast === \'emitiendo\' y el botón "Dejar de emitir" lo cierra', async () => {
+    ;(window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent'] = class {}
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
+
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      hlsState.instancias.length = 0
+
+      const video = container.querySelector('video') as HTMLVideoElement & {
+        webkitCurrentPlaybackTargetIsWireless?: boolean
+      }
+      Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', {
+        value: true,
+        configurable: true,
+      })
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await vi.waitFor(() => expect(video.src).toContain('x.m3u8'))
+
+      // Deja que el guard nativo confirme para llegar a estadoCast ===
+      // 'emitiendo' — 'conectando' se pinta como "cargando", no como el
+      // panel de cast (Step 3 de esta tarea). El guard confirma cuando la
+      // POSICIÓN AVANZA entre dos timeupdate (guard.ts: alPosicion), no con
+      // un único evento — jsdom no avanza currentTime solo, así que se
+      // mockea a mano igual que webkitCurrentPlaybackTargetIsWireless arriba.
+      let posicion = 0
+      Object.defineProperty(video, 'currentTime', { get: () => posicion, configurable: true })
+      video.dispatchEvent(new Event('timeupdate'))
+      posicion = 1
+      video.dispatchEvent(new Event('timeupdate'))
+      // getByText: hay DOS nodos con este texto a propósito (el panel
+      // visible Y la región sr-only que lo reusa, Step 4) — se comprueba el
+      // panel visible directamente por selector en vez de por texto.
+      await vi.waitFor(() => expect(container.querySelector('.estado.cast')).toBeTruthy())
+      expect(container.querySelector('.estado.cast .mensaje')?.textContent).toBe(
+        t('reproductor.cast.emitiendo', { canal: canal.nombre }),
+      )
+
+      const parar = screen.getByRole('button', { name: t('reproductor.cast.parar') })
+      hlsState.instancias.length = 0
+      parar.click()
+      await tick()
+
+      expect(container.querySelector('.estado.cast')).toBeNull()
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+    } finally {
+      delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+})
