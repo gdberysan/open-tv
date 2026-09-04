@@ -9,6 +9,7 @@ import type { DesenlaceReproduccion } from '../reproductor/failover'
 import type { Canal, Mirror, Programa } from '../datos/catalogo'
 import { favoritos } from '../estado/favoritos'
 import { formatearHoraLocal } from '../lib/hora'
+import { noCasteaPorFormato } from '../estado/castFallidos'
 
 // jsdom no decodifica HLS de verdad: canPlayType() no está implementado (así
 // que motorDelNavegador siempre elige 'hlsjs' aquí) y no hay MediaSource, así
@@ -902,6 +903,54 @@ describe('Reproductor — sesión de cast AirPlay (Tarea 3)', () => {
       // fallo del motor nativo forzado por cast reanuda en local sin
       // mostrarla.
       expect(container.querySelector('.estado.error')).toBeNull()
+
+      // clasificarFallo({ mediaErrorCode: 4 }) === 'formato' (código
+      // SRC_NOT_SUPPORTED): la Task 3 solo recuerda "este canal no castea"
+      // para fallos de formato/códec, nunca para uno de red/timeout
+      // transitorio — este es el lado POSITIVO de esa distinción.
+      expect(noCasteaPorFormato(canal.id)).toBe(true)
+    } finally {
+      delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  // Lado NEGATIVO de la misma distinción: un fallo de RED (código 2 =
+  // MEDIA_ERR_NETWORK, clasificarFallo lo mapea a 'caido', no 'formato') es
+  // transitorio — el mirror pudo estar caído un instante, no es que el
+  // canal sea incompatible con AirPlay. marcarFalloFormato() NO debe
+  // llamarse, así que noCasteaPorFormato() sigue en false tras agotar el
+  // intento nativo forzado.
+  it('agotar los intentos en modo cast por un fallo de RED (no formato) no marca el canal como sin-cast', async () => {
+    ;(window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent'] = class {}
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
+
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      hlsState.instancias.length = 0
+
+      const video = container.querySelector('video') as HTMLVideoElement & {
+        webkitCurrentPlaybackTargetIsWireless?: boolean
+      }
+      Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', {
+        value: true,
+        configurable: true,
+      })
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await vi.waitFor(() => expect(video.src).toContain('x.m3u8'))
+
+      // Código 2 = MEDIA_ERR_NETWORK — clasificarFallo() lo mapea a 'caido',
+      // NO a 'formato' (ver diagnostico.ts).
+      Object.defineProperty(video, 'error', { value: { code: 2 }, configurable: true })
+      video.dispatchEvent(new Event('error'))
+
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      expect(container.querySelector('.estado.error')).toBeNull()
+      expect(noCasteaPorFormato(canal.id)).toBe(false)
     } finally {
       delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
       loadSpy.mockRestore()
