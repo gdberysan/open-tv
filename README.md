@@ -228,7 +228,7 @@ flutter run -d macos --dart-define=GATEWAY_URL=http://192.168.1.50:8080
 ### Compilar el gateway + cliente web desde el código fuente
 
 ```bash
-cd web && npm install && npm run build   # genera web/dist, embebido con go:embed
+cd web && npm install && npm run build   # genera internal/ui/dist, embebido con go:embed
 cd .. && go build -o open-tv ./cmd/open-tv
 ```
 
@@ -459,7 +459,7 @@ flutter run -d macos --dart-define=GATEWAY_URL=http://192.168.1.50:8080
 ### Building the gateway + web client from source
 
 ```bash
-cd web && npm install && npm run build   # generates web/dist, embedded via go:embed
+cd web && npm install && npm run build   # generates internal/ui/dist, embedded via go:embed
 cd .. && go build -o open-tv ./cmd/open-tv
 ```
 

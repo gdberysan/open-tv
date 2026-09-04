@@ -154,9 +154,28 @@ De ahí salió un hallazgo que sigue vivo: **Safari 26.6 devuelve `'maybe'`, no
 `'probably'`**, a `canPlayType('application/vnd.apple.mpegurl')`, así que la
 rama nativa de `web/src/reproductor/plan.ts` no se toma en un Safari de hoy
 (va por hls.js, `src` de tipo blob). NO se borró: los Safari anteriores sí
-dicen `'probably'` y ahí el nativo es mejor. **Riesgo abierto: AirPlay se
-lleva mal con fuentes MSE**, y confirmarlo necesita un Apple TV. Al probar en
-Safari por WebDriver hay que usar **clic real de WebDriver**: un `click()`
-inyectado por JS no es gesto de usuario y Safari bloquea el autoplay. Specs en cola (gate de revisión): **DVR record-now** (su ● Grabar
-vive en el panel persistente ya creado) → **casting AirPlay+Chromecast** →
-**framecapture**.
+dicen `'probably'` y ahí el nativo es mejor. Al probar en Safari por WebDriver
+hay que usar **clic real de WebDriver**: un `click()` inyectado por JS no es
+gesto de usuario y Safari bloquea el autoplay.
+
+**AirPlay en el cliente web: HECHO y verificado contra un Apple TV real
+(2026-09-04, `11f096b`, mergeado en main local, NO pusheado).** El botón 📺
+del reproductor ya emite vídeo y audio de verdad. Causa raíz: AirPlay no
+reproduce fuentes MSE/`blob:` (lo que da hls.js) — el motor se fuerza a
+nativo (`<video src>`) SOLO durante una sesión de cast, en
+`web/src/componentes/Reproductor.svelte`, reutilizando toda la máquina de
+reproducción existente. Dos bugs reales de hardware aparecieron y se
+cerraron con evidencia (trace real vía `window.__airplayDebug` +
+`osascript … do JavaScript`, no con hipótesis sin probar — ver
+`verificar_antes_de_arreglar.md` en memoria): un bucle de reconexión sin fin
+(arreglado preparando el motor nativo AL PULSAR el botón, no al reaccionar
+al evento de ruta) y el selector de AirPlay cancelado dejando la app
+convencida de estar emitiendo (arreglado con un timeout de 45 s). Detalle
+técnico completo y qué queda por probar (Task 5 del plan, mayormente
+pendiente aún) en la memoria del proyecto. Spec:
+`docs/superpowers/specs/2026-09-03-airplay-cast-web-design.md`. Plan:
+`docs/superpowers/plans/2026-09-03-airplay-cast-web.md`.
+
+Specs en cola (gate de revisión): **DVR record-now** (su ● Grabar
+vive en el panel persistente ya creado) → **Chromecast** (spec propio, no
+comparte código con AirPlay) → **framecapture**.
