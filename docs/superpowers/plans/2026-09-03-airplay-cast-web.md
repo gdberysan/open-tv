@@ -160,7 +160,6 @@ Expected: PASS, 5 tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/usuario/Dev/open-tv
 git add web/src/estado/castFallidos.ts web/src/estado/castFallidos.test.ts
 git commit -m "feat(web): memoria de canales que no casteán por formato
 
@@ -224,7 +223,6 @@ Expected: PASS — mismas claves en ambos idiomas, ningún texto vacío,
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/usuario/Dev/open-tv
 git add web/src/i18n/es.ts web/src/i18n/en.ts
 git commit -m "feat(web): textos de la sesión de cast AirPlay (es/en)
 
@@ -537,7 +535,6 @@ Expected: todo en verde.
 - [ ] **Step 13: Commit**
 
 ```bash
-cd /Users/usuario/Dev/open-tv
 git add web/src/componentes/Reproductor.svelte web/src/componentes/Reproductor.test.ts
 git commit -m "feat(web): forzar motor nativo durante una sesión de AirPlay
 
@@ -836,7 +833,6 @@ cache-buster (`?fresh=...`) que:
 - [ ] **Step 11: Commit**
 
 ```bash
-cd /Users/usuario/Dev/open-tv
 git add web/src/componentes/Reproductor.svelte web/src/componentes/Reproductor.test.ts
 git commit -m "feat(web): interfaz de la sesión de cast AirPlay
 
