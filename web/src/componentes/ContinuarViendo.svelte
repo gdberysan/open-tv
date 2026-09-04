@@ -127,13 +127,13 @@
 
   .miniaturas {
     display: flex;
-    gap: 6px;
+    gap: 10px;
   }
   .miniatura {
     all: unset;
     cursor: pointer;
-    width: 40px;
-    height: 40px;
+    width: 64px;
+    height: 64px;
     border-radius: 6px;
     overflow: hidden;
     border: 1px solid var(--border-default);

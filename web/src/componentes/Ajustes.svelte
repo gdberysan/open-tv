@@ -16,7 +16,19 @@
   // fetch a /health: App ya llama a consultarSalud() al arrancar (gobierna
   // `fase`) — reenviar ese mismo resultado evita una segunda llamada de red
   // solo para pintar un número.
-  let { alVolver, version }: { alVolver: () => void; version: string } = $props()
+  // alAbrirStats (opcional, con no-op de respaldo): el enlace a «Estadísticas
+  // locales» vivía en el pie de página global (App.svelte) — se traslada
+  // aquí porque ahí competía por el mismo espacio vertical que la rejilla del
+  // escenario. Sigue siendo una vista secundaria/de depuración, no una
+  // función primaria como Fuentes (ver el comentario de la cabecera en
+  // App.svelte), así que su sitio natural es Ajustes, no la cabecera.
+  // Opcional con respaldo, mismo criterio que focoActivo en TarjetaCanal:
+  // no romper a nadie que use esta vista suelta (tests existentes incluidos).
+  let { alVolver, version, alAbrirStats = () => {} }: {
+    alVolver: () => void
+    version: string
+    alAbrirStats?: () => void
+  } = $props()
 
   // Mismo mecanismo de foco que Fuentes.svelte (Tarea 11, P0.7): al montar,
   // el foco se mueve al título de esta vista (la cabecera que la abre nunca
@@ -78,6 +90,10 @@
       {t('ajustes.recordarFiltros.titulo')}
     </label>
     <p class="ayuda">{t('ajustes.recordarFiltros.ayuda')}</p>
+  </div>
+
+  <div class="bloque">
+    <button type="button" class="ver-stats" onclick={alAbrirStats}>{t('pie.stats')}</button>
   </div>
 
   <!-- Acerca de: versión real (de /health, vía App), el mismo aviso legal
@@ -158,6 +174,17 @@
   }
   .segmentado button.activo {
     border-color: var(--amber-500);
+    color: var(--amber-500);
+  }
+
+  .ver-stats {
+    all: unset;
+    cursor: pointer;
+    align-self: flex-start;
+    color: var(--text-body);
+    text-decoration: underline;
+  }
+  .ver-stats:hover {
     color: var(--amber-500);
   }
 

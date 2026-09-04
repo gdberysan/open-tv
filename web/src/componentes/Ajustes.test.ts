@@ -73,6 +73,16 @@ describe('Ajustes — Acerca de', () => {
   })
 })
 
+describe('Ajustes — estadísticas locales', () => {
+  it('pulsar «Estadísticas locales» llama a alAbrirStats', async () => {
+    const alAbrirStats = vi.fn()
+    render(Ajustes, { alVolver: () => {}, version: 'dev', alAbrirStats })
+
+    await fireEvent.click(screen.getByRole('button', { name: t('pie.stats') }))
+    expect(alAbrirStats).toHaveBeenCalled()
+  })
+})
+
 describe('Ajustes — foco (mismo patrón que Fuentes)', () => {
   it('(f) al montar, el foco va al título de la vista', async () => {
     render(Ajustes, { alVolver: () => {}, version: 'dev' })

@@ -161,8 +161,6 @@ export const es = {
   'historial.seguir': 'Seguir viendo',
   'historial.borrar': 'Borrar historial',
 
-  'pie.fuente': 'La fuente es la lista pública de televisión abierta de iptv-org. Korven no retransmite nada.',
-  'pie.postura': 'Sin canales premium, sin VPN, sin elusión de geobloqueo.',
   'pie.codigo': 'Ver el código',
   'pie.stats': 'Estadísticas locales',
 

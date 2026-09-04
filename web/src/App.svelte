@@ -242,22 +242,18 @@
 
   // irAStats/irAFuentes/irAAjustes son el núcleo sin evento de ratón (Tarea 4,
   // P0.8): la paleta de comandos dispara las mismas vistas sin partir de un
-  // clic sobre un <a>, así que no tiene un MouseEvent que prevenir. Los
-  // manejadores de clic de abajo (abrirStats/abrirFuentes/abrirAjustes) siguen
-  // siendo la única puerta para los enlaces reales de la cabecera/pie — un
-  // solo sitio que sabe "qué significa ir a stats/fuentes/ajustes", con o sin
-  // evento. Las tres vistas son mutuamente excluyentes: cada irA* apaga las
-  // otras dos antes de encender la suya.
+  // clic sobre un <a>, así que no tiene un MouseEvent que prevenir. irAStats
+  // ya no tiene un envoltorio abrirStats(e) propio — a diferencia de
+  // abrirFuentes/abrirAjustes (que siguen siendo la puerta de los <button>
+  // reales de la cabecera), el punto de entrada a stats ahora es el botón de
+  // Ajustes (alAbrirStats), que llama a este núcleo directamente, igual que
+  // la paleta de comandos. Las tres vistas son mutuamente excluyentes: cada
+  // irA* apaga las otras dos antes de encender la suya.
   function irAStats() {
     vistaFuentes = false
     vistaAjustes = false
     vistaStats = true
     location.hash = 'stats'
-  }
-
-  function abrirStats(e: MouseEvent) {
-    e.preventDefault()
-    irAStats()
   }
 
   function volverDelPanel() {
@@ -1061,7 +1057,7 @@
                de la cabecera) — TOP-LEVEL como vistaStats, no anidada bajo
                fase.tipo==='listo': las preferencias tienen sentido aunque el
                catálogo siga sincronizando o haya dado error. -->
-          <Ajustes alVolver={volverDeAjustes} version={versionApp} />
+          <Ajustes alVolver={volverDeAjustes} version={versionApp} alAbrirStats={irAStats} />
         {:else if vistaStats}
           <PanelStats alVolver={volverDelPanel} />
         {:else if fase.tipo === 'sincronizando'}
@@ -1168,17 +1164,16 @@
     </div>
   </div>
 
+  <!-- pie.fuente/pie.postura/pie.stats (el aviso de fuente/postura legal y el
+       enlace a Estadísticas locales) vivían aquí y se trasladaron: este pie
+       de página global sigue el escenario en el flujo normal de la página, y
+       en el layout apilado de móvil (breakpoint 900px) competía por el mismo
+       espacio vertical que la rejilla de canales de la lateral. El aviso
+       legal ya vive, palabra por palabra sincronizado a propósito, en
+       Ajustes → Acerca de y en Fuentes (fuentes.legal.*); el enlace a stats
+       vive ahora en Ajustes (alAbrirStats) — ver el comentario del botón
+       «Fuentes» de la cabecera sobre por qué stats no sube a la cabecera. -->
   <footer class="pie" inert={paletaAbierta}>
-    <p>{t('pie.fuente')}</p>
-    <p>{t('pie.postura')}</p>
-    {#if !vistaStats}
-      <p><a class="stats" href="#stats" onclick={abrirStats}>{t('pie.stats')}</a></p>
-    {/if}
-    <!-- Tarea 10 (P0.7): pie de crédito de marca, INTEGRADO en este mismo
-         <footer> (no un segundo <footer> compitiendo) — comparte el mismo
-         boundary inert de arriba y el mismo contenedor .fondo. El propio
-         componente aporta su borde superior hairline para separarse
-         visualmente de las líneas de arriba. -->
     <PieDeMarca />
   </footer>
 </div>
@@ -1373,9 +1368,6 @@
     flex-direction: column;
     gap: 4px;
   }
-  .pie a.stats { color: var(--text-muted); text-decoration: underline; }
-  .pie a.stats:hover { color: var(--text-body); }
-  .pie p { margin: 0; }
 
   /* Afordancia del gesto "surf" (Tarea 11, P0.6). */
   .pista-surf {

@@ -77,31 +77,50 @@
   .facetas-compactas {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2, 8px);
+    gap: var(--space-3, 12px);
   }
   .grupo {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-1, 4px);
+    align-items: center;
+    gap: 6px;
   }
   .chip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    background: none;
+    gap: 6px;
+    height: 26px;
+    box-sizing: border-box;
+    background: var(--surface-sunken);
     border: 1px solid var(--border-default);
     border-radius: 999px;
-    padding: 2px 8px;
+    padding: 0 10px;
     color: var(--text-body);
     cursor: pointer;
     font: var(--type-mono-label, inherit);
     letter-spacing: var(--tracking-mono, normal);
+    transition: background-color var(--dur-fast, .15s) var(--ease-out, ease),
+      border-color var(--dur-fast, .15s) var(--ease-out, ease),
+      color var(--dur-fast, .15s) var(--ease-out, ease);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chip {
+      transition: none;
+    }
   }
   .chip:hover {
     background: var(--surface-raised);
+    border-color: var(--border-strong, var(--border-default));
   }
   .chip .conteo {
+    display: inline-flex;
+    align-items: center;
+    height: 16px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--surface-raised);
     color: var(--text-muted);
+    font-size: 10px;
     font-variant-numeric: tabular-nums;
   }
   /* Ámbar = faceta activa, misma regla que BarraLateralFacetas. */
@@ -111,6 +130,7 @@
     color: var(--amber-500);
   }
   .chip[aria-pressed='true'] .conteo {
+    background: transparent;
     color: var(--amber-500);
   }
 </style>
