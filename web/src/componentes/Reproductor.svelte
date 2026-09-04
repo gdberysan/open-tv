@@ -290,17 +290,19 @@
     avisoCast = null
   }
 
-  // Glitch en vivo el 2026-09-04 (icono AirPlay y "Emisión terminada"
-  // parpadeando sin parar tras "Dejar de emitir", más una ráfaga de 429 al
-  // origin) — hipótesis sin confirmar todavía: terminarRutaAirplay() no
-  // puede deseleccionar la ruta a nivel de SISTEMA (mismo límite que
-  // documentaba el spec viejo de Flutter, §5), así que volver
-  // disableRemotePlayback a false podría hacer que WebKit re-dispare
-  // webkitcurrentplaybacktargetiswirelesschanged con activa=true casi de
-  // inmediato. Instrumentado con console.log (ver terminarRutaAirplay() y
-  // alCambioRutaAirplay()) para confirmarlo con evidencia real antes de
-  // tocar el comportamiento — quitar los logs y, si se confirma, añadir
-  // aquí la guarda de verdad.
+  // Cancelar el selector nativo NO dispara ningún evento (la API no lo
+  // avisa): sin esto, abrirSelectorAirplay() ya había preparado el motor
+  // nativo (spec del fix de 2026-09-04) y la app se quedaba pensando que
+  // emitía —el efecto de más abajo pasa a 'emitiendo' con solo confirmar
+  // reproducción LOCAL, sin saber si AirPlay llegó a recibir nada— sin
+  // ninguna señal de que el usuario canceló. rutaConfirmadaEnEsteIntento
+  // distingue "todavía no ha llegado la confirmación real" de "nunca va a
+  // llegar"; el trace real del fix mostró ~11,4 s entre el clic y la
+  // confirmación de ruta en un intento que SÍ funcionó, así que el margen
+  // tiene que ser bastante mayor que eso.
+  const TIMEOUT_SELECTOR_CANCELADO_MS = 45_000
+  let temporizadorSelectorCancelado: ReturnType<typeof setTimeout> | undefined
+  let rutaConfirmadaEnEsteIntento = false
 
   // any: el tipo real de Hls solo existe tras el import() perezoso.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -757,9 +759,29 @@
     // tiempo de sobra al fetch asíncrono de reproducir().
     if (estadoCast === 'idle' && !noCasteaPorFormato(canal.id)) {
       prepararCastNativo()
+      armarTimeoutSelectorCancelado()
     }
     // @ts-expect-error API solo de WebKit
     video.webkitShowPlaybackTargetPicker()
+  }
+
+  /** Red de seguridad para el selector cancelado (ver el comentario de
+   *  rutaConfirmadaEnEsteIntento más arriba): si pasa el plazo sin que
+   *  alCambioRutaAirplay() confirme una ruta de verdad, se asume cancelado
+   *  y se revierte a reproducción local — sin tocar disableRemotePlayback,
+   *  porque la ruta nunca llegó a estar activa (nada que soltar). */
+  function armarTimeoutSelectorCancelado() {
+    rutaConfirmadaEnEsteIntento = false
+    if (temporizadorSelectorCancelado !== undefined) clearTimeout(temporizadorSelectorCancelado)
+    temporizadorSelectorCancelado = setTimeout(() => {
+      temporizadorSelectorCancelado = undefined
+      if (!rutaConfirmadaEnEsteIntento && motorForzado === 'nativo') {
+        motorForzado = null
+        estadoCast = 'idle'
+        limpiarIntento()
+        reproducir()
+      }
+    }, TIMEOUT_SELECTOR_CANCELADO_MS)
   }
 
   /** Corta la sesión de reproducción remota (AirPlay) EN EL NAVEGADOR, no
@@ -806,6 +828,14 @@
   }
 
   function pararCast() {
+    // Higiene: si el usuario para ANTES de que llegara la confirmación real
+    // de ruta (posible — 'emitiendo' puede llegar solo con reproducción
+    // LOCAL confirmada, antes de que alCambioRutaAirplay() la confirme de
+    // verdad, ver el trace del fix), no dejar el timeout colgado.
+    if (temporizadorSelectorCancelado !== undefined) {
+      clearTimeout(temporizadorSelectorCancelado)
+      temporizadorSelectorCancelado = undefined
+    }
     motorForzado = null
     estadoCast = 'idle'
     terminarRutaAirplay()
@@ -824,6 +854,14 @@
     // @ts-expect-error API solo de WebKit
     const activa = Boolean(video?.webkitCurrentPlaybackTargetIsWireless)
     if (activa) {
+      // Confirmación REAL de ruta: desarma el timeout del selector
+      // cancelado (armarTimeoutSelectorCancelado) — esta señal es
+      // justo la que ese timeout esperaba y nunca llegó en un cancelado.
+      rutaConfirmadaEnEsteIntento = true
+      if (temporizadorSelectorCancelado !== undefined) {
+        clearTimeout(temporizadorSelectorCancelado)
+        temporizadorSelectorCancelado = undefined
+      }
       iniciarCast()
     } else if (estadoCast !== 'idle') {
       pararCast()
@@ -889,6 +927,7 @@
     limpiarIntento()
     if (temporizadorOverlay !== undefined) clearTimeout(temporizadorOverlay)
     if (temporizadorAvisoCast !== undefined) clearTimeout(temporizadorAvisoCast)
+    if (temporizadorSelectorCancelado !== undefined) clearTimeout(temporizadorSelectorCancelado)
 
     // Un reproductor cerrado no debe dejar un PiP flotante de un <video> que
     // ya se está desmontando — se cierra explícitamente, no se confía en que

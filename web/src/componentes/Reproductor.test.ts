@@ -1537,6 +1537,44 @@ describe('Reproductor — fixes de la revisión final del cast', () => {
     }
   })
 
+  it('cancelar el selector (ningún evento de ruta llega nunca) reanuda en local pasado el plazo', async () => {
+    const limpiarAirplay = conAirplayDisponible()
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    vi.useFakeTimers()
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
+      await vi.advanceTimersByTimeAsync(0)
+      hlsState.instancias.length = 0
+
+      const video = container.querySelector('video') as HTMLVideoElement & {
+        webkitShowPlaybackTargetPicker?: () => void
+      }
+      video.webkitShowPlaybackTargetPicker = vi.fn()
+
+      screen.getByRole('button', { name: t('reproductor.airplay') }).click()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(video.src).toContain('x.m3u8')
+
+      // El usuario canceló el selector: NINGÚN
+      // webkitcurrentplaybacktargetiswirelesschanged llega nunca. Sin el
+      // timeout, la app se quedaría pensando que emite para siempre en
+      // cuanto la reproducción local confirmara.
+      await vi.advanceTimersByTimeAsync(45_000)
+
+      // Reanuda en local (hls.js) — la señal de que se abandonó el intento.
+      expect(hlsState.instancias.length).toBeGreaterThan(0)
+      expect(container.querySelector('.estado.cast')).toBeNull()
+      expect(screen.getByRole('button', { name: t('reproductor.airplay') }).getAttribute('aria-pressed')).toBe('false')
+    } finally {
+      vi.useRealTimers()
+      limpiarAirplay()
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
   it('una ruta que WebKit ya revocó (activa=false) NO reactiva disableRemotePlayback — corta el bucle', async () => {
     const limpiarAirplay = conAirplayDisponible()
     const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
