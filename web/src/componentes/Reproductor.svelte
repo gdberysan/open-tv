@@ -259,9 +259,36 @@
   // Task 4.
   let motorForzado: Motor | null = $state(null)
   let estadoCast = $state<'idle' | 'conectando' | 'emitiendo'>('idle')
-  // Mensaje transitorio de cast (fallo o fin de sesión) — reusa las mismas
-  // dos regiones aria-live de siempre (líneas 738-739), NUNCA una tercera.
+  // Mensaje transitorio de cast (fallo o fin de sesión) — se pinta como panel
+  // visible (ver el marcado) Y se anuncia por la región aria-live assertive
+  // que ya existía, NUNCA por una tercera región.
   let avisoCast = $state<string | null>(null)
+  // Fix de revisión final: el aviso se AUTO-BORRA. Sin esto se quedaba
+  // pegado hasta el siguiente iniciarCast() — y como la región assertive
+  // pinta `mensajeError ?? avisoCast`, un aviso viejo resucitaba (y volvía a
+  // alertar al lector de pantalla) en cuanto un mensajeError ajeno se
+  // limpiaba, días después y sin venir a cuento. 5 s es el mismo orden de
+  // magnitud que el auto-ocultar del overlay: suficiente para leerlo, corto
+  // para no tapar la UI normal de carga/error.
+  const AVISO_CAST_MS = 5_000
+  let temporizadorAvisoCast: ReturnType<typeof setTimeout> | undefined
+
+  function mostrarAvisoCast(texto: string) {
+    avisoCast = texto
+    if (temporizadorAvisoCast !== undefined) clearTimeout(temporizadorAvisoCast)
+    temporizadorAvisoCast = setTimeout(() => {
+      temporizadorAvisoCast = undefined
+      avisoCast = null
+    }, AVISO_CAST_MS)
+  }
+
+  function limpiarAvisoCast() {
+    if (temporizadorAvisoCast !== undefined) {
+      clearTimeout(temporizadorAvisoCast)
+      temporizadorAvisoCast = undefined
+    }
+    avisoCast = null
+  }
 
   // any: el tipo real de Hls solo existe tras el import() perezoso.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -571,9 +598,14 @@
       // tarjeta de error a pantalla completa: solo un aviso transitorio,
       // y se reanuda la reproducción local normal.
       if (ultimaClase === 'formato') marcarFalloFormato(canal.id)
-      avisoCast = t('reproductor.cast.fallo')
       motorForzado = null
       estadoCast = 'idle'
+      // Fix de revisión final: revertir el motor NO soltaba la ruta AirPlay —
+      // el <video> seguía remitiendo al TV (que no puede con MSE), así que el
+      // resultado real era pantalla negra en el TV Y en local mientras la app
+      // creía haber vuelto a la normalidad. Ver terminarRutaAirplay().
+      terminarRutaAirplay()
+      mostrarAvisoCast(t('reproductor.cast.fallo'))
       reproducir()
       return
     }
@@ -607,7 +639,13 @@
     // la CTA aquí no debe suscribir este efecto a él (activar el sonido con
     // la CTA re-dispararía limpiarIntento()+reproducir() sin venir a cuento).
     untrack(() => {
-      if (idCanalPrevio !== null && idCanalPrevio !== canal.id && mostrarActivarSonido) activarSonido()
+      if (idCanalPrevio !== null && idCanalPrevio !== canal.id) {
+        if (mostrarActivarSonido) activarSonido()
+        // Un aviso de cast pertenece al canal que lo produjo: abrir OTRO canal
+        // es una acción nueva y ajena, así que el aviso viejo se va con él en
+        // vez de esperar a su temporizador (fix de revisión final).
+        limpiarAvisoCast()
+      }
       idCanalPrevio = canal.id
     })
     limpiarIntento()
@@ -615,6 +653,13 @@
   })
 
   function alternarSilencio() {
+    // Guarda dentro de la función, no solo en el atajo de teclado (fix de
+    // revisión final): el botón 🔊/🔇 del overlay seguía siendo clicable con
+    // el ratón durante una emisión, y el MISMO <video> alimenta al TV (spec
+    // §3/§5) — silenciar aquí muy probablemente silencia el televisor. Aquí
+    // cubre a TODOS los llamadores (botón y tecla 'm') de una vez; el botón
+    // además va `disabled` para que se vea que no aplica.
+    if (estadoCast !== 'idle') return
     silenciado = !silenciado
     if (video) video.muted = silenciado
     // Activar el sonido a mano cuenta como "primer gesto" (spec §5): la CTA
@@ -630,6 +675,12 @@
   // fullscreenchange (alCambioFullscreen), no aquí — esta función solo pide
   // el cambio, no lo asume.
   function alternarPantallaCompleta() {
+    // Misma guarda "para todos los llamadores" que alternarSilencio(): durante
+    // una emisión no hay vídeo local que expandir (lo cubre el panel
+    // «Emitiendo…»), y el botón ⛶ era clicable con el ratón aunque la tecla
+    // 'f' ya estuviera bloqueada. Esc sigue saliendo de pantalla completa si
+    // se entró antes de empezar a emitir (ver alTeclado).
+    if (estadoCast !== 'idle') return
     if (document.fullscreenElement) {
       document.exitFullscreen()
     } else if (soportaFullscreen) {
@@ -672,12 +723,40 @@
     video?.webkitShowPlaybackTargetPicker()
   }
 
+  /** Corta la sesión de reproducción remota (AirPlay) EN EL NAVEGADOR, no
+   *  solo en el estado de la app. Poner disableRemotePlayback a true en un
+   *  <video> que está remitiendo termina esa sesión remota (Remote Playback
+   *  API); volverlo a false inmediatamente es obligatorio, porque dejarlo en
+   *  true no desconecta "esta" sesión sino que suprime la función entera —
+   *  el propio selector nativo (webkitShowPlaybackTargetPicker) dejaría de
+   *  ofrecerse y el usuario no podría volver a emitir nunca.
+   *
+   *  Sin esto, revertir motorForzado/estadoCast dejaba al <video> remitiendo
+   *  al TV con una fuente MSE que AirPlay no sabe reproducir (spec §2.1):
+   *  negro en el TV, negro en local, y la app convencida de haber vuelto a la
+   *  normalidad. */
+  function terminarRutaAirplay() {
+    if (!video) return
+    video.disableRemotePlayback = true
+    video.disableRemotePlayback = false
+  }
+
   function iniciarCast() {
+    // Fix de revisión final: reentrancia. El evento de WebKit puede volver a
+    // dispararse con la ruta ya inalámbrica (cambio de dispositivo a mitad de
+    // sesión, o un re-disparo espurio — la fiabilidad del evento entre
+    // versiones de Safari está sin confirmar, spec §8 riesgo 2). Sin esta
+    // guarda, esa segunda señal reiniciaba el stream EN PLENA emisión.
+    if (estadoCast !== 'idle') return
     if (noCasteaPorFormato(canal.id)) {
-      avisoCast = t('reproductor.cast.noDisponible')
+      // La ruta AirPlay YA está activa (por eso llegó el evento): si solo se
+      // avisa y se vuelve, el TV se queda conectado a un <video> que va a
+      // seguir en hls.js/MSE — o sea, negro. Se suelta la ruta.
+      terminarRutaAirplay()
+      mostrarAvisoCast(t('reproductor.cast.noDisponible'))
       return
     }
-    avisoCast = null
+    limpiarAvisoCast()
     motorForzado = 'nativo'
     estadoCast = 'conectando'
     limpiarIntento()
@@ -685,9 +764,15 @@
   }
 
   function pararCast() {
+    // El estado se revierte ANTES de soltar la ruta: terminarRutaAirplay()
+    // puede provocar otro webkitcurrentplaybacktargetiswirelesschanged (esta
+    // vez con la ruta ya suelta), y con estadoCast ya en 'idle' ese re-disparo
+    // es un no-op en alCambioRutaAirplay() en vez de una segunda parada en
+    // cascada.
     motorForzado = null
     estadoCast = 'idle'
-    avisoCast = t('reproductor.cast.terminada')
+    terminarRutaAirplay()
+    mostrarAvisoCast(t('reproductor.cast.terminada'))
     limpiarIntento()
     reproducir()
   }
@@ -743,16 +828,15 @@
         // Panel (spec §4): sin pantalla completa que abandonar, Esc no hace
         // nada — ya no existe un modal que cerrar.
         break
+      // La guarda de cast de ambas ('idle' o nada) vive DENTRO de las dos
+      // funciones desde el fix de revisión final — así cubre también sus
+      // botones del overlay, que antes seguían clicables con el ratón. Aquí
+      // se llaman sin condición a propósito: una sola fuente de verdad.
       case 'f':
-        // No hay vídeo local visible que expandir durante el cast — está
-        // cubierto por el panel "Emitiendo…" (Step 3 de esta tarea).
-        if (estadoCast === 'idle') alternarPantallaCompleta()
+        alternarPantallaCompleta()
         break
       case 'm':
-        // Con estadoCast !== 'idle' el MISMO <video> alimenta al TV (spec
-        // §3/§5): silenciar aquí muy probablemente silencia el TV también.
-        // No-op a propósito mientras se está emitiendo o conectando.
-        if (estadoCast === 'idle') alternarSilencio()
+        alternarSilencio()
         break
       case 'ArrowLeft':
         alAnterior?.()
@@ -767,6 +851,7 @@
     destruido = true
     limpiarIntento()
     if (temporizadorOverlay !== undefined) clearTimeout(temporizadorOverlay)
+    if (temporizadorAvisoCast !== undefined) clearTimeout(temporizadorAvisoCast)
 
     // Un reproductor cerrado no debe dejar un PiP flotante de un <video> que
     // ya se está desmontando — se cierra explícitamente, no se confía en que
@@ -806,7 +891,19 @@
       muted={silenciado}
     ></video>
 
-    {#if cargando}
+    <!-- El aviso de cast va PRIMERO en la cadena a propósito (fix de revisión
+         final): antes solo vivía en la región sr-only, así que un usuario que
+         ve no se enteraba de que su emisión había fallado o terminado. Y no
+         puede ir al final: la ruta de agotamiento del cast llama a
+         reproducir() en la misma pasada (cargando pasa a true de inmediato),
+         así que la rama `cargando` ganaría siempre y el aviso no llegaría a
+         pintarse nunca. No bloquea la UI normal más allá de AVISO_CAST_MS: se
+         auto-borra (mostrarAvisoCast) y también al cambiar de canal. -->
+    {#if avisoCast}
+      <div class="estado cast aviso">
+        <p class="mensaje">{avisoCast}</p>
+      </div>
+    {:else if cargando}
       <p class="estado">{t('reproductor.cargando')}</p>
     {:else if mensajeError}
       <div class="estado error">
@@ -890,11 +987,18 @@
       <div class="overlay-abajo">
         <span class="overlay-nombre">{canal.nombre}</span>
         <div class="overlay-controles">
+          <!-- disabled durante una emisión (fix de revisión final): el mismo
+               <video> alimenta al TV, así que silenciar aquí lo silencia
+               allí. La guarda de verdad vive en alternarSilencio() (cubre
+               teclado y cualquier llamador futuro); `disabled` es la señal
+               VISIBLE de que ahora mismo no aplica — un botón que se puede
+               pulsar y no hace nada es peor que uno apagado. -->
           <button
             type="button"
             class="silenciar"
             class:activo={silenciado}
             onclick={alternarSilencio}
+            disabled={estadoCast !== 'idle'}
             aria-pressed={silenciado}
             aria-label={t('reproductor.silenciar')}
           >
@@ -919,6 +1023,7 @@
             class="pantalla-completa"
             class:activo={estaEnPantallaCompleta}
             onclick={alternarPantallaCompleta}
+            disabled={estadoCast !== 'idle'}
             aria-pressed={estaEnPantallaCompleta}
             aria-label={estaEnPantallaCompleta ? t('reproductor.pantallaCompleta.salir') : t('reproductor.pantallaCompleta.entrar')}
           >⛶</button>
@@ -1126,6 +1231,15 @@
     border-radius: var(--radius-sm);
   }
   .overlay-controles button:hover { background: rgba(255, 255, 255, 0.08); }
+  /* `all: unset` borra también el aspecto apagado que el navegador da por su
+     cuenta a un <button disabled>: sin esto, los controles bloqueados
+     mientras se emite (silenciar / pantalla completa) se verían idénticos a
+     los activos. Solo opacidad, cursor y el hover — ninguna propiedad de caja,
+     así que la geometría de la barra no se mueve. Mismos valores que el
+     :disabled que ya usan Fuentes.svelte/AnadirFuente.svelte, para que un
+     control apagado se vea igual en toda la app. */
+  .overlay-controles button:disabled { opacity: 0.6; cursor: default; }
+  .overlay-controles button:disabled:hover { background: none; }
   /* Ámbar solo mientras el botón representa una señal activa (silenciado/favorito). */
   .overlay-controles button.activo { color: var(--amber-500); }
 </style>

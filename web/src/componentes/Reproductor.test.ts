@@ -9,7 +9,7 @@ import type { DesenlaceReproduccion } from '../reproductor/failover'
 import type { Canal, Mirror, Programa } from '../datos/catalogo'
 import { favoritos } from '../estado/favoritos'
 import { formatearHoraLocal } from '../lib/hora'
-import { noCasteaPorFormato } from '../estado/castFallidos'
+import { noCasteaPorFormato, marcarFalloFormato } from '../estado/castFallidos'
 
 // jsdom no decodifica HLS de verdad: canPlayType() no está implementado (así
 // que motorDelNavegador siempre elige 'hlsjs' aquí) y no hay MediaSource, así
@@ -1181,10 +1181,322 @@ describe('Reproductor — interfaz de cast (Tarea 4)', () => {
       parar.click()
       await tick()
 
-      expect(container.querySelector('.estado.cast')).toBeNull()
+      // El panel de "Emitiendo…" se fue (ya no hay botón de parar) y en su
+      // sitio queda el aviso transitorio VISIBLE de fin de emisión — fix de
+      // revisión final: antes ese aviso solo existía en la región sr-only.
+      expect(screen.queryByRole('button', { name: t('reproductor.cast.parar') })).toBeNull()
+      expect(container.querySelector('.estado.cast.aviso .mensaje')?.textContent).toBe(t('reproductor.cast.terminada'))
       await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
     } finally {
       delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+})
+
+// Revisión final de rama (fix wave, spec 2026-09-03): cuatro agujeros que las
+// revisiones por tarea no vieron.
+//   1. Terminar un cast revertía el MOTOR pero nunca soltaba la RUTA AirPlay:
+//      el <video> seguía remitiendo al TV con una fuente MSE que AirPlay no
+//      sabe reproducir (spec §2.1) — negro en el TV y en local a la vez.
+//   2. El aviso de fallo/fin de cast solo existía en la región sr-only: un
+//      usuario que ve no se enteraba de nada.
+//   3. Las guardas de 'm'/'f' solo cubrían el teclado; los botones seguían
+//      clicables con el ratón.
+//   4. iniciarCast() no tenía guarda de reentrancia: un segundo evento de
+//      ruta inalámbrica reiniciaba el stream en plena emisión.
+describe('Reproductor — fixes de la revisión final del cast', () => {
+  beforeEach(() => {
+    favoritos.set(new Set())
+    localStorage.clear()
+  })
+
+  function fuenteSinMirrors() {
+    return {
+      mirrors: vi.fn(async () => [] as Mirror[]),
+      destino: vi.fn(async () => ({ url: 'https://unico/x.m3u8', airplayOk: null })),
+      proxyDisponible: vi.fn(async () => false),
+    }
+  }
+
+  /** disableRemotePlayback no lo implementa jsdom, y aunque lo hiciera no
+   *  habría televisor que desconectar: lo que se puede verificar aquí es el
+   *  CONTRATO (se pone a true y se devuelve a false en la misma pasada), que
+   *  es justo lo que la Remote Playback API define como "terminar la sesión
+   *  remota sin suprimir la función entera". Se instala un descriptor propio
+   *  sobre la instancia para registrar la SECUENCIA de asignaciones. */
+  function espiarRutaRemota(video: HTMLVideoElement) {
+    const cambios: boolean[] = []
+    let valor = false
+    Object.defineProperty(video, 'disableRemotePlayback', {
+      configurable: true,
+      get: () => valor,
+      set: (v: boolean) => {
+        valor = v
+        cambios.push(v)
+      },
+    })
+    return cambios
+  }
+
+  function conAirplayDisponible() {
+    ;(window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent'] = class {}
+    return () => delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
+  }
+
+  /** Monta el reproductor, deja asentar el intento local inicial y arranca
+   *  una sesión de cast disparando el evento REAL de WebKit — el mismo
+   *  preámbulo que ya usan los tests de las Tareas 3 y 4. */
+  async function montarYCastear(fuente: unknown, canalUsado: Canal = canal) {
+    const vista = render(Reproductor, { canal: canalUsado, fuente: fuente as any })
+    await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+    hlsState.instancias.length = 0
+    const video = vista.container.querySelector('video') as HTMLVideoElement
+    Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', { value: true, configurable: true })
+    video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+    await vi.waitFor(() => expect(video.src).toContain('.m3u8'))
+    return { ...vista, video }
+  }
+
+  // --- 1. La ruta AirPlay se suelta de verdad, en los TRES caminos de salida ---
+
+  it('«Dejar de emitir» suelta la ruta AirPlay (disableRemotePlayback true→false), no solo el motor', async () => {
+    const limpiarAirplay = conAirplayDisponible()
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      const { container, video } = await montarYCastear(fuenteSinMirrors())
+      const cambios = espiarRutaRemota(video)
+
+      // Confirmar la reproducción nativa para llegar a 'emitiendo' (el guard
+      // confirma cuando la POSICIÓN AVANZA entre dos timeupdate).
+      let posicion = 0
+      Object.defineProperty(video, 'currentTime', { get: () => posicion, configurable: true })
+      video.dispatchEvent(new Event('timeupdate'))
+      posicion = 1
+      video.dispatchEvent(new Event('timeupdate'))
+      await vi.waitFor(() => expect(container.querySelector('.estado.cast')).toBeTruthy())
+
+      screen.getByRole('button', { name: t('reproductor.cast.parar') }).click()
+      await tick()
+
+      expect(cambios).toEqual([true, false])
+      // Vuelve a false SIEMPRE: dejarlo en true no desconectaría "esta"
+      // sesión, suprimiría la función entera y el botón 📺 dejaría de servir.
+      expect(video.disableRemotePlayback).toBe(false)
+    } finally {
+      limpiarAirplay()
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  it('agotar los intentos en modo cast suelta la ruta AirPlay antes de reanudar en local', async () => {
+    const limpiarAirplay = conAirplayDisponible()
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      const { video } = await montarYCastear(fuenteSinMirrors())
+      const cambios = espiarRutaRemota(video)
+
+      Object.defineProperty(video, 'error', { value: { code: 4 }, configurable: true })
+      video.dispatchEvent(new Event('error'))
+
+      // Reanuda en local (hls.js) — y por el camino soltó la ruta: sin esto,
+      // el TV se quedaba enganchado a una fuente MSE que no puede reproducir.
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      expect(cambios).toEqual([true, false])
+      expect(video.disableRemotePlayback).toBe(false)
+    } finally {
+      limpiarAirplay()
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  it('un canal ya marcado «no castea por formato» suelta la ruta en vez de dejar el TV colgado', async () => {
+    const limpiarAirplay = conAirplayDisponible()
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      marcarFalloFormato(canal.id)
+      const fuente = fuenteSinMirrors()
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      hlsState.instancias.length = 0
+
+      const video = container.querySelector('video') as HTMLVideoElement
+      const cambios = espiarRutaRemota(video)
+      Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', { value: true, configurable: true })
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await tick()
+
+      // Salida temprana: ni motor nativo ni sesión de cast — pero la ruta ya
+      // estaba activa (por eso llegó el evento), así que hay que soltarla.
+      expect(cambios).toEqual([true, false])
+      expect(container.querySelector('.estado.cast.aviso .mensaje')?.textContent).toBe(
+        t('reproductor.cast.noDisponible'),
+      )
+      expect(screen.getByRole('button', { name: t('reproductor.airplay') }).getAttribute('aria-pressed')).toBe('false')
+    } finally {
+      limpiarAirplay()
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  // --- 2. El aviso de cast se VE, y no se queda pegado ---
+
+  it('el aviso de un cast fallido se pinta VISIBLE (gana a «cargando») y se borra solo a los pocos segundos', async () => {
+    const limpiarAirplay = conAirplayDisponible()
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    vi.useFakeTimers()
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
+      await vi.advanceTimersByTimeAsync(0)
+
+      const video = container.querySelector('video') as HTMLVideoElement
+      Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', { value: true, configurable: true })
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(video.src).toContain('x.m3u8')
+
+      Object.defineProperty(video, 'error', { value: { code: 4 }, configurable: true })
+      video.dispatchEvent(new Event('error'))
+      await vi.advanceTimersByTimeAsync(0)
+
+      // Visible de verdad, no solo en la región sr-only.
+      expect(container.querySelector('.estado.cast.aviso .mensaje')?.textContent).toBe(t('reproductor.cast.fallo'))
+      // Y gana a la rama `cargando`, que reproducir() acaba de poner a true al
+      // reanudar en local: con el orden natural del {#if} el aviso no se
+      // llegaría a ver NUNCA (<p class="estado"> es el marcado de esa rama).
+      expect(container.querySelector('p.estado')).toBeNull()
+
+      // No se queda pegado: pasado su plazo desaparece y vuelve la UI normal.
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(container.querySelector('.estado.cast.aviso')).toBeNull()
+      expect(container.querySelector('p.estado')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+      limpiarAirplay()
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  it('abrir otro canal se lleva el aviso de cast del canal anterior (nada de mensajes zombis)', async () => {
+    const limpiarAirplay = conAirplayDisponible()
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container, video, rerender } = await montarYCastear(fuente)
+
+      Object.defineProperty(video, 'error', { value: { code: 4 }, configurable: true })
+      video.dispatchEvent(new Event('error'))
+      await vi.waitFor(() => expect(container.querySelector('.estado.cast.aviso')).toBeTruthy())
+
+      await rerender({ canal: { ...canal, id: 'c2', nombre: 'Otro' } as Canal, fuente: fuente as any })
+      await tick()
+
+      expect(container.querySelector('.estado.cast.aviso')).toBeNull()
+      // La región assertive tampoco arrastra el texto viejo: era justo la vía
+      // por la que un aviso caducado volvía a alertar más tarde.
+      expect(container.textContent).not.toContain(t('reproductor.cast.fallo'))
+    } finally {
+      limpiarAirplay()
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  // --- 3. Los BOTONES de silenciar y pantalla completa, no solo las teclas ---
+
+  it('los botones Silenciar y Pantalla completa quedan inertes (disabled) mientras hay una sesión de cast', async () => {
+    const limpiarAirplay = conAirplayDisponible()
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    Object.defineProperty(document, 'fullscreenEnabled', { value: true, configurable: true })
+    const requestFullscreenSpy = vi.fn()
+    HTMLDivElement.prototype.requestFullscreen = requestFullscreenSpy
+    try {
+      const { container, video } = await montarYCastear(fuenteSinMirrors())
+
+      const silenciar = container.querySelector('.overlay-controles .silenciar') as HTMLButtonElement
+      const pantallaCompleta = container.querySelector('.overlay-controles .pantalla-completa') as HTMLButtonElement
+      expect(silenciar.disabled).toBe(true)
+      expect(pantallaCompleta.disabled).toBe(true)
+
+      // Y el clic del RATÓN tampoco hace nada: la guarda vive dentro de
+      // alternarSilencio()/alternarPantallaCompleta(), así que cubre a
+      // cualquier llamador, no solo al atajo de teclado.
+      const mutedAntes = video.muted
+      silenciar.click()
+      pantallaCompleta.click()
+      await tick()
+      expect(video.muted).toBe(mutedAntes)
+      expect(requestFullscreenSpy).not.toHaveBeenCalled()
+
+      // Al terminar la emisión vuelven a estar operativos: la guarda es
+      // temporal, no una jubilación. (Hasta aquí la sesión estaba en
+      // 'conectando' — ya bloqueaba; se confirma la reproducción nativa para
+      // llegar a 'emitiendo', que es cuando existe el botón de parar.)
+      let posicion = 0
+      Object.defineProperty(video, 'currentTime', { get: () => posicion, configurable: true })
+      video.dispatchEvent(new Event('timeupdate'))
+      posicion = 1
+      video.dispatchEvent(new Event('timeupdate'))
+      await vi.waitFor(() => expect(container.querySelector('.estado.cast')).toBeTruthy())
+      expect(silenciar.disabled).toBe(true)
+
+      screen.getByRole('button', { name: t('reproductor.cast.parar') }).click()
+      await tick()
+      expect((container.querySelector('.overlay-controles .silenciar') as HTMLButtonElement).disabled).toBe(false)
+      expect((container.querySelector('.overlay-controles .pantalla-completa') as HTMLButtonElement).disabled).toBe(
+        false,
+      )
+    } finally {
+      limpiarAirplay()
+      // @ts-expect-error limpieza del parche de prototipo
+      delete HTMLDivElement.prototype.requestFullscreen
+      // @ts-expect-error limpieza de la propiedad redefinida
+      delete document.fullscreenEnabled
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  // --- 4. Reentrancia de iniciarCast() ---
+
+  it('un segundo evento de ruta inalámbrica con la sesión ya en marcha no reinicia el stream', async () => {
+    const limpiarAirplay = conAirplayDisponible()
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      const fuente = fuenteSinMirrors()
+      const { video } = await montarYCastear(fuente)
+
+      // Cada reproducir() pide destino() una vez y cada intento pasa por
+      // limpiarIntento()+load(): si iniciarCast() volviera a entrar, ambos
+      // contadores subirían y el TV vería el stream reiniciarse.
+      const destinosAntes = fuente.destino.mock.calls.length
+      const loadsAntes = loadSpy.mock.calls.length
+
+      // Cambio de dispositivo a mitad de sesión / re-disparo espurio: el
+      // evento vuelve con la ruta todavía inalámbrica.
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await tick()
+      await new Promise((r) => setTimeout(r, 0))
+
+      expect(fuente.destino.mock.calls.length).toBe(destinosAntes)
+      expect(loadSpy.mock.calls.length).toBe(loadsAntes)
+      expect(hlsState.instancias.length).toBe(0)
+    } finally {
+      limpiarAirplay()
       loadSpy.mockRestore()
       playSpy.mockRestore()
     }
