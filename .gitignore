@@ -52,3 +52,6 @@ open-tv-interface-design/
 
 # Salida de goreleaser (root-anchored: NO afecta a internal/ui/dist, el embed)
 /dist/
+
+# Worktrees locales de trabajo (subagent-driven-development y similares)
+/.worktrees/
