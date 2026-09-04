@@ -113,4 +113,28 @@ describe('ListaCanalesLateral — virtualización con scroll interno', () => {
     FalsoIntersectionObserver.instancias.at(-1)?.dispararInterseccion()
     expect(alPedirMas).toHaveBeenCalled()
   })
+
+  it('cada fila muestra el logo cuadrado del canal (LogoCanal), con iniciales de respaldo si no hay logoUrl', () => {
+    render(ListaCanalesLateral, {
+      canales: [canalDePrueba('a', { nombre: 'Tele Uno' })],
+      alAbrir: vi.fn(),
+      alPedirMas: vi.fn(),
+    })
+    const iniciales = document.querySelector('.lista-lateral .logo .sinlogo')
+    expect(iniciales?.textContent).toBe('Te')
+  })
+
+  it('ArrowRight/ArrowLeft mueven el índice activo (en jsdom, sin layout real, columnas cae a 1 — mismo efecto que Abajo/Arriba)', async () => {
+    render(ListaCanalesLateral, { canales: muchos.slice(0, 5), alAbrir: vi.fn(), alPedirMas: vi.fn() })
+    const botones = () => Array.from(document.querySelectorAll<HTMLButtonElement>('.lista-lateral button.abrir'))
+    const primero = botones()[0]
+    primero.focus()
+    await fireEvent.keyDown(primero, { key: 'ArrowRight' })
+    await tick()
+    expect(botones().filter((b) => b.tabIndex === 0)).toHaveLength(1)
+    expect(botones()[1].tabIndex).toBe(0)
+    await fireEvent.keyDown(botones()[1], { key: 'ArrowLeft' })
+    await tick()
+    expect(botones()[0].tabIndex).toBe(0)
+  })
 })
