@@ -12,6 +12,7 @@
   import { formatearHoraLocal } from '../lib/hora'
   import { favoritos } from '../estado/favoritos'
   import { esObjetivoInteractivo } from '../lib/surf'
+  import { noCasteaPorFormato, marcarFalloFormato } from '../estado/castFallidos'
 
   // alAnterior/alSiguiente son opcionales: App los da cuando hay una lista de
   // canales de la que moverse (flechas ← →). fuente es el CatalogSource: el
@@ -155,6 +156,16 @@
     return () => clearInterval(intervalo)
   })
 
+  // El listener se engancha una sola vez: video es el MISMO elemento
+  // persistente durante toda la vida del panel (spec §3) — no hay que
+  // re-enganchar al cambiar de canal.
+  $effect(() => {
+    if (!video || !soportaAirplay) return
+    const el = video
+    el.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', alCambioRutaAirplay)
+    return () => el.removeEventListener('webkitcurrentplaybacktargetiswirelesschanged', alCambioRutaAirplay)
+  })
+
   // Auto-ocultar del overlay: visible por defecto (también durante
   // cargando/error, que tienen su propio estado centrado y no chocan con la
   // insignia/controles de los bordes). mostrar() se llama al mousemove/
@@ -198,6 +209,17 @@
     if (!cargando && !mensajeError) mostrar()
   })
 
+  // Misma idea que el $effect de arriba (mostrar()): cargando=false Y
+  // mensajeError=null significa "este intento confirmó reproducción",
+  // cualquiera sea el motor. Con motorForzado='nativo' eso es "la sesión de
+  // AirPlay está reproduciendo de verdad" — PlaybackGuard.alConfirmar() ya
+  // hizo cargando=false, aquí solo se traduce a estadoCast.
+  $effect(() => {
+    if (motorForzado === 'nativo' && estadoCast === 'conectando' && !cargando && !mensajeError) {
+      estadoCast = 'emitiendo'
+    }
+  })
+
   // Contenedor raíz del panel: destino de requestFullscreen (así el overlay
   // sigue visible en pantalla completa, mismo patrón que P0.8). El panel NO
   // captura ni restaura el foco: vive en el orden natural de la página
@@ -224,6 +246,23 @@
   let estaEnPiP = $state(false)
 
   let guardActual: PlaybackGuard | undefined
+
+  // Sesión de AirPlay (spec 2026-09-03): motorForzado fuerza 'nativo' en
+  // reproducir() en vez de dejar que motorDelNavegador() decida — hoy en
+  // Safari real SIEMPRE elige hls.js (canPlayType devuelve 'maybe', no
+  // 'probably'; ver plan.ts), y AirPlay no reproduce fuentes MSE/blob
+  // (confirmado con hardware real, spec §2.1). null = sin cast en curso.
+  // El tipo NO incluye 'fallido' (spec §4): ese estado es una transición
+  // instantánea de un solo tick (Step 4 más abajo hace el aviso + vuelve a
+  // 'idle' + reproducir() en la misma pasada), nunca algo que la UI necesite
+  // pintar de forma sostenida — por eso no hay una cuarta rama visual en la
+  // Task 4.
+  let motorForzado: Motor | null = $state(null)
+  let estadoCast = $state<'idle' | 'conectando' | 'emitiendo'>('idle')
+  // Mensaje transitorio de cast (fallo o fin de sesión) — reusa las mismas
+  // dos regiones aria-live de siempre (líneas 738-739), NUNCA una tercera.
+  let avisoCast = $state<string | null>(null)
+
   // any: el tipo real de Hls solo existe tras el import() perezoso.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let hlsActual: any
@@ -426,7 +465,7 @@
     mensajeError = null
     numMirrorsDisponibles = 0
 
-    const motor = motorDelNavegador(video)
+    const motor = motorForzado ?? motorDelNavegador(video)
     let intentos: Intento[]
     // Cuántos mirrors traía ESTE intento de reproducir(): 0 en el camino de
     // compatibilidad sin mirrors (más abajo). Se lee solo si el bucle acaba
@@ -526,6 +565,18 @@
     // guard muerto. Si ese intento residual llegara a avanzar, dispararía
     // alConfirmar() y pisaría el error que se muestra a continuación.
     limpiarIntento()
+    if (motorForzado === 'nativo') {
+      // El motor nativo falló — pero hls.js (motorDelNavegador de verdad)
+      // probablemente SÍ reproduce este canal, así que no se muestra la
+      // tarjeta de error a pantalla completa: solo un aviso transitorio,
+      // y se reanuda la reproducción local normal.
+      if (ultimaClase === 'formato') marcarFalloFormato(canal.id)
+      avisoCast = t('reproductor.cast.fallo')
+      motorForzado = null
+      estadoCast = 'idle'
+      reproducir()
+      return
+    }
     cargando = false
     mensajeError = t(claveDeClase(ultimaClase))
     numMirrorsDisponibles = totalMirrors
@@ -619,6 +670,42 @@
   function abrirSelectorAirplay() {
     // @ts-expect-error API solo de WebKit
     video?.webkitShowPlaybackTargetPicker()
+  }
+
+  function iniciarCast() {
+    if (noCasteaPorFormato(canal.id)) {
+      avisoCast = t('reproductor.cast.noDisponible')
+      return
+    }
+    avisoCast = null
+    motorForzado = 'nativo'
+    estadoCast = 'conectando'
+    limpiarIntento()
+    reproducir()
+  }
+
+  function pararCast() {
+    motorForzado = null
+    estadoCast = 'idle'
+    avisoCast = t('reproductor.cast.terminada')
+    limpiarIntento()
+    reproducir()
+  }
+
+  // Traduce el evento REAL de WebKit (se dispara cuando el usuario elige o
+  // suelta una ruta en el picker nativo que abre abrirSelectorAirplay(), y
+  // también si el TV se apaga a mitad de emisión) al arranque/parada del
+  // cast. video.webkitCurrentPlaybackTargetIsWireless no está en el tipo
+  // HTMLVideoElement — API solo de WebKit, igual que
+  // webkitShowPlaybackTargetPicker más arriba.
+  function alCambioRutaAirplay() {
+    // @ts-expect-error API solo de WebKit
+    const activa = Boolean(video?.webkitCurrentPlaybackTargetIsWireless)
+    if (activa) {
+      iniciarCast()
+    } else if (estadoCast !== 'idle') {
+      pararCast()
+    }
   }
 
   function alTeclado(e: KeyboardEvent) {

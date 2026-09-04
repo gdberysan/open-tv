@@ -798,3 +798,114 @@ describe('Reproductor — modo panel (reproductor-primero)', () => {
     }
   })
 })
+
+// Tarea 3 (spec 2026-09-03): sesión de cast AirPlay — el evento REAL de
+// WebKit (webkitcurrentplaybacktargetiswirelesschanged) engancha a
+// iniciarCast()/pararCast(), que fuerzan motorForzado='nativo' en
+// reproducir() en vez de dejar que motorDelNavegador() decida (siempre
+// 'hlsjs' en jsdom, sin canPlayType real). Reusa reproducir()/intentar()/
+// PlaybackGuard/clasificarFallo tal cual — no se duplica su lógica aquí.
+describe('Reproductor — sesión de cast AirPlay (Tarea 3)', () => {
+  beforeEach(() => {
+    favoritos.set(new Set())
+    // castFallidos usa localStorage: sin limpiarlo, un canal marcado "sin
+    // formato" por un test de este describe (mismo canal.id 'c1' en todo el
+    // fichero) seguiría marcado en el siguiente.
+    localStorage.clear()
+  })
+
+  function fuenteSinMirrors() {
+    return {
+      mirrors: vi.fn(async () => [] as Mirror[]),
+      destino: vi.fn(async () => ({ url: 'https://unico/x.m3u8', airplayOk: null })),
+      proxyDisponible: vi.fn(async () => false),
+    }
+  }
+
+  it('el evento webkitcurrentplaybacktargetiswirelesschanged fuerza el motor nativo, sin hls.js', async () => {
+    ;(window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent'] = class {}
+    // El intento inicial de montaje (sin cast) va por 'hlsjs' en jsdom
+    // (canPlayType sin mockear), que SÍ llama a load()/play() reales del
+    // <video> vía hls.js — no hace falta espiarlos para ese camino. El
+    // camino nativo que fuerza el cast sí los llama de verdad (rama
+    // motor==='nativo' de intentar()); jsdom no implementa
+    // HTMLMediaElement.play() (rechaza con "not implemented"), así que se
+    // espía aquí igual que ya hace el test del camino nativo del failover
+    // más arriba en este fichero.
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
+
+      // Deja asentar el intento inicial (motor 'hlsjs' sin forzar nada
+      // todavía) para no contar SU import('hls.js') como parte de la
+      // sesión de cast que este test quiere aislar.
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      hlsState.instancias.length = 0
+
+      const video = container.querySelector('video') as HTMLVideoElement & {
+        webkitCurrentPlaybackTargetIsWireless?: boolean
+      }
+      Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', {
+        value: true,
+        configurable: true,
+      })
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+
+      // Motor nativo: video.src se asigna directo (rama motor==='nativo' de
+      // intentar()), NUNCA pasa por el import('hls.js') mockeado de este
+      // fichero — si hls.js se hubiera instanciado, hlsState tendría una
+      // entrada.
+      await vi.waitFor(() => expect(video.src).toContain('x.m3u8'))
+      expect(hlsState.instancias.length).toBe(0)
+    } finally {
+      delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  it('agotar los intentos en modo cast NO muestra mensajeError y reanuda hls.js', async () => {
+    ;(window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent'] = class {}
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
+
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      hlsState.instancias.length = 0
+
+      const video = container.querySelector('video') as HTMLVideoElement & {
+        webkitCurrentPlaybackTargetIsWireless?: boolean
+      }
+      Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', {
+        value: true,
+        configurable: true,
+      })
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await vi.waitFor(() => expect(video.src).toContain('x.m3u8'))
+
+      // Motor nativo: el fallo se señala con el evento 'error' nativo del
+      // <video>, código 4 = MEDIA_ERR_SRC_NOT_SUPPORTED (jsdom no reproduce
+      // vídeo de verdad, así que se dispara a mano).
+      Object.defineProperty(video, 'error', { value: { code: 4 }, configurable: true })
+      video.dispatchEvent(new Event('error'))
+
+      // Sin más mirrors tras el fallo nativo: reproducir() cae al bloque de
+      // cast y llama reproducir() de nuevo — esta vez SIN motorForzado, así
+      // que motorDelNavegador(video) decide, y en jsdom (sin canPlayType
+      // real) eso es 'hlsjs'. hls.js mockeado registra una instancia nueva.
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      // No hay tarjeta de error a pantalla completa (.estado.error): un
+      // fallo del motor nativo forzado por cast reanuda en local sin
+      // mostrarla.
+      expect(container.querySelector('.estado.error')).toBeNull()
+    } finally {
+      delete (window as unknown as Record<string, unknown>)['WebKitPlaybackTargetAvailabilityEvent']
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+})
