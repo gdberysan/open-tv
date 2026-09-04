@@ -290,6 +290,18 @@
     avisoCast = null
   }
 
+  // Glitch en vivo el 2026-09-04 (icono AirPlay y "Emisión terminada"
+  // parpadeando sin parar tras "Dejar de emitir", más una ráfaga de 429 al
+  // origin) — hipótesis sin confirmar todavía: terminarRutaAirplay() no
+  // puede deseleccionar la ruta a nivel de SISTEMA (mismo límite que
+  // documentaba el spec viejo de Flutter, §5), así que volver
+  // disableRemotePlayback a false podría hacer que WebKit re-dispare
+  // webkitcurrentplaybacktargetiswirelesschanged con activa=true casi de
+  // inmediato. Instrumentado con console.log (ver terminarRutaAirplay() y
+  // alCambioRutaAirplay()) para confirmarlo con evidencia real antes de
+  // tocar el comportamiento — quitar los logs y, si se confirma, añadir
+  // aquí la guarda de verdad.
+
   // any: el tipo real de Hls solo existe tras el import() perezoso.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let hlsActual: any
@@ -718,9 +730,36 @@
     estaEnPiP = false
   }
 
+  /** Arranca la preparación del motor nativo, SIN esperar a que la ruta
+   *  AirPlay se active. La llaman tanto abrirSelectorAirplay() (el camino
+   *  normal) como iniciarCast() (red de seguridad reactiva, ver más abajo). */
+  function prepararCastNativo() {
+    limpiarAvisoCast()
+    motorForzado = 'nativo'
+    estadoCast = 'conectando'
+    limpiarIntento()
+    reproducir()
+  }
+
   function abrirSelectorAirplay() {
+    if (!video) return
+    // Empezar a preparar el motor nativo AQUÍ, antes de abrir el selector —
+    // no al reaccionar al evento de ruta, que es como estaba hasta el
+    // 2026-09-04. Confirmado con trace real contra hardware (5213 ciclos en
+    // 23 s sin llegar NUNCA a 'emitiendo'): AirPlay comprueba el <video> a
+    // 0-2 ms de que la ruta se active, y si limpiarIntento() lo había dejado
+    // sin src (porque reproducir() aún no había resuelto la URL de forma
+    // asíncrona) simplemente soltaba la ruta al instante. El spike original
+    // que SÍ funcionó tenía el vídeo YA reproduciendo nativo antes de tocar
+    // el selector — esto reproduce esa misma condición: el hueco entre este
+    // clic y que el usuario elija de verdad un dispositivo en el selector
+    // nativo (siempre cientos de ms, hay un humano de por medio) le da
+    // tiempo de sobra al fetch asíncrono de reproducir().
+    if (estadoCast === 'idle' && !noCasteaPorFormato(canal.id)) {
+      prepararCastNativo()
+    }
     // @ts-expect-error API solo de WebKit
-    video?.webkitShowPlaybackTargetPicker()
+    video.webkitShowPlaybackTargetPicker()
   }
 
   /** Corta la sesión de reproducción remota (AirPlay) EN EL NAVEGADOR, no
@@ -731,22 +770,29 @@
    *  el propio selector nativo (webkitShowPlaybackTargetPicker) dejaría de
    *  ofrecerse y el usuario no podría volver a emitir nunca.
    *
-   *  Sin esto, revertir motorForzado/estadoCast dejaba al <video> remitiendo
-   *  al TV con una fuente MSE que AirPlay no sabe reproducir (spec §2.1):
-   *  negro en el TV, negro en local, y la app convencida de haber vuelto a la
-   *  normalidad. */
+   *  Bug real en hardware (2026-09-04, confirmado con trace, no solo
+   *  sospecha): alternar disableRemotePlayback CUANDO LA RUTA YA NO ESTABA
+   *  inalámbrica (p.ej. reaccionando al propio evento que acaba de
+   *  reportarla como perdida) hacía que WebKit la volviera a ofrecer casi al
+   *  instante — bucle sin salida (5213 ciclos en 23 s, "Emisión terminada"
+   *  parpadeando, el 429 al origin de antes). Por eso solo se toca
+   *  disableRemotePlayback si la ruta SIGUE activa en este momento: soltar
+   *  algo que ya no se tiene no libera nada, solo reactiva la detección. */
   function terminarRutaAirplay() {
     if (!video) return
+    // @ts-expect-error API solo de WebKit
+    if (!video.webkitCurrentPlaybackTargetIsWireless) return
     video.disableRemotePlayback = true
     video.disableRemotePlayback = false
   }
 
   function iniciarCast() {
-    // Fix de revisión final: reentrancia. El evento de WebKit puede volver a
-    // dispararse con la ruta ya inalámbrica (cambio de dispositivo a mitad de
-    // sesión, o un re-disparo espurio — la fiabilidad del evento entre
-    // versiones de Safari está sin confirmar, spec §8 riesgo 2). Sin esta
-    // guarda, esa segunda señal reiniciaba el stream EN PLENA emisión.
+    // Red de seguridad reactiva: en el camino normal, abrirSelectorAirplay()
+    // YA preparó el motor nativo antes de que este evento llegara, así que
+    // estadoCast ya no es 'idle' aquí y esta función no tiene nada que
+    // hacer. Esta rama cubre que la ruta se active sin pasar por nuestro
+    // botón (selector de sistema fuera de la app) y sigue evitando la
+    // reentrancia si ya hay una sesión en marcha.
     if (estadoCast !== 'idle') return
     if (noCasteaPorFormato(canal.id)) {
       // La ruta AirPlay YA está activa (por eso llegó el evento): si solo se
@@ -756,19 +802,10 @@
       mostrarAvisoCast(t('reproductor.cast.noDisponible'))
       return
     }
-    limpiarAvisoCast()
-    motorForzado = 'nativo'
-    estadoCast = 'conectando'
-    limpiarIntento()
-    reproducir()
+    prepararCastNativo()
   }
 
   function pararCast() {
-    // El estado se revierte ANTES de soltar la ruta: terminarRutaAirplay()
-    // puede provocar otro webkitcurrentplaybacktargetiswirelesschanged (esta
-    // vez con la ruta ya suelta), y con estadoCast ya en 'idle' ese re-disparo
-    // es un no-op en alCambioRutaAirplay() en vez de una segunda parada en
-    // cascada.
     motorForzado = null
     estadoCast = 'idle'
     terminarRutaAirplay()

@@ -1501,4 +1501,79 @@ describe('Reproductor — fixes de la revisión final del cast', () => {
       playSpy.mockRestore()
     }
   })
+
+  // --- 5. Bucle real en hardware (2026-09-04): confirmado con trace, no con
+  //     sospecha — 5213 ciclos en 23 s sin llegar NUNCA a 'emitiendo'. Dos
+  //     causas, dos tests. ---
+
+  it('pulsar el botón AirPlay arranca el motor nativo antes de que llegue ningún evento de ruta', async () => {
+    const limpiarAirplay = conAirplayDisponible()
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      hlsState.instancias.length = 0
+
+      const video = container.querySelector('video') as HTMLVideoElement & {
+        webkitShowPlaybackTargetPicker?: () => void
+      }
+      video.webkitShowPlaybackTargetPicker = vi.fn()
+
+      screen.getByRole('button', { name: t('reproductor.airplay') }).click()
+
+      // Sin haber disparado NINGÚN webkitcurrentplaybacktargetiswirelesschanged
+      // todavía: el motor nativo ya debería estar cargando — es la condición
+      // que el spike original tenía y el flujo reactivo viejo no reproducía
+      // (preparaba el nativo DESPUÉS de que la ruta se activase, no antes).
+      await vi.waitFor(() => expect(video.src).toContain('x.m3u8'))
+      expect(hlsState.instancias.length).toBe(0)
+      expect(video.webkitShowPlaybackTargetPicker).toHaveBeenCalledTimes(1)
+    } finally {
+      limpiarAirplay()
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
+  it('una ruta que WebKit ya revocó (activa=false) NO reactiva disableRemotePlayback — corta el bucle', async () => {
+    const limpiarAirplay = conAirplayDisponible()
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container } = render(Reproductor, { canal, fuente: fuente as any })
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(0))
+      hlsState.instancias.length = 0
+
+      const video = container.querySelector('video') as HTMLVideoElement
+      // El bug real: para cuando el evento de "ruta perdida" llega, el flag
+      // YA lee false (WebKit la revocó casi al instante, confirmado con
+      // trace). El getter modela justo eso.
+      let inalambrica = true
+      Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', {
+        configurable: true,
+        get: () => inalambrica,
+      })
+      const cambios = espiarRutaRemota(video)
+
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await tick()
+
+      inalambrica = false
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await tick()
+
+      // El bug real: esto disparaba el toggle igual, lo que hacía que WebKit
+      // volviera a ofrecer la ruta casi al instante — bucle sin fin (5213
+      // ciclos en 23 s, confirmado con trace real).
+      expect(cambios).toEqual([])
+      expect(screen.getByRole('button', { name: t('reproductor.airplay') }).getAttribute('aria-pressed')).toBe('false')
+    } finally {
+      limpiarAirplay()
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
 })
