@@ -27,7 +27,9 @@ canal y a podar los que ya no aparecen.
 - **Ninguna dependencia Go nueva.** `encoding/json` basta para ambos JSON.
 - **Idioma:** código, comentarios y mensajes de commit en **español**.
 - **Identidad de commits:** autor `Gerard <gdberysan@gmail.com>`. Trailer
-  obligatorio: `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
+  obligatorio con **el modelo que hizo el trabajo**, como manda CLAUDE.md
+  («o el modelo en uso»): `Co-Authored-By: Claude <modelo> <noreply@anthropic.com>`.
+  Atribuir a otro modelo el trabajo que hizo el tuyo falsea el registro de git.
 - **NUNCA `git add -A`.** Añadir por ruta explícita.
 - **Gates verdes al final de CADA tarea:** `gofmt -l .` · `go vet ./...` ·
   `go build ./...` · `go test -race -count=1 ./...` · `golangci-lint run ./...` ·
