@@ -402,6 +402,8 @@
         return 'reproductor.error.geo'
       case 'formato':
         return 'reproductor.error.formato'
+      case 'inestable':
+        return 'reproductor.error.inestable'
       case 'caducado':
         return 'reproductor.error.caducado'
       default:

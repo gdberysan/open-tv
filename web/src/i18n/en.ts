@@ -71,6 +71,7 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.error.corte': "Lost the channel's signal.",
   'reproductor.error.caido': 'The channel is down or its address expired.',
   'reproductor.error.geo': 'It may be geo-blocked in your region or require access.',
+  'reproductor.error.inestable': 'The channel is broadcasting, but the signal arrives broken. Try again or pick another channel.',
   'reproductor.error.formato': 'Your browser cannot play this format. Try Safari or the installed app.',
   'reproductor.error.caducado': "The channel's address expired.",
 
