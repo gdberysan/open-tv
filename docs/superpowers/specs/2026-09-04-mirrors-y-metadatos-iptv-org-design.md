@@ -16,9 +16,10 @@ La API de iptv-org ya publica los mirrors que el `index.m3u` descarta.
 Aprovecharlos es un cambio de **fuente de datos**: sin infraestructura nueva, sin
 credenciales, sin coste mensual y sin dependencias Go nuevas.
 
-De paso, y porque sale de la misma API y del mismo sync, se arregla lo que hoy
-falta: **1.683 canales sin `country_code`**, y las cabeceras (`referrer`,
-`user_agent`) que algunos orígenes exigen para servir el stream.
+De paso, y porque sale de la misma API y del mismo sync, se arreglan dos cosas
+más: las **categorías** de 2.606 canales que hoy dicen solo «General», y las
+cabeceras (`referrer`, `user_agent`) que algunos orígenes exigen para servir el
+stream.
 
 **Fuera de alcance, decidido explícitamente:**
 
@@ -54,6 +55,7 @@ Contra el catálogo real (`.devdata/iptv.db`) y la API de iptv-org, el 2026-09-0
 | **Canales que ganan al menos un mirror** | **2.112** |
 | **Filas de stream extra a insertar** | **4.180** |
 | Streams con `referrer` o `user_agent` propios | 1.046 |
+| Canales con categoría «General» que `channels.json` resuelve | 2.606 |
 
 **Resultado esperado: de 254 a 2.112 canales con alternativa real (8,3×).**
 
@@ -74,13 +76,32 @@ ES `iptv-org/index.m3u`, así que los identificadores salen de la misma fuente.
 porque es la trampa obvia: da 3.061 canales y 14.734 filas, pero le asigna al
 feed SD los streams del HD y viceversa. Los números buenos son los de arriba.
 
-### 2.2 `streams.json` NO es un superconjunto
+### 2.2 El país NO se puede arreglar por esta vía — medido y descartado
+
+La idea original era rellenar los **1.683 canales sin `country_code`**. **No se
+puede, y conviene dejarlo escrito para que nadie lo reintente:** los 1.683 son
+**exactamente los mismos que no tienen `tvg_id`**. Sin `tvg_id` no hay clave con
+la que unir contra `channels.json`, así que la API resuelve **0 de 1.683**.
+
+Es coherente con el resto: son las entradas que upstream nunca ligó a un canal
+conocido — las mismas que aparecen en `streams.json` sin campo `channel` (1.948).
+
+Probado también el emparejamiento **por nombre** (normalizando y quitando el
+sufijo `(1080p)`), contra `name` y `alt_names`: de 1.683 solo **81** casan de
+forma única, **109** son ambiguos (varios países) y **1.493** no casan.
+**Descartado:** 81 canales no justifican un emparejador difuso que además puede
+asignar el país equivocado en los 109 ambiguos.
+
+Lo que `channels.json` SÍ arregla es la **categoría**: 2.606 canales que hoy
+caen en «General» tienen `tvg_id` y categorías reales upstream.
+
+### 2.3 `streams.json` NO es un superconjunto
 
 9.910 canales frente a nuestros 12.097, y **1.948 de sus streams no traen
 `channel`**. Por eso el diseño es **aditivo**, no un reemplazo: el `index.m3u`
 sigue mandando en la amplitud del catálogo y la API solo **enriquece**.
 
-### 2.3 Cabeceras: 1.046 streams las necesitan y hoy no las tienen
+### 2.4 Cabeceras: 1.046 streams las necesitan y hoy no las tienen
 
 `streams.json` trae `referrer` (331 entradas) y `user_agent` (877). Son
 exactamente los orígenes con protección de hotlink o filtro de agente — parte de
@@ -126,8 +147,8 @@ límite y el failover se llena de historia muerta.
 ### 3.3 Lo que NO hay que tocar
 
 - **`/channels` está congelado en 15 claves** (`domain/channel_test.go` lo
-  asevera para Flutter). Este diseño **no añade ni quita claves**: rellena campos
-  que ya existen (`CountryCode`).
+  asevera para Flutter). Este diseño **no añade ni quita claves**: solo rellena
+  un campo que ya existe (`CategoryID`).
 - **`/channels/streams` ya devuelve mirrors** (`FindMirrorsByChannelID`,
   ordenados vivos-primero-por-latencia) y el cliente web ya los recorre con
   `planDeFailover`. **No hace falta endpoint nuevo ni cambio de contrato.**
@@ -230,19 +251,20 @@ subir.
 
 ## 6. Metadatos y cabeceras
 
-### 6.1 Rellenar, nunca pisar
+### 6.1 Categorías: rellenar lo débil, nunca pisar lo bueno
 
-`channels.json` aporta `country`, `categories` y `languages`. Regla única:
+`channels.json` (31.127 entradas) trae `country` y `categories`. **No trae
+`languages`** — comprobado sobre el JSON real; los campos son `alt_names`,
+`categories`, `closed`, `country`, `id`, `is_nsfw`, `launched`, `name`,
+`network`, `owners`, `replaced_by`, `website`.
 
-> **Solo se rellena lo que el M3U dejó vacío.** Si el M3U trae `country_code`,
-> gana el M3U.
+`country` **no se usa**, por lo medido en §2.2. Solo se toca la categoría:
 
-Motivo: el M3U es la fuente que el usuario ve y la que decide la amplitud del
-catálogo; la API complementa. Así el cambio no puede reescribir de golpe la
-geografía de 12.000 canales, que sería un diff imposible de revisar.
+> Se rellena la categoría **solo** cuando la del M3U está vacía o es «General»
+> (el cajón de sastre de iptv-org). Cualquier otra categoría del M3U gana.
 
-Objetivo medible: **de 1.683 canales sin país a cerca de 0** entre los que casan,
-y de 178 países representados hacia arriba.
+Objetivo medible: **2.606 canales pasan de «General» a categorías reales.** Los
+3.147 «Undefined» no tienen `tvg_id` y quedan como están.
 
 ### 6.2 Cabeceras por stream
 
@@ -295,11 +317,13 @@ palanca barata es subir `MaxWorkers`, no partir el diseño.
   usuario sin catálogo.
 - **La comprobación de catálogo sospechoso** (`minRatioCatalogo`) sigue mirando el
   **número de canales**, que este cambio no altera. No se toca.
-- **Tamaño:** `streams.json` son ~3,5 MB y `channels.json` otro tanto. Se descargan
-  **una vez por sync**, no una vez por canal, y se indexan en mapas por
-  `(channel, feed)` antes del bucle.
-- **Memoria:** dos mapas de ~17 k entradas. Irrelevante frente al catálogo que ya
-  se maneja en memoria durante el sync.
+- **Tamaño:** `streams.json` son ~3,5 MB y `channels.json` ~7,8 MB (31.127
+  entradas). Se descargan **una vez por sync**, no una vez por canal, y se
+  indexan antes del bucle: `streams.json` por `(channel, feed)` y de
+  `channels.json` se guarda **solo la categoría** de cada id, descartando el
+  resto del objeto para no cargar 7,8 MB de campos que no se usan.
+- **Memoria:** un mapa de ~17 k entradas y otro de ~31 k strings cortos.
+  Irrelevante frente al catálogo que ya se maneja en memoria durante el sync.
 
 ---
 
@@ -314,7 +338,8 @@ TDD, como el resto del repo:
 4. **Enriquecedor `nil`** (el M3U del usuario): comportamiento idéntico al de hoy.
    Es la prueba que protege a las fuentes bring-your-own.
 5. **La API falla**: el sync termina bien y guarda el catálogo del M3U.
-6. **Metadatos**: se rellena el hueco, NO se pisa lo que ya venía.
+6. **Categorías**: se rellena cuando el M3U trae vacío o «General»; NO se pisa
+   una categoría real del M3U.
 7. **Poda de streams**: se borra el que no apareció en este sync; la poda no cruza
    fuentes.
 8. **Cabeceras**: el proxy manda `referrer`/`user_agent` del stream cuando existen
