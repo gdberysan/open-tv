@@ -207,17 +207,38 @@ func buildChannelWhere(f ports.ChannelFilter) (string, []any) {
 	}
 	if f.AliveOnly {
 		// Visible mientras el canal no esté PROBADO muerto: basta con un stream
-		// vivo, o uno que aún no haya agotado DeadFailThreshold fallos
-		// consecutivos (lo que incluye los que nunca se han chequeado, con
-		// fail_count 0). Mirar solo is_alive dejaría la histéresis en nada.
+		// vivo, o uno CHEQUEADO que aún no haya agotado DeadFailThreshold
+		// fallos consecutivos. Mirar solo is_alive dejaría la histéresis en
+		// nada.
+		//
+		// El "AND s.last_checked IS NOT NULL" es lo que impide que un mirror
+		// RECIÉN SINCRONIZADO —fail_count 0, nunca probado— resucite a un canal
+		// que no tiene ni un stream que funcione: con la persistencia de
+		// mirrors, un sync mete filas nuevas a puñados y 631 canales sin nada
+		// vivo pasaban a "disponible" durante las tres pasadas de health-check
+		// que tardan en agotar el umbral (~3 h). La app promete «Comprobado en
+		// vivo»: un mirror sin verificar no cuenta.
+		//
+		// La segunda rama del HAVING es el ARRANQUE EN FRÍO, y solo eso: si
+		// NINGÚN stream del canal se ha chequeado todavía, no hay evidencia en
+		// contra y el canal se muestra —si no, la app aparecería vacía entre el
+		// primer sync y la primera pasada del worker, que es justo lo que el
+		// filtro no debe hacer—. En cuanto UN stream del canal tiene veredicto,
+		// esa rama deja de aplicar y los mirrors sin verificar ya no suman.
 		//
 		// Los canales SIN NINGÚN stream quedan fuera: son injugables
 		// —/channels/stream devuelve 404— y aparecen cuando el proveedor
-		// renombra un canal y deja huérfana la fila anterior.
+		// renombra un canal y deja huérfana la fila anterior. El EXISTS no
+		// devuelve ninguna fila cuando el canal no tiene streams, así que el
+		// GROUP BY no llega a formar grupo y el canal se oculta igual.
 		where = append(where, fmt.Sprintf(`EXISTS (
 			SELECT 1 FROM streams s
 			WHERE s.channel_id = channels.id
-			  AND (s.is_alive = 1 OR s.fail_count < %d)
+			GROUP BY s.channel_id
+			HAVING SUM(CASE WHEN s.is_alive = 1
+			                  OR (s.fail_count < %d AND s.last_checked IS NOT NULL)
+			                THEN 1 ELSE 0 END) > 0
+			    OR SUM(CASE WHEN s.last_checked IS NOT NULL THEN 1 ELSE 0 END) = 0
 		)`, DeadFailThreshold))
 	}
 

@@ -898,3 +898,91 @@ func TestStreamCabecerasSobrevivenALosFinders(t *testing.T) {
 		t.Errorf("FindBestByChannelID: (%q,%q), quiero las cabeceras intactas", mejor.Referrer, mejor.UserAgent)
 	}
 }
+
+// Un mirror recién sincronizado entra con fail_count 0 y last_checked NULL.
+// Con la persistencia de todos los mirrors, cada sync mete filas nuevas a
+// puñados: si contaran como disponibles, 631 canales sin un solo stream que
+// funcione volverían a la lista durante las ~3 h que tardan tres pasadas del
+// health-check en agotar el umbral, y la app promete «Comprobado en vivo».
+// Un mirror sin verificar NO cuenta; en cuanto se verifica vivo, cuenta.
+func TestFindFilteredAliveOnlyIgnoraMirrorsSinVerificar(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	seedChannel(t, chRepo, "ch-muerto")  // uno probado muerto + un mirror nuevo
+	seedChannel(t, chRepo, "ch-en-frio") // nada chequeado todavía
+
+	if err := stRepo.SaveBatch(ctx, []domain.Stream{
+		makeStream("st-muerto", "ch-muerto", "http://a/viejo.m3u8"),
+		makeStream("st-nuevo", "ch-muerto", "http://a/mirror-nuevo.m3u8"),
+		makeStream("st-frio", "ch-en-frio", "http://b/1.m3u8"),
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+	// El viejo agota la histéresis: probado muerto.
+	for i := int64(0); i < db.DeadFailThreshold; i++ {
+		if err := stRepo.MarkDead(ctx, "st-muerto"); err != nil {
+			t.Fatalf("MarkDead #%d: %v", i, err)
+		}
+	}
+
+	visibles := func() map[string]bool {
+		t.Helper()
+		got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{AliveOnly: true, Limit: 100})
+		if err != nil {
+			t.Fatalf("FindFiltered: %v", err)
+		}
+		ids := map[string]bool{}
+		for _, ch := range got {
+			ids[string(ch.ID)] = true
+		}
+		return ids
+	}
+
+	ids := visibles()
+	if ids["ch-muerto"] {
+		t.Error("un mirror nuevo SIN VERIFICAR no puede hacer disponible un canal probado muerto")
+	}
+	// Arranque en frío: si NINGÚN stream del canal se ha chequeado aún no hay
+	// evidencia en contra, así que sigue visible. Sin esto la app aparecería
+	// vacía entre el primer sync y la primera pasada del health-worker.
+	if !ids["ch-en-frio"] {
+		t.Error("un canal cuyos streams no se han chequeado todavía debe seguir visible")
+	}
+
+	// Y en cuanto el mirror nuevo se verifica vivo, el canal vuelve.
+	if err := stRepo.MarkAlive(ctx, "st-nuevo", 80); err != nil {
+		t.Fatalf("MarkAlive: %v", err)
+	}
+	if !visibles()["ch-muerto"] {
+		t.Error("un mirror verificado vivo debe hacer visible el canal con normalidad")
+	}
+}
+
+// El contador tiene que contar lo mismo que la lista enseña: si CountFiltered
+// y FindFiltered discreparan, la app pintaría un número que no corresponde.
+func TestCountFilteredAliveOnlyCuentaLoMismoQueLaLista(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	seedChannel(t, chRepo, "ch-muerto")
+	if err := stRepo.SaveBatch(ctx, []domain.Stream{
+		makeStream("st-muerto", "ch-muerto", "http://a/viejo.m3u8"),
+		makeStream("st-nuevo", "ch-muerto", "http://a/mirror-nuevo.m3u8"),
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+	for i := int64(0); i < db.DeadFailThreshold; i++ {
+		if err := stRepo.MarkDead(ctx, "st-muerto"); err != nil {
+			t.Fatalf("MarkDead #%d: %v", i, err)
+		}
+	}
+
+	n, err := chRepo.CountFiltered(ctx, ports.ChannelFilter{AliveOnly: true})
+	if err != nil {
+		t.Fatalf("CountFiltered: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("CountFiltered = %d, quiero 0: el mirror sin verificar no cuenta", n)
+	}
+}
