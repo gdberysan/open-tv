@@ -126,6 +126,18 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   desbordes, opacidad efectiva), no solo con los gates. Y **nunca editar CSS
   con expresiones regulares**: una borró una declaración y su llave de cierre,
   fundiendo dos reglas sin que nada se quejara.
+- **TRAMPA: pestaña OCULTA = todos los canales fallan.** Chrome no abre un
+  `MediaSource` en una pestaña oculta (`visibilityState: 'hidden'`), y la
+  automatización de navegador deja la pestaña oculta con muchísima facilidad
+  —basta con que la ventana de Chrome no esté al frente, aunque `hasFocus()`
+  diga `true`—. Síntoma: hls.js baja manifiesto y chunklist, sigue sondeando la
+  playlist, y NO pide un solo segmento; `readyState` se queda en 0 y
+  `MEDIA_ATTACHED` no llega nunca. Se ve idéntico a un catálogo lleno de
+  canales muertos. **Comprueba SIEMPRE `document.visibilityState` antes de
+  concluir nada sobre reproducción**, y no confundas `document.hasFocus()` con
+  visibilidad: son cosas distintas. El reproductor ya congela su presupuesto de
+  carga mientras está oculta, así que el síntoma hoy es que se queda en
+  «Conectando…» para siempre, no que dé error.
 - **TRAMPA de gate visual en Chrome:** una pestaña abierta cachea el bundle
   viejo (SPA en memoria). Verifica el `index-<hash>.js` que sirve el gateway
   (`curl -s :8080/ | grep index-`) y recarga con un query cache-buster
