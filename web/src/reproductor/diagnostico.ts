@@ -7,7 +7,7 @@
  * Puro y sin dependencias: el Reproductor capta la info del error de cada
  * intento y la pasa aquí; este módulo no toca hls.js, el DOM ni el estado.
  */
-export type ClaseFallo = 'caido' | 'geo' | 'formato' | 'caducado' | 'desconocido'
+export type ClaseFallo = 'caido' | 'geo' | 'formato' | 'inestable' | 'caducado' | 'desconocido'
 
 export interface InfoFallo {
   /** `data.type` de hls.js (p.ej. "networkError", "mediaError"). */
@@ -52,14 +52,28 @@ export function clasificarFallo(info: InfoFallo): ClaseFallo {
 
   if (tipo.includes('networkerror') || mediaErrorCode === MEDIA_ERR_NETWORK) return 'caido'
 
+  // 'formato' SOLO con señales de códec de verdad. Antes bastaba con
+  // tipo === 'mediaError', y en hls.js TODO problema de la tubería de medios es
+  // mediaError: bufferStalledError, fragParsingError, bufferAppendError,
+  // bufferSeekOverHole y bufferNudgeOnStall lo son. O sea que un simple atasco
+  // acababa diciéndole al usuario «tu navegador no puede reproducir este
+  // formato. Prueba en Safari» — falso, y un consejo que no arregla nada
+  // porque Safari recibiría exactamente los mismos bytes rotos.
+  // Estas tres son las que hls.js usa cuando el códec de verdad no encaja.
+  const CODEC_INCOMPATIBLE = ['manifestincompatiblecodecs', 'bufferincompatiblecodecs', 'bufferaddcodec']
   if (
-    tipo.includes('mediaerror') ||
-    detalles.includes('bufferappend') ||
-    detalles.includes('decode') ||
+    CODEC_INCOMPATIBLE.some((d) => detalles.includes(d)) ||
     mediaErrorCode === MEDIA_ERR_DECODE ||
     mediaErrorCode === MEDIA_ERR_SRC_NOT_SUPPORTED
   ) {
     return 'formato'
+  }
+
+  // Resto de la tubería de medios: el canal EMITE, pero lo que llega no se
+  // puede sostener — se atasca, no se demuxa o no se puede anexar al búfer.
+  // No es culpa del navegador y cambiar de navegador no lo arregla.
+  if (tipo.includes('mediaerror') || detalles.includes('buffer') || detalles.includes('parsing')) {
+    return 'inestable'
   }
 
   return 'desconocido'

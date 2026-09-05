@@ -27,13 +27,33 @@ describe('clasificarFallo', () => {
     expect(clasificarFallo({ mediaErrorCode: 2 })).toBe('caido')
   })
 
-  // hls.js: error de media/decodificación.
-  it('tipoHls de media → formato', () => {
-    expect(clasificarFallo({ tipoHls: 'mediaError', detallesHls: 'bufferAppendError' })).toBe('formato')
+  // 'formato' SOLO para señales de códec de verdad. Antes bastaba con que el
+  // tipo fuera mediaError, y en hls.js TODO atasco es mediaError
+  // (bufferStalledError, fragParsingError, bufferAppendError,
+  // bufferSeekOverHole, bufferNudgeOnStall) — así que un origen que servía
+  // relleno acababa diciéndole al usuario que su navegador no puede con el
+  // formato, y mandándolo a Safari a repetir el mismo fallo.
+  it('códecs incompatibles del manifiesto → formato', () => {
+    expect(clasificarFallo({ tipoHls: 'mediaError', detallesHls: 'manifestIncompatibleCodecsError' })).toBe('formato')
   })
 
-  it('detallesHls con DECODE → formato', () => {
-    expect(clasificarFallo({ tipoHls: 'otherError', detallesHls: 'fragParsingErrorDECODE' })).toBe('formato')
+  it('el buffer no acepta el códec → formato', () => {
+    expect(clasificarFallo({ tipoHls: 'mediaError', detallesHls: 'bufferAddCodecError' })).toBe('formato')
+    expect(clasificarFallo({ tipoHls: 'mediaError', detallesHls: 'bufferIncompatibleCodecsError' })).toBe('formato')
+  })
+
+  // El caso AXN Latin America South (2026-09-04): el origen devuelve 188 bytes
+  // —un paquete TS nulo— con HTTP 200 para los segmentos ya caducados. hls.js
+  // no puede demuxar eso y emite fragParsingError, que es mediaError. El canal
+  // EMITE; lo que llega está roto. Decir «tu navegador no puede con el formato»
+  // era falso y el consejo («prueba en Safari») no arregla nada: Safari
+  // recibiría exactamente los mismos 188 bytes.
+  it('un atasco NO es un problema de formato', () => {
+    expect(clasificarFallo({ tipoHls: 'mediaError', detallesHls: 'bufferStalledError' })).toBe('inestable')
+    expect(clasificarFallo({ tipoHls: 'mediaError', detallesHls: 'fragParsingError' })).toBe('inestable')
+    expect(clasificarFallo({ tipoHls: 'mediaError', detallesHls: 'bufferAppendError' })).toBe('inestable')
+    expect(clasificarFallo({ tipoHls: 'mediaError', detallesHls: 'bufferSeekOverHole' })).toBe('inestable')
+    expect(clasificarFallo({ tipoHls: 'mediaError', detallesHls: 'bufferNudgeOnStall' })).toBe('inestable')
   })
 
   // Nativo: MEDIA_ERR_DECODE (3) y MEDIA_ERR_SRC_NOT_SUPPORTED (4).

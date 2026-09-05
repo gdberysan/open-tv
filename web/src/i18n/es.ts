@@ -121,6 +121,7 @@ export const es = {
   'reproductor.error.corte': 'Se perdió la señal del canal.',
   'reproductor.error.caido': 'El canal está caído o su dirección caducó.',
   'reproductor.error.geo': 'Puede estar geo-bloqueado en tu región o requerir acceso.',
+  'reproductor.error.inestable': 'El canal emite, pero la señal llega rota. Prueba otra vez o elige otro canal.',
   'reproductor.error.formato': 'Tu navegador no puede reproducir este formato. Prueba en Safari o en la app instalada.',
   'reproductor.error.caducado': 'La dirección del canal caducó.',
 
