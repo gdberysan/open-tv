@@ -14,6 +14,11 @@ type StreamResult struct {
 	Protocol  string
 	Error     error
 
+	// StatusCode es el código HTTP de la última respuesta recibida (HEAD o
+	// GET, el que haya decidido IsAlive). Cero valor = no se recibió
+	// respuesta (error de red, timeout o de creación de la petición).
+	StatusCode int
+
 	// Compatibilidad con AirPlay, cuando se ha podido determinar. Solo la
 	// rellena el camino con fallback a GET: es el único que lee cuerpo.
 	Airplay domain.AirplaySupport
@@ -22,6 +27,16 @@ type StreamResult struct {
 	// IsAlive: esquema final, ACAO de la respuesta y CODECS del manifiesto.
 	// Cero valor = WebUnknown = no se pudo preguntar.
 	Web domain.WebSupport
+}
+
+// TareaCheck es una URL a comprobar junto con las cabeceras que su origen
+// exige. Viaja por el canal de Start porque el checker no tiene acceso al
+// repositorio: quien alimenta el canal (el worker) es quien conoce
+// Referrer/UserAgent de cada stream.
+type TareaCheck struct {
+	URL       string
+	Referrer  string
+	UserAgent string
 }
 
 // Config estructura las configuraciones del Validator.
