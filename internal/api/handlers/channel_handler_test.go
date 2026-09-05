@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gdberysan/open-tv/internal/adapters/db"
+	"github.com/gdberysan/open-tv/internal/adapters/providers/iptvorg"
 	"github.com/gdberysan/open-tv/internal/domain"
 	"github.com/gdberysan/open-tv/internal/ports"
 	"github.com/go-chi/chi/v5"
@@ -85,6 +86,9 @@ func (m *mockProvider) GetLiveChannels(ctx context.Context) ([]domain.Channel, e
 }
 func (m *mockProvider) GetStreamURL(ctx context.Context, channelID domain.ChannelID) (string, error) {
 	return "http://mock.com/" + string(channelID) + ".ts", nil
+}
+func (m *mockProvider) GetStreamsDeCanal(ctx context.Context, channelID domain.ChannelID) ([]iptvorg.StreamExtra, error) {
+	return nil, nil
 }
 func (m *mockProvider) HealthCheck(ctx context.Context) error { return nil }
 

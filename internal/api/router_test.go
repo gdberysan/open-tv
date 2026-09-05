@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gdberysan/open-tv/internal/adapters/db"
+	"github.com/gdberysan/open-tv/internal/adapters/providers/iptvorg"
 	"github.com/gdberysan/open-tv/internal/api"
 	"github.com/gdberysan/open-tv/internal/domain"
 	"github.com/gdberysan/open-tv/internal/ports"
@@ -55,6 +56,10 @@ func (provVacio) GetLiveChannels(context.Context) ([]domain.Channel, error) {
 // haría que el handler sirviera una URL vacía como si fuese válida.
 func (provVacio) GetStreamURL(context.Context, domain.ChannelID) (string, error) {
 	return "", errors.New("caché vacía")
+}
+
+func (provVacio) GetStreamsDeCanal(context.Context, domain.ChannelID) ([]iptvorg.StreamExtra, error) {
+	return nil, errors.New("caché vacía")
 }
 
 type streamsVacio struct{}

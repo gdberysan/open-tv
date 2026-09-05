@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gdberysan/open-tv/internal/adapters/providers/iptvorg"
 	"github.com/gdberysan/open-tv/internal/domain"
 )
 
@@ -37,10 +38,33 @@ type Provider struct {
 	mu         sync.RWMutex
 	streamURLs map[domain.ChannelID]string
 
+	// tvgIDs guarda el tvg-id de cada canal del último GetLiveChannels: es la
+	// clave con la que se consulta la API. Protegido por mu.
+	tvgIDs map[domain.ChannelID]string
+
 	// tvgURLs son las URLs de guía EPG (url-tvg / x-tvg-url) que la fuente
 	// declaró en la cabecera #EXTM3U de la última llamada a GetLiveChannels.
 	// Vacío si la fuente no declaró ninguna. Protegido por mu.
 	tvgURLs []string
+
+	// enriquecedor es nil salvo que la fuente sea iptv-org.
+	enriquecedor Enriquecedor
+}
+
+// Enriquecedor aporta lo que el M3U no trae. Es OPCIONAL: sin él (el caso de un
+// M3U subido por el usuario, que no tiene API detrás) el provider se comporta
+// exactamente igual que siempre.
+type Enriquecedor interface {
+	Streams(canal, feed string) []iptvorg.StreamExtra
+	Categoria(canal string) (string, bool)
+}
+
+// WithEnriquecedor conecta la API de iptv-org. Solo debe usarse cuando la
+// fuente ES iptv-org: para cualquier otro M3U los identificadores no casan.
+func WithEnriquecedor(e Enriquecedor) Option {
+	return func(p *Provider) {
+		p.enriquecedor = e
+	}
 }
 
 // Option configura parámetros opcionales de Provider en su construcción.
@@ -74,6 +98,7 @@ func NewProvider(id, baseURL string, client *http.Client, opts ...Option) *Provi
 		client:       client,
 		maxBodyBytes: defaultMaxM3UBytes,
 		streamURLs:   make(map[domain.ChannelID]string),
+		tvgIDs:       make(map[domain.ChannelID]string),
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -119,6 +144,7 @@ func (p *Provider) getLiveChannelsFromHTTP(ctx context.Context) ([]domain.Channe
 	// Reemplazar caché completo al finalizar el parse
 	p.mu.Lock()
 	p.streamURLs = result.streamURLs
+	p.tvgIDs = result.tvgIDs
 	p.tvgURLs = result.tvgURLs
 	p.mu.Unlock()
 
@@ -148,6 +174,7 @@ func (p *Provider) getLiveChannelsFromFile() ([]domain.Channel, error) {
 	// Reemplazar caché completo al finalizar el parse
 	p.mu.Lock()
 	p.streamURLs = result.streamURLs
+	p.tvgIDs = result.tvgIDs
 	p.tvgURLs = result.tvgURLs
 	p.mu.Unlock()
 
@@ -193,6 +220,7 @@ func (p *Provider) resolveFilePath() (string, error) {
 type m3uParseResult struct {
 	channels   []domain.Channel
 	streamURLs map[domain.ChannelID]string
+	tvgIDs     map[domain.ChannelID]string
 	tvgURLs    []string
 }
 
@@ -209,6 +237,7 @@ func parseM3UStream(r io.Reader, providerID string, maxBytes int64) (m3uParseRes
 		channels       []domain.Channel
 		currentChannel *domain.Channel
 		newURLs        = make(map[domain.ChannelID]string)
+		newTvgIDs      = make(map[domain.ChannelID]string)
 		tvgURLs        []string
 		firstLine      = true
 	)
@@ -249,6 +278,7 @@ func parseM3UStream(r io.Reader, providerID string, maxBytes int64) (m3uParseRes
 			currentChannel.ID = id
 			channels = append(channels, *currentChannel)
 			newURLs[id] = line // line es la URL del stream
+			newTvgIDs[id] = currentChannel.TvgID
 			currentChannel = nil
 		}
 	}
@@ -260,7 +290,7 @@ func parseM3UStream(r io.Reader, providerID string, maxBytes int64) (m3uParseRes
 		return m3uParseResult{}, fmt.Errorf("M3U excede el tamaño máximo de %d bytes", maxBytes)
 	}
 
-	return m3uParseResult{channels: channels, streamURLs: newURLs, tvgURLs: tvgURLs}, nil
+	return m3uParseResult{channels: channels, streamURLs: newURLs, tvgIDs: newTvgIDs, tvgURLs: tvgURLs}, nil
 }
 
 // GetStreamURL retorna la URL del stream desde el caché poblado por GetLiveChannels.
@@ -272,6 +302,50 @@ func (p *Provider) GetStreamURL(_ context.Context, channelID domain.ChannelID) (
 		return "", fmt.Errorf("opensource.GetStreamURL: canal %s no encontrado (sync pendiente?)", channelID)
 	}
 	return u, nil
+}
+
+// GetStreamsDeCanal devuelve la URL del M3U PRIMERO y, si hay enriquecedor, los
+// mirrors de la API detrás, sin duplicados. El orden de inserción solo decide el
+// arranque en frío: a partir de ahí manda la salud (FindMirrorsByChannelID).
+func (p *Provider) GetStreamsDeCanal(_ context.Context, channelID domain.ChannelID) ([]iptvorg.StreamExtra, error) {
+	p.mu.RLock()
+	url, ok := p.streamURLs[channelID]
+	tvgID := p.tvgIDs[channelID]
+	enr := p.enriquecedor
+	p.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("opensource.GetStreamsDeCanal: canal %s no encontrado (sync pendiente?)", channelID)
+	}
+
+	salida := []iptvorg.StreamExtra{{URL: url}}
+	if enr == nil || tvgID == "" {
+		return salida, nil
+	}
+
+	vistas := map[string]bool{url: true}
+	canal, feed := iptvorg.SepararTvgID(tvgID)
+	for _, s := range enr.Streams(canal, feed) {
+		if s.URL == "" || vistas[s.URL] {
+			continue
+		}
+		vistas[s.URL] = true
+		salida = append(salida, s)
+	}
+	return salida, nil
+}
+
+// CategoriaDe devuelve la categoría upstream del canal cuyo tvg_id se pasa.
+// Sin enriquecedor, o sin tvg_id, no hay categoría.
+func (p *Provider) CategoriaDe(tvgID string) (string, bool) {
+	p.mu.RLock()
+	enr := p.enriquecedor
+	p.mu.RUnlock()
+	if enr == nil || tvgID == "" {
+		return "", false
+	}
+	canal, _ := iptvorg.SepararTvgID(tvgID)
+	return enr.Categoria(canal)
 }
 
 // TvgURLs devuelve las URLs de guía EPG (url-tvg / x-tvg-url) que la fuente
