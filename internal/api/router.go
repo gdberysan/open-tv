@@ -144,7 +144,16 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	// la IP de quien lo levante, y eso no se ofrece ni por accidente. Los
 	// builds del snapshot tampoco lo incluyen porque nunca son loopback.
 	if opts.ProxyActivo {
-		ph := proxy.NewHandler(RutaProxy, opts.PermitirDestinosPrivados)
+		ph := proxy.NewHandler(RutaProxy, opts.PermitirDestinosPrivados,
+			proxy.ConBuscadorCabeceras(func(ctx context.Context, u string) (string, string) {
+				ref, ua, err := streams.CabecerasPorURL(ctx, u)
+				if err != nil {
+					// Un fallo de lectura no puede tumbar la reproducción:
+					// se cae a las cabeceras de siempre.
+					return "", ""
+				}
+				return ref, ua
+			}))
 		r.Get("/proxy/hls", ph.ServeHTTP)
 	} else {
 		// Sin proxy, /proxy/hls tiene que devolver un 404 explícito y no

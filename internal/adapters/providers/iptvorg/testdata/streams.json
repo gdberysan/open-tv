@@ -1,0 +1,7 @@
+[
+  {"channel":"AndTV.in","feed":"HD","url":"https://uno.example/hd.m3u8","referrer":null,"user_agent":null},
+  {"channel":"AndTV.in","feed":"HD","url":"https://dos.example/hd.m3u8","referrer":"https://ref.example/","user_agent":"VLC/3.0"},
+  {"channel":"AndTV.in","feed":"SD","url":"https://tres.example/sd.m3u8","referrer":null,"user_agent":null},
+  {"channel":"Solo.uk","feed":null,"url":"https://cuatro.example/x.m3u8","referrer":null,"user_agent":null},
+  {"channel":null,"feed":null,"url":"https://huerfano.example/x.m3u8","referrer":null,"user_agent":null}
+]

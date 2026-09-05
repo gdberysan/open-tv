@@ -27,7 +27,9 @@ canal y a podar los que ya no aparecen.
 - **Ninguna dependencia Go nueva.** `encoding/json` basta para ambos JSON.
 - **Idioma:** código, comentarios y mensajes de commit en **español**.
 - **Identidad de commits:** autor `Gerard <gdberysan@gmail.com>`. Trailer
-  obligatorio: `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
+  obligatorio con **el modelo que hizo el trabajo**, como manda CLAUDE.md
+  («o el modelo en uso»): `Co-Authored-By: Claude <modelo> <noreply@anthropic.com>`.
+  Atribuir a otro modelo el trabajo que hizo el tuyo falsea el registro de git.
 - **NUNCA `git add -A`.** Añadir por ruta explícita.
 - **Gates verdes al final de CADA tarea:** `gofmt -l .` · `go vet ./...` ·
   `go build ./...` · `go test -race -count=1 ./...` · `golangci-lint run ./...` ·
@@ -670,9 +672,33 @@ interface`:
 
 Asegurar que `time` está importado.
 
-**OJO — esto rompe los dobles de test.** Todo implementador de
-`ports.StreamRepository` debe ganar los dos métodos, incluido
-`fakeStreamRepo` en `internal/services/syncer_test.go`. Añadirle:
+**OJO — esto rompe SEIS dobles de test, no uno.** Todo implementador de
+`ports.StreamRepository` debe ganar los dos métodos nuevos o el árbol deja de
+compilar y ninguna tarea posterior puede arrancar. Ficheros a revisar, todos:
+
+- `internal/services/syncer_test.go` (`fakeStreamRepo`) — código abajo
+- `internal/adapters/db/channel_repository_test.go`
+- `internal/adapters/db/stream_repository_test.go`
+- `internal/adapters/validator/worker_test.go`
+- `internal/api/handlers/channel_handler_test.go`
+- `internal/api/router_test.go`
+
+En cada uno, buscar el tipo que implementa el puerto (el que ya tiene
+`MarkBatch` o `FindMirrorsByChannelID`) y añadirle los dos métodos. Para los
+dobles que no necesiten comprobar nada, la versión mínima basta:
+
+```go
+func (f *<doble>) DeleteStale(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (f *<doble>) CabecerasPorURL(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
+```
+
+Para `fakeStreamRepo` de `syncer_test.go`, que SÍ tiene que registrar las
+llamadas porque la Tarea 4 las comprueba:
 
 ```go
 type deleteStaleStreamCall struct {
@@ -1000,6 +1026,18 @@ En `internal/ports/provider_port.go`, añadir al interface:
 ```
 
 con el import de `iptvorg`.
+
+**OJO — esto rompe el doble de `ProviderPort`.** Además del provider real,
+`internal/api/handlers/channel_handler_test.go` dobla ese puerto. Añadirle:
+
+```go
+func (f *<doble>) GetStreamsDeCanal(_ context.Context, _ domain.ChannelID) ([]iptvorg.StreamExtra, error) {
+	return nil, nil
+}
+```
+
+Comprobar con `go build ./... && go vet ./...` que no queda ningún otro
+implementador sin el método.
 
 - [ ] **Paso 4: Ejecutar los tests y verificar que pasan**
 
@@ -1438,8 +1476,16 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes de Task 2: `streams.CabecerasPorURL`.
-- Produces: `type BuscadorCabeceras func(ctx context.Context, url string) (referrer, userAgent string)`
-  y `proxy.NewHandler(prefijo string, permitirDestinosPrivados bool, cabeceras BuscadorCabeceras)`.
+- Produces:
+  - `type BuscadorCabeceras func(ctx context.Context, url string) (referrer, userAgent string)`
+  - `type Option func(*Handler)` y `func ConBuscadorCabeceras(b BuscadorCabeceras) Option`
+  - `func NewHandler(prefijo string, permitirDestinosPrivados bool, opts ...Option) *Handler`
+
+**Decisión de diseño (regla del escaneo previo):** la firma de `NewHandler`
+**no cambia** — se amplía con una opción variádica. `internal/proxy/handler_test.go`
+la llama **9 veces** con dos argumentos, y esos tests cubren la guarda SSRF: no
+se tocan. La opción variádica es además el idioma que este repo ya usa en
+`opensource.Option`.
 
 - [ ] **Paso 1: Escribir el test que falla**
 
@@ -1457,9 +1503,10 @@ func TestProxyMandaLasCabecerasDelStream(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := NewHandler("/proxy/hls?u=", true, func(_ context.Context, _ string) (string, string) {
-		return "https://ref.example/", "UA-Especial/1"
-	})
+	h := NewHandler("/proxy/hls?u=", true, ConBuscadorCabeceras(
+		func(_ context.Context, _ string) (string, string) {
+			return "https://ref.example/", "UA-Especial/1"
+		}))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg.ts"), nil)
 	h.ServeHTTP(rec, req)
@@ -1487,9 +1534,10 @@ func TestProxySinCabecerasUsaElDeSiempre(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := NewHandler("/proxy/hls?u=", true, func(_ context.Context, _ string) (string, string) {
-		return "", ""
-	})
+	h := NewHandler("/proxy/hls?u=", true, ConBuscadorCabeceras(
+		func(_ context.Context, _ string) (string, string) {
+			return "", ""
+		}))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg.ts"), nil)
 	h.ServeHTTP(rec, req)
@@ -1513,7 +1561,7 @@ func TestProxyBuscadorNil(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := NewHandler("/proxy/hls?u=", true, nil)
+	h := NewHandler("/proxy/hls?u=", true) // sin opciones: como todas las llamadas de siempre
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg.ts"), nil)
 	h.ServeHTTP(rec, req)
@@ -1548,8 +1596,30 @@ En `internal/proxy/handler.go`:
 type BuscadorCabeceras func(ctx context.Context, url string) (referrer, userAgent string)
 ```
 
-Añadir el campo `cabeceras BuscadorCabeceras` al struct `Handler`, aceptarlo en
-`NewHandler` y usarlo en `ServeHTTP`, sustituyendo la línea del User-Agent fijo:
+Añadir el campo `cabeceras BuscadorCabeceras` al struct `Handler`, la opción, y
+usarlo en `ServeHTTP`:
+
+```go
+// Option configura parámetros opcionales del Handler, igual que hace
+// opensource.Option con su Provider.
+type Option func(*Handler)
+
+// ConBuscadorCabeceras conecta la búsqueda de cabeceras por stream. Sin ella el
+// proxy se comporta como siempre: User-Agent fijo y ningún Referer.
+func ConBuscadorCabeceras(b BuscadorCabeceras) Option {
+	return func(h *Handler) { h.cabeceras = b }
+}
+```
+
+y en `NewHandler`, tras construir `h` y antes de devolverlo:
+
+```go
+	for _, opt := range opts {
+		opt(h)
+	}
+```
+
+En `ServeHTTP`, sustituir la línea del User-Agent fijo:
 
 ```go
 	// Cabeceras del ORIGEN, no del cliente: las del navegador siguen sin
@@ -1574,7 +1644,7 @@ En `internal/api/router.go:147`:
 
 ```go
 		ph := proxy.NewHandler(RutaProxy, opts.PermitirDestinosPrivados,
-			func(ctx context.Context, u string) (string, string) {
+			proxy.ConBuscadorCabeceras(func(ctx context.Context, u string) (string, string) {
 				ref, ua, err := streamRepo.CabecerasPorURL(ctx, u)
 				if err != nil {
 					// Un fallo de lectura no puede tumbar la reproducción:
@@ -1582,7 +1652,7 @@ En `internal/api/router.go:147`:
 					return "", ""
 				}
 				return ref, ua
-			})
+			}))
 ```
 
 pasando `streamRepo` a la construcción del router si aún no está disponible ahí.

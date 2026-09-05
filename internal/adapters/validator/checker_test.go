@@ -184,3 +184,30 @@ func TestCheckNoHLSClasificaDesdeElHEAD(t *testing.T) {
 		t.Errorf("Web = %v, quiero WebOK", res.Web)
 	}
 }
+
+// Sin las cabeceras del origen, un stream con hotlink se marcaba muerto
+// aunque funcionase perfectamente con ellas.
+func TestCheckConCabeceras(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Referer") != "https://ref.example/" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		_, _ = w.Write([]byte("#EXTM3U\n"))
+	}))
+	defer srv.Close()
+
+	c := validator.NewChecker(nil, 5*time.Second)
+
+	sin := c.Check(context.Background(), srv.URL+"/x.m3u8")
+	if sin.StatusCode != http.StatusForbidden {
+		t.Errorf("sin cabeceras: status %d, quiero 403", sin.StatusCode)
+	}
+
+	con := c.CheckConCabeceras(context.Background(), srv.URL+"/x.m3u8", "https://ref.example/", "")
+	if con.StatusCode != http.StatusOK {
+		t.Errorf("con cabeceras: status %d, quiero 200", con.StatusCode)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gdberysan/open-tv/internal/adapters/providers/iptvorg"
 	"github.com/gdberysan/open-tv/internal/domain"
 )
 
@@ -286,6 +287,138 @@ func TestProvider_TvgURLs_FileSource(t *testing.T) {
 	got := p.TvgURLs()
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("TvgURLs() = %#v, want %#v", got, want)
+	}
+}
+
+// ── GetStreamsDeCanal / enriquecedor ────────────────────────────────────────
+
+// providerConM3U sirve m3u desde un httptest.Server, llama a GetLiveChannels y
+// devuelve el provider ya poblado. El ID de fuente es "opensource", para que
+// coincida con los IDs de canal que usan los tests de este bloque.
+func providerConM3U(t *testing.T, m3u string) *Provider {
+	t.Helper()
+	return providerConM3UYOpts(t, m3u)
+}
+
+// providerConM3UYOpts es providerConM3U pero admitiendo Option (para
+// WithEnriquecedor y similares).
+func providerConM3UYOpts(t *testing.T, m3u string, opts ...Option) *Provider {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(m3u))
+	}))
+	t.Cleanup(server.Close)
+
+	p := NewProvider("opensource", server.URL, server.Client(), opts...)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := p.GetLiveChannels(ctx); err != nil {
+		t.Fatalf("GetLiveChannels: %v", err)
+	}
+	return p
+}
+
+// enriquecedorFalso permite probar la fusión sin salir a la red.
+type enriquecedorFalso struct {
+	streams map[string][]iptvorg.StreamExtra // clave "canal|feed"
+}
+
+func (e *enriquecedorFalso) Streams(canal, feed string) []iptvorg.StreamExtra {
+	return e.streams[canal+"|"+feed]
+}
+
+const m3uUnCanal = `#EXTM3U
+#EXTINF:-1 tvg-id="AndTV.in@HD" tvg-logo="l.png" group-title="General",AndTV HD
+https://delm3u.example/x.m3u8
+`
+
+// SIN enriquecedor el comportamiento es el de siempre: exactamente un stream.
+// Es la prueba que protege a las fuentes bring-your-own, que no tienen API.
+func TestGetStreamsDeCanalSinEnriquecedor(t *testing.T) {
+	p := providerConM3U(t, m3uUnCanal) // helper: sirve el M3U y llama a GetLiveChannels
+	got, err := p.GetStreamsDeCanal(context.Background(), "opensource-AndTV HD")
+	if err != nil {
+		t.Fatalf("GetStreamsDeCanal: %v", err)
+	}
+	if len(got) != 1 || got[0].URL != "https://delm3u.example/x.m3u8" {
+		t.Errorf("got %+v, quiero solo la URL del M3U", got)
+	}
+}
+
+// Con enriquecedor: la URL del M3U va PRIMERA y los mirrors detrás, sin
+// duplicar la que ya venía. Y la entrada duplicada NO se tira entera: sus
+// cabeceras se adoptan sobre la fila del M3U, que entró sin ninguna. Sin esto
+// el stream que se intenta primero salía siempre pelado (753 de 982 medidos
+// sobre datos reales) y el origen respondía 403.
+func TestGetStreamsDeCanalOrdenYDeduplicacion(t *testing.T) {
+	e := &enriquecedorFalso{streams: map[string][]iptvorg.StreamExtra{
+		"AndTV.in|HD": {
+			// Duplicada a propósito, y CON cabeceras: es el caso real (el M3U
+			// y la API son del mismo proyecto, así que la URL principal está
+			// en los dos, pero solo la API trae referrer/user_agent).
+			{URL: "https://delm3u.example/x.m3u8", Referrer: "https://origen/", UserAgent: "AgenteRaro/1.0"},
+			{URL: "https://mirror.example/x.m3u8", Referrer: "https://ref/"},
+		},
+	}}
+	p := providerConM3UYOpts(t, m3uUnCanal, WithEnriquecedor(e))
+
+	got, err := p.GetStreamsDeCanal(context.Background(), "opensource-AndTV HD")
+	if err != nil {
+		t.Fatalf("GetStreamsDeCanal: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d streams, quiero 2 (la duplicada se colapsa): %+v", len(got), got)
+	}
+	if got[0].URL != "https://delm3u.example/x.m3u8" {
+		t.Errorf("got[0] = %q, la del M3U va primera", got[0].URL)
+	}
+	if got[0].Referrer != "https://origen/" || got[0].UserAgent != "AgenteRaro/1.0" {
+		t.Errorf("got[0] = %+v, la fila del M3U debe ADOPTAR las cabeceras de su duplicada de la API", got[0])
+	}
+	if got[1].URL != "https://mirror.example/x.m3u8" || got[1].Referrer != "https://ref/" {
+		t.Errorf("got[1] = %+v, quiero el mirror con su referrer", got[1])
+	}
+}
+
+// La adopción no PISA: una fila que ya declaró cabeceras se queda con las
+// suyas aunque la API repita esa URL con otras distintas. Solo se rellena lo
+// que está vacío, y las dos cabeceras van juntas.
+func TestGetStreamsDeCanalNoPisaCabecerasYaPresentes(t *testing.T) {
+	e := &enriquecedorFalso{streams: map[string][]iptvorg.StreamExtra{
+		"AndTV.in|HD": {
+			{URL: "https://mirror.example/x.m3u8", Referrer: "https://primera/"},
+			{URL: "https://mirror.example/x.m3u8", Referrer: "https://segunda/", UserAgent: "Otro/2.0"},
+		},
+	}}
+	p := providerConM3UYOpts(t, m3uUnCanal, WithEnriquecedor(e))
+
+	got, err := p.GetStreamsDeCanal(context.Background(), "opensource-AndTV HD")
+	if err != nil {
+		t.Fatalf("GetStreamsDeCanal: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d streams, quiero 2: %+v", len(got), got)
+	}
+	if got[1].Referrer != "https://primera/" || got[1].UserAgent != "" {
+		t.Errorf("got[1] = %+v, la primera entrada manda: no se pisa lo que ya trae", got[1])
+	}
+}
+
+// El feed discrimina también aquí: un canal @HD no recibe los streams del SD.
+func TestGetStreamsDeCanalRespetaElFeed(t *testing.T) {
+	e := &enriquecedorFalso{streams: map[string][]iptvorg.StreamExtra{
+		"AndTV.in|SD": {{URL: "https://sd.example/x.m3u8"}},
+	}}
+	p := providerConM3UYOpts(t, m3uUnCanal, WithEnriquecedor(e))
+
+	got, err := p.GetStreamsDeCanal(context.Background(), "opensource-AndTV HD")
+	if err != nil {
+		t.Fatalf("GetStreamsDeCanal: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("got %+v, el canal HD no debe heredar el stream SD", got)
 	}
 }
 

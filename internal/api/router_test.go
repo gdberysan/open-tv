@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gdberysan/open-tv/internal/adapters/db"
+	"github.com/gdberysan/open-tv/internal/adapters/providers/iptvorg"
 	"github.com/gdberysan/open-tv/internal/api"
 	"github.com/gdberysan/open-tv/internal/domain"
 	"github.com/gdberysan/open-tv/internal/ports"
@@ -57,6 +58,10 @@ func (provVacio) GetStreamURL(context.Context, domain.ChannelID) (string, error)
 	return "", errors.New("caché vacía")
 }
 
+func (provVacio) GetStreamsDeCanal(context.Context, domain.ChannelID) ([]iptvorg.StreamExtra, error) {
+	return nil, errors.New("caché vacía")
+}
+
 type streamsVacio struct{}
 
 func (streamsVacio) Save(context.Context, domain.Stream) error        { return nil }
@@ -74,6 +79,12 @@ func (streamsVacio) FindMirrorsByChannelID(context.Context, domain.ChannelID) ([
 func (streamsVacio) MarkAlive(context.Context, string, int64) error        { return nil }
 func (streamsVacio) MarkDead(context.Context, string) error                { return nil }
 func (streamsVacio) MarkBatch(context.Context, []ports.StreamHealth) error { return nil }
+func (streamsVacio) DeleteStale(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+func (streamsVacio) CabecerasPorURL(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
 
 type syncVacio struct{}
 

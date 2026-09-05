@@ -94,12 +94,18 @@ CREATE TABLE IF NOT EXISTS streams (
     -- cosas distintas para "no se ve" y "todavía no lo sé".
     web_ok       INTEGER CHECK (web_ok IN (0,1)),
     last_checked INTEGER,
+    -- Cabeceras que el origen exige (API de iptv-org). '' = usar las de siempre.
+    referrer     TEXT    NOT NULL DEFAULT '',
+    user_agent   TEXT    NOT NULL DEFAULT '',
+    -- Frontera de la poda: los streams que no aparecen en un sync se borran.
+    last_seen_at INTEGER NOT NULL DEFAULT 0,
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_streams_channel_alive ON streams(channel_id, is_alive);
 CREATE INDEX IF NOT EXISTS idx_streams_latency       ON streams(channel_id, latency_ms) WHERE is_alive = 1;
+CREATE INDEX IF NOT EXISTS idx_streams_url            ON streams(url);
 
 -- ─────────────────────────────────────────
 -- EPG (guía de programación)

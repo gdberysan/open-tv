@@ -26,9 +26,10 @@ func NewValidator(cfg Config, checker *Checker) *Validator {
 	}
 }
 
-// Start consume un canal de URLs entrantes y produce resultados en un canal de salida.
-// Utiliza un patrón Worker Pool acotado y Fan-in para consolidar resultados.
-func (v *Validator) Start(ctx context.Context, urls <-chan string) <-chan StreamResult {
+// Start consume un canal de tareas (URL + cabeceras de su origen) y produce
+// resultados en un canal de salida. Utiliza un patrón Worker Pool acotado y
+// Fan-in para consolidar resultados.
+func (v *Validator) Start(ctx context.Context, tareas <-chan TareaCheck) <-chan StreamResult {
 	results := make(chan StreamResult)
 
 	var wg sync.WaitGroup
@@ -42,12 +43,12 @@ func (v *Validator) Start(ctx context.Context, urls <-chan string) <-chan Stream
 				select {
 				case <-ctx.Done():
 					return // Contexto cancelado, salimos limpiamente
-				case url, ok := <-urls:
+				case t, ok := <-tareas:
 					if !ok {
 						return // Canal de entrada cerrado
 					}
 					// Realizamos la validación y enviamos el resultado
-					res := v.checker.Check(ctx, url)
+					res := v.checker.CheckConCabeceras(ctx, t.URL, t.Referrer, t.UserAgent)
 
 					// Intentamos enviar al canal de resultados, pero respetamos si ctx se cancela
 					select {

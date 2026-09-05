@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gdberysan/open-tv/internal/adapters/db"
 	"github.com/gdberysan/open-tv/internal/domain"
@@ -601,5 +603,386 @@ func TestMarkBatchUnknownNoPisaElVeredictoAnterior(t *testing.T) {
 	}
 	if !got.Valid || got.Int64 != 1 {
 		t.Errorf("web_ok = %+v, quiero que conserve 1", got)
+	}
+}
+
+// nuevaDBDePrueba abre una DB de test con los providers "p1" y "p2" ya
+// sembrados (channels.provider_id tiene FK contra providers(id)), y devuelve
+// el *sql.DB crudo para que el test construya los repos que necesite.
+func nuevaDBDePrueba(t *testing.T) *sql.DB {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.db")
+	sqlDB, err := db.Open(path)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	seedProvider(t, sqlDB, "p1")
+	seedProvider(t, sqlDB, "p2")
+	return sqlDB
+}
+
+// La poda de streams no existía: DeleteStale solo estaba en canales, así que
+// una URL sustituida upstream se quedaba para siempre y el failover acababa
+// gastando un intento entero en historia muerta.
+func TestStreamDeleteStalePodaSoloLoViejoYNoCruzaFuentes(t *testing.T) {
+	ctx := context.Background()
+	base := nuevaDBDePrueba(t) // helper ya existente en este fichero
+	canales := db.NewChannelRepository(base)
+	streams := db.NewStreamRepository(base)
+
+	// Dos canales de DOS proveedores distintos.
+	if err := canales.SaveBatch(ctx, []domain.Channel{
+		{ID: "p1-c1", Name: "C1", ProviderID: "p1", ProviderType: domain.ProviderOpenSource},
+		{ID: "p2-c1", Name: "C1", ProviderID: "p2", ProviderType: domain.ProviderOpenSource},
+	}); err != nil {
+		t.Fatalf("SaveBatch canales: %v", err)
+	}
+
+	viejo := domain.Stream{ID: "st-viejo", ChannelID: "p1-c1", URL: "https://viejo/x.m3u8", Protocol: domain.ProtocolHLS}
+	ajeno := domain.Stream{ID: "st-ajeno", ChannelID: "p2-c1", URL: "https://ajeno/x.m3u8", Protocol: domain.ProtocolHLS}
+	if err := streams.SaveBatch(ctx, []domain.Stream{viejo, ajeno}); err != nil {
+		t.Fatalf("SaveBatch streams viejos: %v", err)
+	}
+
+	time.Sleep(1100 * time.Millisecond) // last_seen_at tiene resolución de segundos
+	frontera := time.Now()
+
+	// Re-sync de p1: solo aparece un stream NUEVO.
+	nuevo := domain.Stream{ID: "st-nuevo", ChannelID: "p1-c1", URL: "https://nuevo/x.m3u8", Protocol: domain.ProtocolHLS}
+	if err := streams.SaveBatch(ctx, []domain.Stream{nuevo}); err != nil {
+		t.Fatalf("SaveBatch stream nuevo: %v", err)
+	}
+
+	n, err := streams.DeleteStale(ctx, "p1", frontera)
+	if err != nil {
+		t.Fatalf("DeleteStale: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("podados %d, quiero 1 (solo el viejo de p1)", n)
+	}
+
+	quedan, err := streams.FindByChannelID(ctx, "p1-c1")
+	if err != nil {
+		t.Fatalf("FindByChannelID: %v", err)
+	}
+	if len(quedan) != 1 || quedan[0].ID != "st-nuevo" {
+		t.Errorf("en p1 quedan %+v, quiero solo st-nuevo", quedan)
+	}
+
+	// La poda NUNCA cruza fuentes.
+	ajenos, err := streams.FindByChannelID(ctx, "p2-c1")
+	if err != nil {
+		t.Fatalf("FindByChannelID p2: %v", err)
+	}
+	if len(ajenos) != 1 {
+		t.Errorf("la poda de p1 se llevó streams de p2: quedan %d, quiero 1", len(ajenos))
+	}
+}
+
+func TestStreamCabecerasPorURL(t *testing.T) {
+	ctx := context.Background()
+	base := nuevaDBDePrueba(t)
+	canales := db.NewChannelRepository(base)
+	streams := db.NewStreamRepository(base)
+
+	if err := canales.SaveBatch(ctx, []domain.Channel{
+		{ID: "p1-c1", Name: "C1", ProviderID: "p1", ProviderType: domain.ProviderOpenSource},
+	}); err != nil {
+		t.Fatalf("SaveBatch canales: %v", err)
+	}
+	if err := streams.SaveBatch(ctx, []domain.Stream{
+		{ID: "st-1", ChannelID: "p1-c1", URL: "https://con/x.m3u8", Protocol: domain.ProtocolHLS,
+			Referrer: "https://ref/", UserAgent: "UA/1"},
+		{ID: "st-2", ChannelID: "p1-c1", URL: "https://sin/x.m3u8", Protocol: domain.ProtocolHLS},
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+
+	ref, ua, err := streams.CabecerasPorURL(ctx, "https://con/x.m3u8")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL: %v", err)
+	}
+	if ref != "https://ref/" || ua != "UA/1" {
+		t.Errorf("(%q,%q), quiero (https://ref/, UA/1)", ref, ua)
+	}
+
+	ref, ua, err = streams.CabecerasPorURL(ctx, "https://sin/x.m3u8")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL sin cabeceras: %v", err)
+	}
+	if ref != "" || ua != "" {
+		t.Errorf("(%q,%q), quiero vacías", ref, ua)
+	}
+
+	// Una URL desconocida no hereda cabeceras de otra ni es un error.
+	ref, ua, err = streams.CabecerasPorURL(ctx, "https://desconocida/x.m3u8")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL desconocida: %v", err)
+	}
+	if ref != "" || ua != "" {
+		t.Errorf("(%q,%q), quiero vacías para una URL que no está", ref, ua)
+	}
+}
+
+// Los segmentos y claves (EXT-X-KEY/EXT-X-MAP) que ReescribirManifiesto
+// reescribe NUNCA son una fila propia de streams: solo el manifiesto de
+// nivel superior lo es. Sin esta caída al origen, el proxy pediría las
+// cabeceras de cada segmento y siempre fallaría — el hotlink/agent-filter
+// del origen sigue aplicando a esas URLs hijas igual que al manifiesto.
+func TestStreamCabecerasPorURLCaeAlOrigenParaHijosSinFilaPropia(t *testing.T) {
+	ctx := context.Background()
+	base := nuevaDBDePrueba(t)
+	canales := db.NewChannelRepository(base)
+	streams := db.NewStreamRepository(base)
+
+	if err := canales.SaveBatch(ctx, []domain.Channel{
+		{ID: "p1-c1", Name: "C1", ProviderID: "p1", ProviderType: domain.ProviderOpenSource},
+	}); err != nil {
+		t.Fatalf("SaveBatch canales: %v", err)
+	}
+	if err := streams.SaveBatch(ctx, []domain.Stream{
+		// El único registro real: el manifiesto de nivel superior.
+		{ID: "st-1", ChannelID: "p1-c1", URL: "https://con.example/live/master.m3u8",
+			Protocol: domain.ProtocolHLS, Referrer: "https://ref.example/", UserAgent: "UA/1"},
+		// Un stream de otro origen, sin cabeceras: no debe poder "prestarlas"
+		// a nadie (ni siquiera lo intenta, porque no comparte origen).
+		{ID: "st-2", ChannelID: "p1-c1", URL: "https://otro.example/x.m3u8", Protocol: domain.ProtocolHLS},
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+
+	// Caso 1: exacto GANA sobre el origen. seg1.ts SÍ tiene fila propia (sin
+	// cabeceras): si el fallback por origen "ganara", vendría contaminado con
+	// las cabeceras de master.m3u8; el contrato exige lo contrario.
+	if err := streams.SaveBatch(ctx, []domain.Stream{
+		{ID: "st-3", ChannelID: "p1-c1", URL: "https://con.example/live/seg1.ts", Protocol: domain.ProtocolHLS},
+	}); err != nil {
+		t.Fatalf("SaveBatch seg1: %v", err)
+	}
+	ref, ua, err := streams.CabecerasPorURL(ctx, "https://con.example/live/seg1.ts")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL seg1 (fila propia): %v", err)
+	}
+	if ref != "" || ua != "" {
+		t.Errorf("seg1.ts con fila propia = (%q,%q), quiero vacías (el exacto gana, no hereda del origen)", ref, ua)
+	}
+
+	// Caso 2: un segmento SIN fila propia, mismo origen que master.m3u8,
+	// hereda sus cabeceras.
+	ref, ua, err = streams.CabecerasPorURL(ctx, "https://con.example/live/seg2.ts")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL seg2 (hereda del origen): %v", err)
+	}
+	if ref != "https://ref.example/" || ua != "UA/1" {
+		t.Errorf("seg2.ts = (%q,%q), quiero heredar (https://ref.example/, UA/1) del origen", ref, ua)
+	}
+
+	// Caso 3: mismo esquema y path, pero OTRO host — nada que heredar.
+	ref, ua, err = streams.CabecerasPorURL(ctx, "https://con.example.evil.com/live/seg3.ts")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL host distinto: %v", err)
+	}
+	if ref != "" || ua != "" {
+		t.Errorf("host distinto (con.example.evil.com) = (%q,%q), quiero vacías", ref, ua)
+	}
+
+	// Caso 4: un host que ni siquiera comparte origen con nada en la tabla.
+	ref, ua, err = streams.CabecerasPorURL(ctx, "https://nada-que-ver.example/seg.ts")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL host ajeno: %v", err)
+	}
+	if ref != "" || ua != "" {
+		t.Errorf("host ajeno = (%q,%q), quiero vacías", ref, ua)
+	}
+}
+
+// EXPLAIN QUERY PLAN del camino de fallback: tiene que ser un range scan por
+// idx_streams_url, nunca un escaneo completo — a ~17k streams la diferencia
+// es justo lo que este fallback no puede permitirse pagar por cada segmento.
+func TestStreamCabecerasPorURLFallbackUsaElIndice(t *testing.T) {
+	ctx := context.Background()
+	base := nuevaDBDePrueba(t)
+
+	filas, err := base.QueryContext(ctx, `
+		EXPLAIN QUERY PLAN
+		SELECT referrer, user_agent FROM streams
+		WHERE url >= ? AND url < ?
+		  AND (referrer <> '' OR user_agent <> '')
+		LIMIT 1`, "https://con.example/", "https://con.example0")
+	if err != nil {
+		t.Fatalf("EXPLAIN QUERY PLAN: %v", err)
+	}
+	defer func() { _ = filas.Close() }()
+
+	var plan []string
+	for filas.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := filas.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatalf("scan del plan: %v", err)
+		}
+		plan = append(plan, detail)
+		t.Logf("plan: %s", detail)
+	}
+	if err := filas.Err(); err != nil {
+		t.Fatalf("iterando el plan: %v", err)
+	}
+
+	huboIndice := false
+	for _, l := range plan {
+		if strings.Contains(l, "USING INDEX idx_streams_url") {
+			huboIndice = true
+		}
+		if strings.Contains(strings.ToUpper(l), "SCAN TABLE STREAMS") &&
+			!strings.Contains(l, "USING INDEX") {
+			t.Errorf("el plan hace un scan completo de streams: %q", l)
+		}
+	}
+	if !huboIndice {
+		t.Errorf("el plan no usa idx_streams_url: %v", plan)
+	}
+}
+
+// Las cabeceras tienen que sobrevivir el ROUNDTRIP por los finders, no solo
+// por CabecerasPorURL: el health-check lee el catálogo con FindAll y, si el
+// SELECT no trae referrer/user_agent, chequea pelados justo los streams cuyo
+// origen los exige — 403, tres pasadas, y muertos. Este es el punto de unión
+// del que depende toda la cadena de cabeceras y no tenía cobertura.
+func TestStreamCabecerasSobrevivenALosFinders(t *testing.T) {
+	ctx := context.Background()
+	base := nuevaDBDePrueba(t)
+	canales := db.NewChannelRepository(base)
+	streams := db.NewStreamRepository(base)
+
+	if err := canales.SaveBatch(ctx, []domain.Channel{
+		{ID: "p1-c1", Name: "C1", ProviderID: "p1", ProviderType: domain.ProviderOpenSource},
+	}); err != nil {
+		t.Fatalf("SaveBatch canales: %v", err)
+	}
+	if err := streams.SaveBatch(ctx, []domain.Stream{
+		{ID: "st-1", ChannelID: "p1-c1", URL: "https://con/x.m3u8", Protocol: domain.ProtocolHLS,
+			Referrer: "https://ref/", UserAgent: "UA/1"},
+	}); err != nil {
+		t.Fatalf("SaveBatch streams: %v", err)
+	}
+
+	todos, err := streams.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll: %v", err)
+	}
+	if len(todos) != 1 {
+		t.Fatalf("FindAll devolvió %d streams, quiero 1", len(todos))
+	}
+	if todos[0].Referrer != "https://ref/" || todos[0].UserAgent != "UA/1" {
+		t.Errorf("FindAll: (%q,%q), quiero (https://ref/, UA/1)", todos[0].Referrer, todos[0].UserAgent)
+	}
+
+	delCanal, err := streams.FindByChannelID(ctx, "p1-c1")
+	if err != nil {
+		t.Fatalf("FindByChannelID: %v", err)
+	}
+	if len(delCanal) != 1 || delCanal[0].Referrer != "https://ref/" || delCanal[0].UserAgent != "UA/1" {
+		t.Errorf("FindByChannelID: %+v, quiero las cabeceras intactas", delCanal)
+	}
+
+	// FindBestByChannelID solo mira los vivos: hay que chequearlo antes.
+	if err := streams.MarkAlive(ctx, "st-1", 42); err != nil {
+		t.Fatalf("MarkAlive: %v", err)
+	}
+	mejor, err := streams.FindBestByChannelID(ctx, "p1-c1")
+	if err != nil {
+		t.Fatalf("FindBestByChannelID: %v", err)
+	}
+	if mejor.Referrer != "https://ref/" || mejor.UserAgent != "UA/1" {
+		t.Errorf("FindBestByChannelID: (%q,%q), quiero las cabeceras intactas", mejor.Referrer, mejor.UserAgent)
+	}
+}
+
+// Un mirror recién sincronizado entra con fail_count 0 y last_checked NULL.
+// Con la persistencia de todos los mirrors, cada sync mete filas nuevas a
+// puñados: si contaran como disponibles, 631 canales sin un solo stream que
+// funcione volverían a la lista durante las ~3 h que tardan tres pasadas del
+// health-check en agotar el umbral, y la app promete «Comprobado en vivo».
+// Un mirror sin verificar NO cuenta; en cuanto se verifica vivo, cuenta.
+func TestFindFilteredAliveOnlyIgnoraMirrorsSinVerificar(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	seedChannel(t, chRepo, "ch-muerto")  // uno probado muerto + un mirror nuevo
+	seedChannel(t, chRepo, "ch-en-frio") // nada chequeado todavía
+
+	if err := stRepo.SaveBatch(ctx, []domain.Stream{
+		makeStream("st-muerto", "ch-muerto", "http://a/viejo.m3u8"),
+		makeStream("st-nuevo", "ch-muerto", "http://a/mirror-nuevo.m3u8"),
+		makeStream("st-frio", "ch-en-frio", "http://b/1.m3u8"),
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+	// El viejo agota la histéresis: probado muerto.
+	for i := int64(0); i < db.DeadFailThreshold; i++ {
+		if err := stRepo.MarkDead(ctx, "st-muerto"); err != nil {
+			t.Fatalf("MarkDead #%d: %v", i, err)
+		}
+	}
+
+	visibles := func() map[string]bool {
+		t.Helper()
+		got, err := chRepo.FindFiltered(ctx, ports.ChannelFilter{AliveOnly: true, Limit: 100})
+		if err != nil {
+			t.Fatalf("FindFiltered: %v", err)
+		}
+		ids := map[string]bool{}
+		for _, ch := range got {
+			ids[string(ch.ID)] = true
+		}
+		return ids
+	}
+
+	ids := visibles()
+	if ids["ch-muerto"] {
+		t.Error("un mirror nuevo SIN VERIFICAR no puede hacer disponible un canal probado muerto")
+	}
+	// Arranque en frío: si NINGÚN stream del canal se ha chequeado aún no hay
+	// evidencia en contra, así que sigue visible. Sin esto la app aparecería
+	// vacía entre el primer sync y la primera pasada del health-worker.
+	if !ids["ch-en-frio"] {
+		t.Error("un canal cuyos streams no se han chequeado todavía debe seguir visible")
+	}
+
+	// Y en cuanto el mirror nuevo se verifica vivo, el canal vuelve.
+	if err := stRepo.MarkAlive(ctx, "st-nuevo", 80); err != nil {
+		t.Fatalf("MarkAlive: %v", err)
+	}
+	if !visibles()["ch-muerto"] {
+		t.Error("un mirror verificado vivo debe hacer visible el canal con normalidad")
+	}
+}
+
+// El contador tiene que contar lo mismo que la lista enseña: si CountFiltered
+// y FindFiltered discreparan, la app pintaría un número que no corresponde.
+func TestCountFilteredAliveOnlyCuentaLoMismoQueLaLista(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+
+	seedChannel(t, chRepo, "ch-muerto")
+	if err := stRepo.SaveBatch(ctx, []domain.Stream{
+		makeStream("st-muerto", "ch-muerto", "http://a/viejo.m3u8"),
+		makeStream("st-nuevo", "ch-muerto", "http://a/mirror-nuevo.m3u8"),
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+	for i := int64(0); i < db.DeadFailThreshold; i++ {
+		if err := stRepo.MarkDead(ctx, "st-muerto"); err != nil {
+			t.Fatalf("MarkDead #%d: %v", i, err)
+		}
+	}
+
+	n, err := chRepo.CountFiltered(ctx, ports.ChannelFilter{AliveOnly: true})
+	if err != nil {
+		t.Fatalf("CountFiltered: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("CountFiltered = %d, quiero 0: el mirror sin verificar no cuenta", n)
 	}
 }

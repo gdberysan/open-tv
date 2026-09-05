@@ -3,7 +3,9 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/gdberysan/open-tv/internal/domain"
@@ -23,23 +25,32 @@ func NewStreamRepository(db *sql.DB) *SQLiteStreamRepository {
 	return &SQLiteStreamRepository{db: db}
 }
 
-const streamColumns = ` id, channel_id, url, protocol, latency_ms, is_alive, last_checked `
+// Las cabeceras van en el SELECT: sin ellas domain.Stream.Referrer/UserAgent
+// volvían SIEMPRE vacíos y el health-check —que lee por FindAll— chequeaba
+// pelados los streams cuyo origen exige Referer/User-Agent, se comía un 403 y
+// acababa marcándolos muertos.
+const streamColumns = ` id, channel_id, url, protocol, referrer, user_agent, latency_ms, is_alive, last_checked `
 
 // El upsert preserva latency_ms/is_alive/last_checked: son resultado del
-// health-check, no del sync, y un re-sync no debe borrarlos.
+// health-check, no del sync, y un re-sync no debe borrarlos. last_seen_at SÍ se
+// refresca en cada sync: es la frontera que usa DeleteStale.
 const upsertStreamSQL = `
-	INSERT INTO streams (id, channel_id, url, protocol, latency_ms, is_alive, last_checked, created_at, updated_at)
-	VALUES (?, ?, ?, ?, NULL, 0, NULL, ?, ?)
+	INSERT INTO streams (id, channel_id, url, protocol, referrer, user_agent,
+	                     latency_ms, is_alive, last_checked, last_seen_at, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, NULL, 0, NULL, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
-		channel_id = excluded.channel_id,
-		url        = excluded.url,
-		protocol   = excluded.protocol,
-		updated_at = excluded.updated_at`
+		channel_id   = excluded.channel_id,
+		url          = excluded.url,
+		protocol     = excluded.protocol,
+		referrer     = excluded.referrer,
+		user_agent   = excluded.user_agent,
+		last_seen_at = excluded.last_seen_at,
+		updated_at   = excluded.updated_at`
 
 func (r *SQLiteStreamRepository) Save(ctx context.Context, s domain.Stream) error {
 	now := time.Now().Unix()
 	if _, err := r.db.ExecContext(ctx, upsertStreamSQL,
-		s.ID, string(s.ChannelID), s.URL, string(s.Protocol), now, now,
+		s.ID, string(s.ChannelID), s.URL, string(s.Protocol), s.Referrer, s.UserAgent, now, now, now,
 	); err != nil {
 		return fmt.Errorf("db.Stream.Save (id=%s): %w", s.ID, err)
 	}
@@ -68,7 +79,7 @@ func (r *SQLiteStreamRepository) SaveBatch(ctx context.Context, streams []domain
 	now := time.Now().Unix()
 	for _, s := range streams {
 		if _, err := stmt.ExecContext(ctx,
-			s.ID, string(s.ChannelID), s.URL, string(s.Protocol), now, now,
+			s.ID, string(s.ChannelID), s.URL, string(s.Protocol), s.Referrer, s.UserAgent, now, now, now,
 		); err != nil {
 			return fmt.Errorf("db.Stream.SaveBatch (Exec id=%s): %w", s.ID, err)
 		}
@@ -235,6 +246,7 @@ func scanStream(rows *sql.Rows) (domain.Stream, error) {
 	)
 	if err := rows.Scan(
 		&s.ID, (*string)(&s.ChannelID), &s.URL, (*string)(&s.Protocol),
+		&s.Referrer, &s.UserAgent,
 		&latencyMs, &isAlive, &lastChecked,
 	); err != nil {
 		return domain.Stream{}, err
@@ -311,4 +323,86 @@ func argWebOK(v domain.WebSupport) any {
 	default:
 		return nil
 	}
+}
+
+// DeleteStale borra los streams de la fuente que no aparecieron en este sync.
+// streams no tiene provider_id, así que el scoping va por el canal — igual de
+// estricto: la poda de una fuente nunca toca los streams de otra.
+func (r *SQLiteStreamRepository) DeleteStale(ctx context.Context, providerID string, before time.Time) (int64, error) {
+	res, err := r.db.ExecContext(ctx, `
+		DELETE FROM streams
+		WHERE last_seen_at < ?
+		  AND channel_id IN (SELECT id FROM channels WHERE provider_id = ?)`,
+		before.Unix(), providerID)
+	if err != nil {
+		return 0, fmt.Errorf("db.Stream.DeleteStale (provider=%s): %w", providerID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("db.Stream.DeleteStale (RowsAffected): %w", err)
+	}
+	return n, nil
+}
+
+// CabecerasPorURL busca las cabeceras del stream con esa URL. Si la URL
+// exacta no está, cae a cualquier fila del MISMO ORIGEN (scheme+host) que sí
+// declare cabeceras: esto cubre los segmentos y las URIs de EXT-X-KEY/
+// EXT-X-MAP que ReescribirManifiesto reescribe, que nunca son una fila propia
+// de streams —solo el manifiesto de nivel superior lo es— pero a los que la
+// misma protección de hotlink/agent-filter del origen les aplica igual. El
+// exacto SIEMPRE gana sobre el origen (incluso si sus cabeceras están
+// vacías): una URL que sí está en el catálogo no debe heredar nada ajeno.
+// Ni exacto ni origen: cadenas vacías sin error, que es "usa las de siempre".
+func (r *SQLiteStreamRepository) CabecerasPorURL(ctx context.Context, urlCruda string) (string, string, error) {
+	var referrer, userAgent string
+	err := r.db.QueryRowContext(ctx,
+		"SELECT referrer, user_agent FROM streams WHERE url = ? LIMIT 1", urlCruda).
+		Scan(&referrer, &userAgent)
+	if err == nil {
+		return referrer, userAgent, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", "", fmt.Errorf("db.Stream.CabecerasPorURL: %w", err)
+	}
+
+	prefijo, tope, ok := origenPrefijo(urlCruda)
+	if !ok {
+		return "", "", nil
+	}
+	err = r.db.QueryRowContext(ctx, `
+		SELECT referrer, user_agent FROM streams
+		WHERE url >= ? AND url < ?
+		  AND (referrer <> '' OR user_agent <> '')
+		LIMIT 1`, prefijo, tope).
+		Scan(&referrer, &userAgent)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("db.Stream.CabecerasPorURL (fallback por origen): %w", err)
+	}
+	return referrer, userAgent, nil
+}
+
+// origenPrefijo calcula el rango [prefijo, tope) que idx_streams_url puede
+// recorrer como range scan (nunca un LIKE con comodín inicial, que fuerza un
+// escaneo completo) para encontrar cualquier fila cuya url empiece por
+// "scheme://host/" — el mismo origen que urlCruda, sea o no su URL exacta.
+//
+// tope es prefijo con su último byte ('/' = 0x2F) incrementado a '0' (0x30).
+// Cualquier fila cuya url EMPIECE por prefijo cae en [prefijo, tope): en la
+// comparación de bytes diverge justo en esa posición con un valor menor que
+// '0'. Y un host que solo comparta el prefijo como subcadena sin el separador
+// "/" (p.ej. "con.example.evil.com" frente a "con.example") queda FUERA del
+// rango: su siguiente byte ahí no es '/', así que la comparación ya se
+// decide antes de llegar a esa posición, en un sentido o en otro según sea
+// mayor o menor que '/'.
+func origenPrefijo(urlCruda string) (prefijo, tope string, ok bool) {
+	u, err := url.Parse(urlCruda)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", "", false
+	}
+	prefijo = u.Scheme + "://" + u.Host + "/"
+	tope = prefijo[:len(prefijo)-1] + "0"
+	return prefijo, tope, true
 }

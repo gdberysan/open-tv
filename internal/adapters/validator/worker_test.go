@@ -77,6 +77,14 @@ func (f *fakeStreamRepo) MarkDead(_ context.Context, id string) error {
 	return nil
 }
 
+func (f *fakeStreamRepo) DeleteStale(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (f *fakeStreamRepo) CabecerasPorURL(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
+
 func (f *fakeStreamRepo) estado() (alive map[string]int64, dead map[string]bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -93,6 +101,13 @@ func (f *fakeStreamRepo) estado() (alive map[string]int64, dead map[string]bool)
 
 func stream(id, channel, url string) domain.Stream {
 	return domain.Stream{ID: id, ChannelID: domain.ChannelID(channel), URL: url, Protocol: domain.ProtocolHLS}
+}
+
+func streamConCabeceras(id, channel, url, referrer, userAgent string) domain.Stream {
+	s := stream(id, channel, url)
+	s.Referrer = referrer
+	s.UserAgent = userAgent
+	return s
 }
 
 func testWorker(repo *fakeStreamRepo, interval time.Duration) *Worker {
@@ -139,6 +154,68 @@ func TestWorker_MarcaVivosYMuertos(t *testing.T) {
 	// Dedupe: la URL viva se chequea una sola vez (1 HEAD, sin fallback GET)
 	if got := hits.Load(); got != 1 {
 		t.Errorf("requests al server vivo = %d, want 1 (URL deduplicada)", got)
+	}
+}
+
+// Sin las cabeceras del stream, el health-check las manda vacías y este
+// origen con protección de hotlink devuelve 403: el stream se marcaría
+// muerto por una razón falsa. Es el mismo escenario de TestCheckConCabeceras
+// pero verificando el tramo real FindAll→byURL→canal→checker, no solo el
+// checker en aislado.
+func TestWorker_UsaLasCabecerasDelStreamParaElHealthCheck(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Referer") != "https://ref.example/" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		_, _ = w.Write([]byte("#EXTM3U\n"))
+	}))
+	defer srv.Close()
+
+	repo := newFakeStreamRepo([]domain.Stream{
+		streamConCabeceras("st-hotlink", "ch-1", srv.URL+"/x.m3u8", "https://ref.example/", ""),
+	})
+
+	w := testWorker(repo, time.Hour)
+	w.checkOnce(context.Background())
+
+	alive, dead := repo.estado()
+	if _, ok := alive["st-hotlink"]; !ok {
+		t.Errorf("st-hotlink debía marcarse vivo (el Referer del stream debía llegar al checker); dead=%v", dead)
+	}
+}
+
+// Dos streams comparten URL (mismo mirror físico bajo canales distintos) y
+// solo uno declara cabeceras. La deduplicación por URL no puede perder esas
+// cabeceras ni dejar que la fila sin ellas las pise: se resuelve
+// deterministamente por "primera fila con cabeceras no vacías gana, y una
+// fila vacía nunca sobrescribe una que ya las traía".
+func TestWorker_DedupPorURLConservaLasCabecerasAunqueUnaFilaVengaVacia(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Referer") != "https://ref.example/" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	url := srv.URL + "/compartido.m3u8"
+	repo := newFakeStreamRepo([]domain.Stream{
+		stream("st-sin-cabeceras", "ch-1", url),
+		streamConCabeceras("st-con-cabeceras", "ch-2", url, "https://ref.example/", ""),
+	})
+
+	w := testWorker(repo, time.Hour)
+	w.checkOnce(context.Background())
+
+	alive, dead := repo.estado()
+	if _, ok := alive["st-sin-cabeceras"]; !ok {
+		t.Error("st-sin-cabeceras debía marcarse vivo: comparte URL con st-con-cabeceras y el check único debe usar el Referer")
+	}
+	if _, ok := alive["st-con-cabeceras"]; !ok {
+		t.Errorf("st-con-cabeceras debía marcarse vivo; dead=%v", dead)
 	}
 }
 

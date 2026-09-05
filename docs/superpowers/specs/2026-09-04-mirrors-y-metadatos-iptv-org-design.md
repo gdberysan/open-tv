@@ -55,7 +55,17 @@ Contra el catálogo real (`.devdata/iptv.db`) y la API de iptv-org, el 2026-09-0
 | **Canales que ganan al menos un mirror** | **2.112** |
 | **Filas de stream extra a insertar** | **4.180** |
 | Streams con `referrer` o `user_agent` propios | 1.046 |
-| Canales con categoría «General» que `channels.json` resuelve | 2.606 |
+| Canales con categoría «General» que `channels.json` resuelve | 2.606 ⚠️ mal medido |
+
+> ⚠️ **CORRECCIÓN (review final de rama, 2026-09-04).** Esa última fila contaba
+> «tiene `tvg_id` presente en `channels.json`», no «resuelve a una categoría
+> DISTINTA». Los 2.606 canales están en «General» precisamente PORQUE
+> `channels.json` dice `["general"]` para ellos: el `group-title` del M3U y las
+> `categories` de la API son el mismo dato. Cambios reales: **0**. Por eso la
+> Tarea 5 (relleno de categorías) y la descarga entera de `channels.json` se
+> BORRARON de la implementación — 7,8 MB de los 11,4 MB por sync que no
+> compraban nada. Todo lo relativo a mirrors y cabeceras (`streams.json`) sigue
+> en pie y verificado.
 
 **Resultado esperado: de 254 a 2.112 canales con alternativa real (8,3×).**
 
@@ -92,8 +102,10 @@ forma única, **109** son ambiguos (varios países) y **1.493** no casan.
 **Descartado:** 81 canales no justifican un emparejador difuso que además puede
 asignar el país equivocado en los 109 ambiguos.
 
-Lo que `channels.json` SÍ arregla es la **categoría**: 2.606 canales que hoy
-caen en «General» tienen `tvg_id` y categorías reales upstream.
+~~Lo que `channels.json` SÍ arregla es la **categoría**: 2.606 canales que hoy
+caen en «General» tienen `tvg_id` y categorías reales upstream.~~ **Falso, ver
+la corrección del §2:** upstream también los llama `general`. `channels.json`
+no arregla nada y ya no se descarga.
 
 ### 2.3 `streams.json` NO es un superconjunto
 

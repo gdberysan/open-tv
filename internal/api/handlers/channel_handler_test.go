@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gdberysan/open-tv/internal/adapters/db"
+	"github.com/gdberysan/open-tv/internal/adapters/providers/iptvorg"
 	"github.com/gdberysan/open-tv/internal/domain"
 	"github.com/gdberysan/open-tv/internal/ports"
 	"github.com/go-chi/chi/v5"
@@ -85,6 +86,9 @@ func (m *mockProvider) GetLiveChannels(ctx context.Context) ([]domain.Channel, e
 }
 func (m *mockProvider) GetStreamURL(ctx context.Context, channelID domain.ChannelID) (string, error) {
 	return "http://mock.com/" + string(channelID) + ".ts", nil
+}
+func (m *mockProvider) GetStreamsDeCanal(ctx context.Context, channelID domain.ChannelID) ([]iptvorg.StreamExtra, error) {
+	return nil, nil
 }
 func (m *mockProvider) HealthCheck(ctx context.Context) error { return nil }
 
@@ -158,6 +162,12 @@ func (m *mockStreamRepo) FindMirrorsByChannelID(ctx context.Context, id domain.C
 func (m *mockStreamRepo) MarkAlive(ctx context.Context, id string, latencyMs int64) error { return nil }
 func (m *mockStreamRepo) MarkDead(ctx context.Context, id string) error                   { return nil }
 func (m *mockStreamRepo) MarkBatch(context.Context, []ports.StreamHealth) error           { return nil }
+func (m *mockStreamRepo) DeleteStale(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+func (m *mockStreamRepo) CabecerasPorURL(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
 
 func setupRouter() http.Handler {
 	return setupRouterWith(&mockProvider{}, &mockStreamRepo{})

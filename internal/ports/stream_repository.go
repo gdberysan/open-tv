@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"time"
 
 	"github.com/gdberysan/open-tv/internal/domain"
 )
@@ -44,4 +45,12 @@ type StreamRepository interface {
 	// son ~12k transacciones implícitas y otros tantos fsync, y con
 	// MaxOpenConns(1) ese tiempo es API congelada.
 	MarkBatch(ctx context.Context, resultados []StreamHealth) error
+	// DeleteStale borra los streams de la fuente cuyo last_seen_at sea anterior
+	// a `before`. Mismo scoping por fuente que la poda de canales: la tabla
+	// streams no tiene provider_id, así que se resuelve por su canal.
+	DeleteStale(ctx context.Context, providerID string, before time.Time) (int64, error)
+	// CabecerasPorURL devuelve las cabeceras que el origen exige para esa URL.
+	// Una URL desconocida devuelve cadenas vacías y error nil: no es un fallo,
+	// es "usa las de siempre".
+	CabecerasPorURL(ctx context.Context, url string) (referrer, userAgent string, err error)
 }

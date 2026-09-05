@@ -87,15 +87,15 @@ func TestValidator_Start(t *testing.T) {
 	val := NewValidator(cfg, checker)
 
 	ctx := context.Background()
-	urls := make(chan string, 10)
+	tareas := make(chan TareaCheck, 10)
 
-	// Llenamos el canal con URLs
+	// Llenamos el canal con tareas
 	for i := 0; i < 10; i++ {
-		urls <- server.URL + "/stream.m3u8"
+		tareas <- TareaCheck{URL: server.URL + "/stream.m3u8"}
 	}
-	close(urls)
+	close(tareas)
 
-	results := val.Start(ctx, urls)
+	results := val.Start(ctx, tareas)
 
 	var count int32
 	for res := range results {

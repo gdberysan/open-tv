@@ -22,9 +22,10 @@ type HTTPChecker interface {
 // tanto al checker (falsos muertos) como al usuario reproduciendo.
 const maxConnsPerHost = 4
 
-// userAgent identifica al checker como un reproductor. Algunos orígenes
-// filtran el default de Go (Go-http-client/2.0) con un 403.
-const userAgent = "VLC/3.0.20 LibVLC/3.0.20"
+// userAgentPorDefecto identifica al checker como un reproductor. Algunos
+// orígenes filtran el default de Go (Go-http-client/2.0) con un 403. Se usa
+// cuando el stream no exige un User-Agent propio.
+const userAgentPorDefecto = "VLC/3.0.20 LibVLC/3.0.20"
 
 // Checker se encarga de validar una única URL.
 type Checker struct {
@@ -61,11 +62,26 @@ func NewChecker(client HTTPChecker, timeout time.Duration) *Checker {
 // cliente desde fuera. Solo para tests.
 func (c *Checker) Transport() *http.Transport { return c.transport }
 
-// Check valida una URL. Para HLS va directo al GET: el HEAD no trae el
-// manifiesto, y sin manifiesto no hay veredicto de compatibilidad. Es una
-// petición en lugar de dos, no una más. El resto conserva HEAD→GET.
+// Check valida una URL sin cabeceras propias. Envoltorio compatible para los
+// call sites (y tests) que no tienen Referrer/UserAgent a mano.
 func (c *Checker) Check(ctx context.Context, url string) StreamResult {
+	return c.CheckConCabeceras(ctx, url, "", "")
+}
+
+// CheckConCabeceras valida una URL, mandando el Referer/User-Agent que su
+// origen exige cuando los tiene (referrer/userAgent vacíos = usar los de
+// siempre). Sin ellos, un origen con protección de hotlink responde error
+// aunque el stream funcione perfectamente. Para HLS va directo al GET: el
+// HEAD no trae el manifiesto, y sin manifiesto no hay veredicto de
+// compatibilidad. Es una petición en lugar de dos, no una más. El resto
+// conserva HEAD→GET.
+func (c *Checker) CheckConCabeceras(ctx context.Context, url, referrer, userAgentStream string) StreamResult {
 	start := time.Now()
+
+	ua := userAgentPorDefecto
+	if userAgentStream != "" {
+		ua = userAgentStream
+	}
 
 	// Contexto con timeout para evitar goroutine leaks (Riesgo #6 mitigado)
 	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
@@ -84,8 +100,11 @@ func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 			result.Error = fmt.Errorf("creando HEAD request: %w", err)
 			return result
 		}
-		req.Header.Set("User-Agent", userAgent)
+		req.Header.Set("User-Agent", ua)
 		req.Header.Set("Origin", domain.OrigenWeb)
+		if referrer != "" {
+			req.Header.Set("Referer", referrer)
+		}
 
 		resp, err := c.client.Do(req)
 		if err != nil {
@@ -93,6 +112,7 @@ func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 			needsGetFallback = true
 		} else {
 			defer func() { _ = resp.Body.Close() }()
+			result.StatusCode = resp.StatusCode
 			if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode >= 400 {
 				needsGetFallback = true
 			} else {
@@ -112,10 +132,13 @@ func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 			result.Error = fmt.Errorf("creando GET request: %w", errGet)
 			return result
 		}
-		reqGet.Header.Set("User-Agent", userAgent)
+		reqGet.Header.Set("User-Agent", ua)
 		// Origin va a propósito: los orígenes que reflejan el origen del
 		// solicitante solo contestan un ACAO si se les manda uno.
 		reqGet.Header.Set("Origin", domain.OrigenWeb)
+		if referrer != "" {
+			reqGet.Header.Set("Referer", referrer)
+		}
 
 		respGet, errGet := c.client.Do(reqGet)
 		if errGet != nil {
@@ -123,6 +146,7 @@ func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 			return result
 		}
 		defer func() { _ = respGet.Body.Close() }()
+		result.StatusCode = respGet.StatusCode
 
 		// Drenar el cuerpo es obligatorio: sin leerlo, la conexión queda
 		// inutilizable y el servidor la ve abortada a media respuesta. Ya que

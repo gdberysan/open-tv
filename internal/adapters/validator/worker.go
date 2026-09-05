@@ -63,16 +63,31 @@ func (w *Worker) checkOnce(ctx context.Context) {
 	}
 
 	byURL := make(map[string][]string, len(streams))
+	// cabecerasPorURL recuerda, por cada URL, el primer par Referrer/UserAgent
+	// no vacío que se le vio. Dos streams pueden compartir URL (mirrors del
+	// mismo origen físico bajo canales distintos) y, en teoría, declarar
+	// cabeceras distintas para esa misma URL; se resuelve de forma
+	// determinista quedándose con las primeras que aparezcan y sin dejar que
+	// una fila sin cabeceras pise las de una fila que sí las traía —
+	// mantener las cabeceras es más seguro que perderlas: sin ellas el
+	// stream se marca muerto por una razón falsa.
+	cabecerasPorURL := make(map[string]TareaCheck, len(streams))
 	for _, s := range streams {
 		byURL[s.URL] = append(byURL[s.URL], s.ID)
+		actual, ya := cabecerasPorURL[s.URL]
+		if !ya {
+			cabecerasPorURL[s.URL] = TareaCheck{URL: s.URL, Referrer: s.Referrer, UserAgent: s.UserAgent}
+		} else if actual.Referrer == "" && actual.UserAgent == "" && (s.Referrer != "" || s.UserAgent != "") {
+			cabecerasPorURL[s.URL] = TareaCheck{URL: s.URL, Referrer: s.Referrer, UserAgent: s.UserAgent}
+		}
 	}
 
-	urls := make(chan string)
+	tareas := make(chan TareaCheck)
 	go func() {
-		defer close(urls)
-		for u := range byURL {
+		defer close(tareas)
+		for _, t := range cabecerasPorURL {
 			select {
-			case urls <- u:
+			case tareas <- t:
 			case <-ctx.Done():
 				return
 			}
@@ -81,7 +96,7 @@ func (w *Worker) checkOnce(ctx context.Context) {
 
 	var alive, dead int
 	resultados := make([]ports.StreamHealth, 0, len(streams))
-	for res := range w.validator.Start(ctx, urls) {
+	for res := range w.validator.Start(ctx, tareas) {
 		for _, id := range byURL[res.URL] {
 			resultados = append(resultados, ports.StreamHealth{
 				StreamID:  id,
