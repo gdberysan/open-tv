@@ -1411,7 +1411,7 @@ func TestSyncGuardaTodosLosMirrors(t *testing.T) {
 	stRepo := &fakeStreamRepo{}
 
 	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{
-		NuevoEnriquecedor: func(string) opensource.Enriquecedor { return enr },
+		NuevoEnriquecedor: func(context.Context, string) opensource.Enriquecedor { return enr },
 	})
 	if err := s.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce: %v", err)
@@ -1443,7 +1443,7 @@ func TestSyncSinEnriquecedorSigueFuncionando(t *testing.T) {
 	stRepo := &fakeStreamRepo{}
 
 	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{
-		NuevoEnriquecedor: func(string) opensource.Enriquecedor { return nil },
+		NuevoEnriquecedor: func(context.Context, string) opensource.Enriquecedor { return nil },
 	})
 	if err := s.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce sin enriquecedor debe funcionar: %v", err)
@@ -1465,7 +1465,7 @@ func TestSyncPodaLosStreamsQueYaNoAparecen(t *testing.T) {
 	stRepo := &fakeStreamRepo{}
 
 	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{
-		NuevoEnriquecedor: func(string) opensource.Enriquecedor { return nil },
+		NuevoEnriquecedor: func(context.Context, string) opensource.Enriquecedor { return nil },
 	})
 	if err := s.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce: %v", err)
@@ -1477,5 +1477,23 @@ func TestSyncPodaLosStreamsQueYaNoAparecen(t *testing.T) {
 	}
 	if llamadas[0].providerID != "src-a" {
 		t.Errorf("podado con providerID %q, quiero src-a: la poda NUNCA cruza fuentes", llamadas[0].providerID)
+	}
+}
+
+// Un ctx ya cancelado no puede quedarse esperando a la API: enriquecedorDeProduccion
+// deriva su timeout del ctx del llamante, así que PerSourceTimeout sigue mandando.
+// Sin esto, una fuente lenta retenía syncMu hasta 2 minutos MÁS que su cupo.
+func TestEnriquecedorDeProduccionRespetaElContexto(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // ya cancelado antes de llamar
+
+	inicio := time.Now()
+	got := enriquecedorDeProduccion(ctx, "https://iptv-org.github.io/iptv/index.m3u")
+
+	if got != nil {
+		t.Errorf("con el ctx cancelado no puede devolver enriquecedor, devolvió %T", got)
+	}
+	if transcurrido := time.Since(inicio); transcurrido > 5*time.Second {
+		t.Errorf("tardó %v: no está respetando la cancelación del ctx", transcurrido)
 	}
 }

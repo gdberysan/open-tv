@@ -86,8 +86,11 @@ type Config struct {
 	// si esa fuente no tiene API detrás. Inyectable porque el syncer construye
 	// el provider él solo y la detección va por host: sin esto los tests no
 	// podrían ejercitar el camino enriquecido (un httptest.Server nunca es
-	// iptv-org.github.io). Default: enriquecedorDeProduccion.
-	NuevoEnriquecedor func(fuenteURL string) opensource.Enriquecedor
+	// iptv-org.github.io). Default: enriquecedorDeProduccion. Recibe el ctx del
+	// llamante (ver sincronizarFuente): PerSourceTimeout debe poder cortar esta
+	// llamada igual que cualquier otra, en vez de que ella se dé su propio
+	// presupuesto de 2 minutos por su cuenta.
+	NuevoEnriquecedor func(ctx context.Context, fuenteURL string) opensource.Enriquecedor
 }
 
 func (c Config) withDefaults() Config {
@@ -119,13 +122,20 @@ func (c Config) withDefaults() Config {
 // Un fallo de la API NO tumba el sync: devuelve nil y se sincroniza solo con el
 // M3U. El enriquecimiento es una mejora, jamás un requisito — un corte de
 // iptv-org.github.io no puede dejar al usuario sin catálogo.
-func enriquecedorDeProduccion(fuenteURL string) opensource.Enriquecedor {
+//
+// El timeout de 2 minutos se DERIVA de ctx, no de context.Background(): esta
+// función corre dentro de sincronizarFuente mientras se sostiene syncMu, así
+// que si el ctx del llamante ya expiró (o se cancela) por PerSourceTimeout,
+// esta llamada debe cortar con él, nunca darse un presupuesto propio que lo
+// ignore — de otro modo una API lenta retendría syncMu hasta 2 minutos MÁS
+// allá de su cupo, justo el fallo que PerSourceTimeout existe para evitar.
+func enriquecedorDeProduccion(ctx context.Context, fuenteURL string) opensource.Enriquecedor {
 	u, err := url.Parse(fuenteURL)
 	if err != nil || !strings.EqualFold(u.Hostname(), "iptv-org.github.io") {
 		return nil
 	}
 	enr := iptvorg.NuevoEnriquecedor(nil)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	if err := enr.Cargar(ctx); err != nil {
 		return nil
@@ -397,7 +407,7 @@ func (s *Syncer) sincronizarFuente(ctx context.Context, fuente ports.Source) err
 	// Interface nil-safe: NuevoEnriquecedor devuelve nil para una fuente sin
 	// API o si la carga falló, y WithEnriquecedor(nil) deja el provider con el
 	// comportamiento de siempre.
-	if enr := s.cfg.NuevoEnriquecedor(fuente.URL); enr != nil {
+	if enr := s.cfg.NuevoEnriquecedor(ctx, fuente.URL); enr != nil {
 		opts = append(opts, opensource.WithEnriquecedor(enr))
 	} else {
 		s.logger.Info("Fuente sin enriquecedor, solo M3U", slog.String("fuente", fuente.ID))
