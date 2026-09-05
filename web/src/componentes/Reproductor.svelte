@@ -5,7 +5,7 @@
   import { planDeReproduccion, motorDelNavegador, urlProxy, type Motor } from '../reproductor/plan'
   import { planDeFailover, type Intento, type DesenlaceReproduccion } from '../reproductor/failover'
   import { clasificarError, type ClaseError } from '../estado/salud'
-  import { clasificarFallo, type ClaseFallo, type InfoFallo } from '../reproductor/diagnostico'
+  import { clasificarFallo, claseConsensuada, type ClaseFallo, type InfoFallo } from '../reproductor/diagnostico'
   import { t } from '../i18n'
   import type { ClaveMensaje } from '../i18n/es'
   import { parsearResolucion } from '../lib/resolucion'
@@ -56,7 +56,7 @@
   // ofrecer el CTA "Probar el siguiente mirror" — 0 en cualquier otro
   // mensajeError (canal.soloApp, el catch de mirrors()/destino(), un corte
   // tras confirmar) porque ninguno de esos tiene un failover que reanudar.
-  let numMirrorsDisponibles = $state(0)
+  let numMirrorsProbados = $state(0)
   // untrack: silenciadoInicial es a propósito SOLO el valor inicial (es la
   // condición de ENTRADA del escenario, no un estado vivo que seguir) — mismo
   // criterio que los untrack de App.svelte para lecturas iniciales; sin él,
@@ -558,7 +558,7 @@
     const miId = ++intentoId
     cargando = true
     mensajeError = null
-    numMirrorsDisponibles = 0
+    numMirrorsProbados = 0
 
     const motor = motorForzado ?? motorDelNavegador(video)
     let intentos: Intento[]
@@ -623,11 +623,13 @@
       return
     }
 
-    // La clase del ÚLTIMO intento agotado es la que se muestra: es el error
-    // más informativo, el más cercano a "por qué el canal no llegó a verse"
-    // (el failover ya cruzó los mirrors anteriores, así que sus fallos
-    // importan menos que el del intento final).
-    let ultimaClase: ClaseFallo = 'desconocido'
+    // Se guardan las clases de TODOS los intentos, no solo la del último.
+    // Mostrar la del último escondía la razón real: con AMC (720p) el primer
+    // mirror estaba vivo pero servía segmentos de 4 s en más de 12 s
+    // ('desconocido') y el segundo daba 404 ('caducado'), así que el usuario
+    // leía «la dirección caducó» sobre un canal cuyo problema era la lentitud.
+    // Ver claseConsensuada().
+    const clasesVistas: ClaseFallo[] = []
 
     for (const intento of intentos) {
       if (destruido || miId !== intentoId) return
@@ -640,11 +642,12 @@
         // clasificarFallo lee la info que dejó ESTE intento (hls.js ERROR
         // fatal o video.error nativo); "timeout-de-carga" sin más señal cae
         // en 'desconocido', no en un motivo crudo que /stats no puede agrupar.
-        ultimaClase = clasificarFallo(infoUltimoError)
+        const clase = clasificarFallo(infoUltimoError)
+        clasesVistas.push(clase)
         alDesenlace({
           canalId: canal.id,
           resultado: 'fallo',
-          motivo: ultimaClase,
+          motivo: clase,
           motor,
           via: via(intento),
           mirrorIndex: intento.mirrorIndex,
@@ -665,7 +668,7 @@
       // probablemente SÍ reproduce este canal, así que no se muestra la
       // tarjeta de error a pantalla completa: solo un aviso transitorio,
       // y se reanuda la reproducción local normal.
-      if (ultimaClase === 'formato') marcarFalloFormato(canal.id)
+      if (claseConsensuada(clasesVistas) === 'formato') marcarFalloFormato(canal.id)
       motorForzado = null
       estadoCast = 'idle'
       // Fix de revisión final: revertir el motor NO soltaba la ruta AirPlay —
@@ -678,18 +681,22 @@
       return
     }
     cargando = false
-    mensajeError = t(claveDeClase(ultimaClase))
-    numMirrorsDisponibles = totalMirrors
+    mensajeError = t(claveDeClase(claseConsensuada(clasesVistas)))
+    // Mirrors PROBADOS, no "disponibles": al llegar aquí el bucle los agotó
+    // todos, así que no queda ninguno por intentar. Decir "hay N con mejor
+    // salud" era falso —era el total, sin filtrar por salud— y prometía una
+    // opción que no existe.
+    numMirrorsProbados = totalMirrors
   }
 
-  /** CTA "Probar el siguiente mirror": reanuda EXACTAMENTE el mismo mecanismo
+  /** CTA "Reintentar": reanuda EXACTAMENTE el mismo mecanismo
    *  que el failover automático (P0.5) usó para llegar hasta aquí — la misma
    *  reproducir(), no una ruta de reintento paralela. Vuelve a pedir
    *  mirrors() (la salud pudo cambiar desde el último intento) y recorre la
    *  cadena de nuevo desde el principio; limpiarIntento() es el mismo
    *  defensivo que ya usa el $effect de cambio de canal, aunque el bucle ya
    *  se limpió a sí mismo al agotarse. */
-  function probarSiguienteMirror() {
+  function reintentar() {
     limpiarIntento()
     reproducir()
   }
@@ -1041,12 +1048,12 @@
     {:else if mensajeError}
       <div class="estado error">
         <p class="mensaje">{mensajeError}</p>
-        {#if numMirrorsDisponibles > 0}
-          <p class="mirrors">{t('reproductor.error.mirrorsDisponibles', { n: numMirrorsDisponibles })}</p>
-          <button type="button" class="probar-mirror" onclick={probarSiguienteMirror}>
-            {t('reproductor.error.probarSiguienteMirror')}
-          </button>
+        {#if numMirrorsProbados > 0}
+          <p class="mirrors">{t('reproductor.error.mirrorsProbados', { n: numMirrorsProbados })}</p>
         {/if}
+        <button type="button" class="probar-mirror" onclick={reintentar}>
+          {t('reproductor.error.reintentar')}
+        </button>
       </div>
     {:else if estadoCast === 'emitiendo'}
       <!-- estadoCast === 'conectando' ya se ve como "cargando" arriba (sigue

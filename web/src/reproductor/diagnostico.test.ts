@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clasificarFallo } from './diagnostico'
+import { clasificarFallo, claseConsensuada } from './diagnostico'
 
 describe('clasificarFallo', () => {
   // 403: geo-bloqueo o token caducado — ambiguo, el mensaje de 'geo' lo
@@ -53,5 +53,31 @@ describe('clasificarFallo', () => {
   // httpStatus 403 manda sobre cualquier otra señal (prioridad de reglas).
   it('403 manda incluso con tipoHls de red presente', () => {
     expect(clasificarFallo({ httpStatus: 403, tipoHls: 'networkError' })).toBe('geo')
+  })
+})
+
+// Bug real reportado por el dueño (2026-09-04) con AMC (720p): el reproductor
+// mostraba «La dirección del canal caducó» porque enseñaba la clase del ÚLTIMO
+// intento, y el último mirror daba 404. El PRIMERO —el mejor, el que la salud
+// puso delante— estaba vivo pero servía segmentos de 4 s en más de 12 s. Con dos
+// causas distintas, afirmar cualquiera de las dos es mentir.
+describe('claseConsensuada', () => {
+  it('si todos los intentos fallaron por lo mismo, esa es la causa', () => {
+    expect(claseConsensuada(['geo', 'geo'])).toBe('geo')
+    expect(claseConsensuada(['caducado'])).toBe('caducado')
+  })
+
+  it('el caso AMC: causas distintas -> no se afirma ninguna', () => {
+    expect(claseConsensuada(['desconocido', 'caducado'])).toBe('desconocido')
+    expect(claseConsensuada(['caducado', 'desconocido'])).toBe('desconocido')
+  })
+
+  it('tampoco se elige la más específica cuando hay desacuerdo', () => {
+    expect(claseConsensuada(['geo', 'caducado'])).toBe('desconocido')
+    expect(claseConsensuada(['formato', 'caido'])).toBe('desconocido')
+  })
+
+  it('sin intentos, desconocido', () => {
+    expect(claseConsensuada([])).toBe('desconocido')
   })
 })

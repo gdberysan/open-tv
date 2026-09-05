@@ -64,3 +64,27 @@ export function clasificarFallo(info: InfoFallo): ClaseFallo {
 
   return 'desconocido'
 }
+
+/**
+ * Devuelve la clase que se puede afirmar HONESTAMENTE sobre el canal entero.
+ *
+ * Si todos los intentos fallaron por lo mismo, esa es la causa y se dice. Si
+ * fallaron por cosas distintas, NO se elige una: se devuelve 'desconocido', que
+ * el reproductor traduce al mensaje genérico ("puede estar caído, geo-bloqueado
+ * o su dirección caducó") — una triple adivinanza declarada, en vez de una
+ * certeza falsa.
+ *
+ * El bug que lo motiva (AMC 720p, reportado por el dueño el 2026-09-04): el
+ * failover probó dos mirrors. El primero, el que la salud puso delante, estaba
+ * vivo pero servía segmentos de 4 s en más de 12 s → 'desconocido'. El segundo
+ * daba 404 → 'caducado'. Se mostraba la del ÚLTIMO intento, así que el usuario
+ * leía «La dirección del canal caducó» sobre un canal cuyo problema real era un
+ * origen impracticablemente lento. Quedarse con la más ESPECÍFICA tampoco vale:
+ * daría el mismo «caducó». Con evidencia contradictoria, lo honesto es no
+ * afirmar ninguna.
+ */
+export function claseConsensuada(clases: ClaseFallo[]): ClaseFallo {
+  if (clases.length === 0) return 'desconocido'
+  const primera = clases[0]
+  return clases.every((c) => c === primera) ? primera : 'desconocido'
+}
