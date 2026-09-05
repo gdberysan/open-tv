@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -721,5 +722,124 @@ func TestStreamCabecerasPorURL(t *testing.T) {
 	}
 	if ref != "" || ua != "" {
 		t.Errorf("(%q,%q), quiero vacías para una URL que no está", ref, ua)
+	}
+}
+
+// Los segmentos y claves (EXT-X-KEY/EXT-X-MAP) que ReescribirManifiesto
+// reescribe NUNCA son una fila propia de streams: solo el manifiesto de
+// nivel superior lo es. Sin esta caída al origen, el proxy pediría las
+// cabeceras de cada segmento y siempre fallaría — el hotlink/agent-filter
+// del origen sigue aplicando a esas URLs hijas igual que al manifiesto.
+func TestStreamCabecerasPorURLCaeAlOrigenParaHijosSinFilaPropia(t *testing.T) {
+	ctx := context.Background()
+	base := nuevaDBDePrueba(t)
+	canales := db.NewChannelRepository(base)
+	streams := db.NewStreamRepository(base)
+
+	if err := canales.SaveBatch(ctx, []domain.Channel{
+		{ID: "p1-c1", Name: "C1", ProviderID: "p1", ProviderType: domain.ProviderOpenSource},
+	}); err != nil {
+		t.Fatalf("SaveBatch canales: %v", err)
+	}
+	if err := streams.SaveBatch(ctx, []domain.Stream{
+		// El único registro real: el manifiesto de nivel superior.
+		{ID: "st-1", ChannelID: "p1-c1", URL: "https://con.example/live/master.m3u8",
+			Protocol: domain.ProtocolHLS, Referrer: "https://ref.example/", UserAgent: "UA/1"},
+		// Un stream de otro origen, sin cabeceras: no debe poder "prestarlas"
+		// a nadie (ni siquiera lo intenta, porque no comparte origen).
+		{ID: "st-2", ChannelID: "p1-c1", URL: "https://otro.example/x.m3u8", Protocol: domain.ProtocolHLS},
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+
+	// Caso 1: exacto GANA sobre el origen. seg1.ts SÍ tiene fila propia (sin
+	// cabeceras): si el fallback por origen "ganara", vendría contaminado con
+	// las cabeceras de master.m3u8; el contrato exige lo contrario.
+	if err := streams.SaveBatch(ctx, []domain.Stream{
+		{ID: "st-3", ChannelID: "p1-c1", URL: "https://con.example/live/seg1.ts", Protocol: domain.ProtocolHLS},
+	}); err != nil {
+		t.Fatalf("SaveBatch seg1: %v", err)
+	}
+	ref, ua, err := streams.CabecerasPorURL(ctx, "https://con.example/live/seg1.ts")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL seg1 (fila propia): %v", err)
+	}
+	if ref != "" || ua != "" {
+		t.Errorf("seg1.ts con fila propia = (%q,%q), quiero vacías (el exacto gana, no hereda del origen)", ref, ua)
+	}
+
+	// Caso 2: un segmento SIN fila propia, mismo origen que master.m3u8,
+	// hereda sus cabeceras.
+	ref, ua, err = streams.CabecerasPorURL(ctx, "https://con.example/live/seg2.ts")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL seg2 (hereda del origen): %v", err)
+	}
+	if ref != "https://ref.example/" || ua != "UA/1" {
+		t.Errorf("seg2.ts = (%q,%q), quiero heredar (https://ref.example/, UA/1) del origen", ref, ua)
+	}
+
+	// Caso 3: mismo esquema y path, pero OTRO host — nada que heredar.
+	ref, ua, err = streams.CabecerasPorURL(ctx, "https://con.example.evil.com/live/seg3.ts")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL host distinto: %v", err)
+	}
+	if ref != "" || ua != "" {
+		t.Errorf("host distinto (con.example.evil.com) = (%q,%q), quiero vacías", ref, ua)
+	}
+
+	// Caso 4: un host que ni siquiera comparte origen con nada en la tabla.
+	ref, ua, err = streams.CabecerasPorURL(ctx, "https://nada-que-ver.example/seg.ts")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL host ajeno: %v", err)
+	}
+	if ref != "" || ua != "" {
+		t.Errorf("host ajeno = (%q,%q), quiero vacías", ref, ua)
+	}
+}
+
+// EXPLAIN QUERY PLAN del camino de fallback: tiene que ser un range scan por
+// idx_streams_url, nunca un escaneo completo — a ~17k streams la diferencia
+// es justo lo que este fallback no puede permitirse pagar por cada segmento.
+func TestStreamCabecerasPorURLFallbackUsaElIndice(t *testing.T) {
+	ctx := context.Background()
+	base := nuevaDBDePrueba(t)
+
+	filas, err := base.QueryContext(ctx, `
+		EXPLAIN QUERY PLAN
+		SELECT referrer, user_agent FROM streams
+		WHERE url >= ? AND url < ?
+		  AND (referrer <> '' OR user_agent <> '')
+		LIMIT 1`, "https://con.example/", "https://con.example0")
+	if err != nil {
+		t.Fatalf("EXPLAIN QUERY PLAN: %v", err)
+	}
+	defer func() { _ = filas.Close() }()
+
+	var plan []string
+	for filas.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := filas.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatalf("scan del plan: %v", err)
+		}
+		plan = append(plan, detail)
+		t.Logf("plan: %s", detail)
+	}
+	if err := filas.Err(); err != nil {
+		t.Fatalf("iterando el plan: %v", err)
+	}
+
+	huboIndice := false
+	for _, l := range plan {
+		if strings.Contains(l, "USING INDEX idx_streams_url") {
+			huboIndice = true
+		}
+		if strings.Contains(strings.ToUpper(l), "SCAN TABLE STREAMS") &&
+			!strings.Contains(l, "USING INDEX") {
+			t.Errorf("el plan hace un scan completo de streams: %q", l)
+		}
+	}
+	if !huboIndice {
+		t.Errorf("el plan no usa idx_streams_url: %v", plan)
 	}
 }

@@ -121,12 +121,18 @@ func TestIpPrivadaBloqueaCGNATyBenchmark(t *testing.T) {
 
 // Un origen con protección de hotlink solo sirve si le llega el Referer que
 // espera. El navegador NO puede ponerlo (Referer es cabecera prohibida para
-// fetch/XHR), así que es el proxy quien tiene que hacerlo.
+// fetch/XHR), así que es el proxy quien tiene que hacerlo. Esta es también la
+// rama de producción de verdad: el router SIEMPRE monta un BuscadorCabeceras
+// (nunca nil), así que la invariante "las cabeceras del cliente no viajan"
+// tiene que probarse AQUÍ, con un buscador no-nil y el cliente mandando su
+// propio Origin/Referer/Cookie — no solo en la rama h.cabeceras == nil, que
+// en producción no se ejecuta nunca.
 func TestProxyMandaLasCabecerasDelStream(t *testing.T) {
-	var gotRef, gotUA string
+	var gotRef, gotUA, gotCookie string
 	origen := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotRef = r.Header.Get("Referer")
 		gotUA = r.Header.Get("User-Agent")
+		gotCookie = r.Header.Get("Cookie")
 		w.Header().Set("Content-Type", "video/mp2t")
 		_, _ = w.Write([]byte("datos"))
 	}))
@@ -138,16 +144,24 @@ func TestProxyMandaLasCabecerasDelStream(t *testing.T) {
 		}))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg.ts"), nil)
+	// Cabeceras del CLIENTE: si algo dentro de la rama h.cabeceras != nil las
+	// leyera y las reenviara (aunque sea como fallback), este test lo pilla.
+	req.Header.Set("Origin", "http://127.0.0.1:8080")
+	req.Header.Set("Referer", "http://cliente-malicioso.example/")
+	req.Header.Set("Cookie", "sesion=secreta")
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d, quiero 200", rec.Code)
 	}
 	if gotRef != "https://ref.example/" {
-		t.Errorf("Referer = %q, quiero el del stream", gotRef)
+		t.Errorf("Referer = %q, quiero el del stream (NUNCA el que mandó el cliente)", gotRef)
 	}
 	if gotUA != "UA-Especial/1" {
 		t.Errorf("User-Agent = %q, quiero el del stream", gotUA)
+	}
+	if gotCookie != "" {
+		t.Errorf("Cookie = %q, quiero ninguna: la del cliente nunca debe viajar al origen", gotCookie)
 	}
 }
 
