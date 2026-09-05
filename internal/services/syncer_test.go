@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gdberysan/open-tv/internal/adapters/providers/iptvorg"
+	"github.com/gdberysan/open-tv/internal/adapters/providers/opensource"
 	"github.com/gdberysan/open-tv/internal/domain"
 	"github.com/gdberysan/open-tv/internal/ports"
 )
@@ -225,11 +227,8 @@ func (f *fakeStreamRepo) CabecerasPorURL(context.Context, string) (string, strin
 	return "", "", nil
 }
 
-// staleStreamCalls todavía no lo usa ningún test de este fichero: lo consume
-// la Tarea 4 (poda de streams en el propio Syncer), que registra aquí sus
-// llamadas a DeleteStale para poder aserirlas.
-//
-//nolint:unused // consumido por la Tarea 4
+// staleStreamCalls expone las llamadas a DeleteStale de streams para que los
+// tests de poda (ver TestSyncPodaLosStreamsQueYaNoAparecen) puedan aserirlas.
 func (f *fakeStreamRepo) staleStreamCalls() []deleteStaleStreamCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1360,5 +1359,123 @@ func TestSincronizarFuente_FiltraProgramasFueraDeVentana(t *testing.T) {
 	}
 	if len(guardados) != 2 || !titulos["Vigente"] || !titulos["EnCurso"] {
 		t.Fatalf("programas guardados = %+v, quiero exactamente {Vigente, EnCurso} (Viejo/Futuro fuera; EnCurso conservado por solape)", guardados)
+	}
+}
+
+// ── tests: mirrors de iptv-org y poda de streams (Tarea 4) ─────────────────
+
+const m3uMirrors = `#EXTM3U
+#EXTINF:-1 tvg-id="AndTV.in@HD" group-title="General",AndTV HD
+https://delm3u.example/x.m3u8
+`
+
+type enriquecedorFalso struct {
+	streams    map[string][]iptvorg.StreamExtra // clave "canal|feed"
+	categorias map[string]string
+}
+
+func (e *enriquecedorFalso) Streams(canal, feed string) []iptvorg.StreamExtra {
+	return e.streams[canal+"|"+feed]
+}
+
+func (e *enriquecedorFalso) Categoria(canal string) (string, bool) {
+	c, ok := e.categorias[canal]
+	return c, ok
+}
+
+func servidorM3U(t *testing.T, cuerpo string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, cuerpo)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// Un canal con mirrors produce VARIAS filas de stream, en orden y con sus
+// cabeceras. Antes solo se guardaba una: de ahí el 96 % de canales con un
+// único mirror.
+func TestSyncGuardaTodosLosMirrors(t *testing.T) {
+	srv := servidorM3U(t, m3uMirrors)
+	enr := &enriquecedorFalso{streams: map[string][]iptvorg.StreamExtra{
+		"AndTV.in|HD": {
+			{URL: "https://delm3u.example/x.m3u8"}, // duplicada a propósito
+			{URL: "https://mirror.example/x.m3u8", Referrer: "https://ref/", UserAgent: "UA/1"},
+		},
+	}}
+
+	sources := &fakeSourceRepo{fuentes: []ports.Source{
+		{ID: "src-a", URL: srv.URL, Kind: "url", IsActive: true},
+	}}
+	chRepo := &fakeChannelRepo{}
+	stRepo := &fakeStreamRepo{}
+
+	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{
+		NuevoEnriquecedor: func(string) opensource.Enriquecedor { return enr },
+	})
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+
+	got := stRepo.lastBatch()
+	if len(got) != 2 {
+		t.Fatalf("guardados %d streams, quiero 2 (la del M3U + el mirror, sin duplicar la repetida): %+v", len(got), got)
+	}
+	if got[0].URL != "https://delm3u.example/x.m3u8" {
+		t.Errorf("got[0].URL = %q, la del M3U va primera", got[0].URL)
+	}
+	if got[1].URL != "https://mirror.example/x.m3u8" {
+		t.Errorf("got[1].URL = %q, quiero el mirror", got[1].URL)
+	}
+	if got[1].Referrer != "https://ref/" || got[1].UserAgent != "UA/1" {
+		t.Errorf("got[1] perdió las cabeceras: %+v", got[1])
+	}
+}
+
+// Sin enriquecedor (fuente que no es iptv-org, o API caída) el sync NO falla:
+// guarda el catálogo del M3U con su único stream, como hasta ahora.
+func TestSyncSinEnriquecedorSigueFuncionando(t *testing.T) {
+	srv := servidorM3U(t, m3uMirrors)
+	sources := &fakeSourceRepo{fuentes: []ports.Source{
+		{ID: "src-a", URL: srv.URL, Kind: "url", IsActive: true},
+	}}
+	chRepo := &fakeChannelRepo{}
+	stRepo := &fakeStreamRepo{}
+
+	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{
+		NuevoEnriquecedor: func(string) opensource.Enriquecedor { return nil },
+	})
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce sin enriquecedor debe funcionar: %v", err)
+	}
+
+	got := stRepo.lastBatch()
+	if len(got) != 1 || got[0].URL != "https://delm3u.example/x.m3u8" {
+		t.Errorf("got %+v, quiero solo la URL del M3U", got)
+	}
+}
+
+// La poda de streams corre por fuente, igual que la de canales.
+func TestSyncPodaLosStreamsQueYaNoAparecen(t *testing.T) {
+	srv := servidorM3U(t, m3uMirrors)
+	sources := &fakeSourceRepo{fuentes: []ports.Source{
+		{ID: "src-a", URL: srv.URL, Kind: "url", IsActive: true},
+	}}
+	chRepo := &fakeChannelRepo{}
+	stRepo := &fakeStreamRepo{}
+
+	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{
+		NuevoEnriquecedor: func(string) opensource.Enriquecedor { return nil },
+	})
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+
+	llamadas := stRepo.staleStreamCalls()
+	if len(llamadas) != 1 {
+		t.Fatalf("llamadas a DeleteStale de streams = %d, quiero 1", len(llamadas))
+	}
+	if llamadas[0].providerID != "src-a" {
+		t.Errorf("podado con providerID %q, quiero src-a: la poda NUNCA cruza fuentes", llamadas[0].providerID)
 	}
 }

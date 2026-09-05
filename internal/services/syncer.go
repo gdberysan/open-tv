@@ -8,11 +8,13 @@ import (
 	"hash/fnv"
 	"io"
 	"log/slog"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gdberysan/open-tv/internal/adapters/epg"
+	"github.com/gdberysan/open-tv/internal/adapters/providers/iptvorg"
 	"github.com/gdberysan/open-tv/internal/adapters/providers/opensource"
 	"github.com/gdberysan/open-tv/internal/domain"
 	"github.com/gdberysan/open-tv/internal/ports"
@@ -80,6 +82,12 @@ type Config struct {
 	// fuente colgada agota SU cupo, se cuenta como una fuente fallida más, y
 	// el resto del ciclo sigue con el tiempo que le queda a SyncTimeout.
 	PerSourceTimeout time.Duration
+	// NuevoEnriquecedor construye el enriquecedor de una fuente, o devuelve nil
+	// si esa fuente no tiene API detrás. Inyectable porque el syncer construye
+	// el provider él solo y la detección va por host: sin esto los tests no
+	// podrían ejercitar el camino enriquecido (un httptest.Server nunca es
+	// iptv-org.github.io). Default: enriquecedorDeProduccion.
+	NuevoEnriquecedor func(fuenteURL string) opensource.Enriquecedor
 }
 
 func (c Config) withDefaults() Config {
@@ -98,7 +106,31 @@ func (c Config) withDefaults() Config {
 	if c.PerSourceTimeout <= 0 {
 		c.PerSourceTimeout = 5 * time.Minute
 	}
+	if c.NuevoEnriquecedor == nil {
+		c.NuevoEnriquecedor = enriquecedorDeProduccion
+	}
 	return c
+}
+
+// enriquecedorDeProduccion conecta la API de iptv-org SOLO para su lista
+// oficial: es la única que comparte identificadores con ella. La decisión va por
+// HOST de la URL ya parseada, no por substring.
+//
+// Un fallo de la API NO tumba el sync: devuelve nil y se sincroniza solo con el
+// M3U. El enriquecimiento es una mejora, jamás un requisito — un corte de
+// iptv-org.github.io no puede dejar al usuario sin catálogo.
+func enriquecedorDeProduccion(fuenteURL string) opensource.Enriquecedor {
+	u, err := url.Parse(fuenteURL)
+	if err != nil || !strings.EqualFold(u.Hostname(), "iptv-org.github.io") {
+		return nil
+	}
+	enr := iptvorg.NuevoEnriquecedor(nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := enr.Cargar(ctx); err != nil {
+		return nil
+	}
+	return enr
 }
 
 // Syncer mantiene la DB de canales y streams al día con las fuentes que el
@@ -361,8 +393,16 @@ func (s *Syncer) sincronizarFuente(ctx context.Context, fuente ports.Source) err
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
 
-	provider := opensource.NewProvider(fuente.ID, fuente.URL, nil,
-		opensource.WithAllowedFileDir(s.allowedFileDir))
+	opts := []opensource.Option{opensource.WithAllowedFileDir(s.allowedFileDir)}
+	// Interface nil-safe: NuevoEnriquecedor devuelve nil para una fuente sin
+	// API o si la carga falló, y WithEnriquecedor(nil) deja el provider con el
+	// comportamiento de siempre.
+	if enr := s.cfg.NuevoEnriquecedor(fuente.URL); enr != nil {
+		opts = append(opts, opensource.WithEnriquecedor(enr))
+	} else {
+		s.logger.Info("Fuente sin enriquecedor, solo M3U", slog.String("fuente", fuente.ID))
+	}
+	provider := opensource.NewProvider(fuente.ID, fuente.URL, nil, opts...)
 
 	// Frontera de la poda: todo canal de esta fuente cuyo last_seen_at quede
 	// por debajo de este instante es que no apareció en este sync.
@@ -389,24 +429,36 @@ func (s *Syncer) sincronizarFuente(ctx context.Context, fuente ports.Source) err
 
 	streams := make([]domain.Stream, 0, len(channels))
 	for _, ch := range channels {
-		url, err := provider.GetStreamURL(ctx, ch.ID)
+		extras, err := provider.GetStreamsDeCanal(ctx, ch.ID)
 		if err != nil {
-			// Canal sin URL en el caché del provider: raro pero no fatal.
 			s.logger.Warn("Canal sin stream URL, omitido",
 				slog.String("fuente", fuente.ID), slog.String("channel", string(ch.ID)))
 			continue
 		}
-		streams = append(streams, domain.Stream{
-			ID:        streamID(ch.ID, url),
-			ChannelID: ch.ID,
-			URL:       url,
-			Protocol:  protocolFromURL(url),
-		})
+		for _, ex := range extras {
+			streams = append(streams, domain.Stream{
+				ID:        streamID(ch.ID, ex.URL),
+				ChannelID: ch.ID,
+				URL:       ex.URL,
+				Protocol:  protocolFromURL(ex.URL),
+				Referrer:  ex.Referrer,
+				UserAgent: ex.UserAgent,
+			})
+		}
 	}
 
 	if err := s.streams.SaveBatch(ctx, streams); err != nil {
 		return fmt.Errorf("services.sincronizarFuente (%s) streams: %w", fuente.ID, err)
 	}
+
+	// Los streams se podan ANTES que los canales: así un canal que se va no
+	// deja streams huérfanos. Primera pasada tras el despliegue: se limpian los
+	// ~254 restos históricos, así que el conteo bajará antes de subir.
+	streamsPodados, err := s.streams.DeleteStale(ctx, fuente.ID, inicio)
+	if err != nil {
+		return fmt.Errorf("services.sincronizarFuente (%s) poda de streams: %w", fuente.ID, err)
+	}
+	s.logger.Info("Streams podados", slog.String("fuente", fuente.ID), slog.Int64("n", streamsPodados))
 
 	// DeleteStale se scoped por el id de ESTA fuente: la poda nunca cruza
 	// fuentes, así que un fallo o una fuente pequeña no puede arrastrar el
