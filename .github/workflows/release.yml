@@ -59,7 +59,7 @@ jobs:
           printf '%s\n' "${{ secrets.HOMEBREW_TAP_SSH_KEY }}" > "$RUNNER_TEMP/tap/id_ed25519"
           chmod 600 "$RUNNER_TEMP/tap/id_ed25519"
 
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
