@@ -323,13 +323,31 @@ func (p *Provider) GetStreamsDeCanal(_ context.Context, channelID domain.Channel
 		return salida, nil
 	}
 
-	vistas := map[string]bool{url: true}
+	// vistas apunta a la POSICIÓN en salida, no a un booleano: cuando la API
+	// repite una URL que ya tenemos, hay que poder volver a esa fila para
+	// ADOPTAR sus cabeceras. La URL del M3U entra sin ellas (el M3U no las
+	// lleva) y el M3U y la API son del mismo proyecto, así que la principal
+	// casi siempre está repetida: descartar la entrada de la API sin más
+	// tiraba las cabeceras justo en el stream que se intenta PRIMERO —
+	// medido sobre datos reales, 753 de 982 streams con cabeceras las perdían.
+	vistas := map[string]int{url: 0}
 	canal, feed := iptvorg.SepararTvgID(tvgID)
 	for _, s := range enr.Streams(canal, feed) {
-		if s.URL == "" || vistas[s.URL] {
+		if s.URL == "" {
 			continue
 		}
-		vistas[s.URL] = true
+		if i, dup := vistas[s.URL]; dup {
+			// No se añade fila nueva, pero sí se rellena lo que falta. Las dos
+			// cabeceras viajan JUNTAS (son la protección de hotlink de un
+			// mismo origen) y solo si la fila que ya está no trae ninguna: una
+			// entrada que ya declaró las suyas nunca se pisa.
+			if salida[i].Referrer == "" && salida[i].UserAgent == "" {
+				salida[i].Referrer = s.Referrer
+				salida[i].UserAgent = s.UserAgent
+			}
+			continue
+		}
+		vistas[s.URL] = len(salida)
 		salida = append(salida, s)
 	}
 	return salida, nil

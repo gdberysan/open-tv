@@ -353,11 +353,17 @@ func TestGetStreamsDeCanalSinEnriquecedor(t *testing.T) {
 }
 
 // Con enriquecedor: la URL del M3U va PRIMERA y los mirrors detrás, sin
-// duplicar la que ya venía.
+// duplicar la que ya venía. Y la entrada duplicada NO se tira entera: sus
+// cabeceras se adoptan sobre la fila del M3U, que entró sin ninguna. Sin esto
+// el stream que se intenta primero salía siempre pelado (753 de 982 medidos
+// sobre datos reales) y el origen respondía 403.
 func TestGetStreamsDeCanalOrdenYDeduplicacion(t *testing.T) {
 	e := &enriquecedorFalso{streams: map[string][]iptvorg.StreamExtra{
 		"AndTV.in|HD": {
-			{URL: "https://delm3u.example/x.m3u8"}, // duplicada a propósito
+			// Duplicada a propósito, y CON cabeceras: es el caso real (el M3U
+			// y la API son del mismo proyecto, así que la URL principal está
+			// en los dos, pero solo la API trae referrer/user_agent).
+			{URL: "https://delm3u.example/x.m3u8", Referrer: "https://origen/", UserAgent: "AgenteRaro/1.0"},
 			{URL: "https://mirror.example/x.m3u8", Referrer: "https://ref/"},
 		},
 	}}
@@ -373,8 +379,35 @@ func TestGetStreamsDeCanalOrdenYDeduplicacion(t *testing.T) {
 	if got[0].URL != "https://delm3u.example/x.m3u8" {
 		t.Errorf("got[0] = %q, la del M3U va primera", got[0].URL)
 	}
+	if got[0].Referrer != "https://origen/" || got[0].UserAgent != "AgenteRaro/1.0" {
+		t.Errorf("got[0] = %+v, la fila del M3U debe ADOPTAR las cabeceras de su duplicada de la API", got[0])
+	}
 	if got[1].URL != "https://mirror.example/x.m3u8" || got[1].Referrer != "https://ref/" {
 		t.Errorf("got[1] = %+v, quiero el mirror con su referrer", got[1])
+	}
+}
+
+// La adopción no PISA: una fila que ya declaró cabeceras se queda con las
+// suyas aunque la API repita esa URL con otras distintas. Solo se rellena lo
+// que está vacío, y las dos cabeceras van juntas.
+func TestGetStreamsDeCanalNoPisaCabecerasYaPresentes(t *testing.T) {
+	e := &enriquecedorFalso{streams: map[string][]iptvorg.StreamExtra{
+		"AndTV.in|HD": {
+			{URL: "https://mirror.example/x.m3u8", Referrer: "https://primera/"},
+			{URL: "https://mirror.example/x.m3u8", Referrer: "https://segunda/", UserAgent: "Otro/2.0"},
+		},
+	}}
+	p := providerConM3UYOpts(t, m3uUnCanal, WithEnriquecedor(e))
+
+	got, err := p.GetStreamsDeCanal(context.Background(), "opensource-AndTV HD")
+	if err != nil {
+		t.Fatalf("GetStreamsDeCanal: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d streams, quiero 2: %+v", len(got), got)
+	}
+	if got[1].Referrer != "https://primera/" || got[1].UserAgent != "" {
+		t.Errorf("got[1] = %+v, la primera entrada manda: no se pisa lo que ya trae", got[1])
 	}
 }
 
