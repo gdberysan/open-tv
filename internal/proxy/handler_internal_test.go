@@ -8,9 +8,11 @@ package proxy
 // lógica en sí, sin esa limitación.
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -114,5 +116,89 @@ func TestIpPrivadaBloqueaCGNATyBenchmark(t *testing.T) {
 	}
 	if ipPrivada(net.ParseIP("1.1.1.1")) {
 		t.Error("ipPrivada(1.1.1.1) = true, quiero false")
+	}
+}
+
+// Un origen con protección de hotlink solo sirve si le llega el Referer que
+// espera. El navegador NO puede ponerlo (Referer es cabecera prohibida para
+// fetch/XHR), así que es el proxy quien tiene que hacerlo.
+func TestProxyMandaLasCabecerasDelStream(t *testing.T) {
+	var gotRef, gotUA string
+	origen := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRef = r.Header.Get("Referer")
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "video/mp2t")
+		_, _ = w.Write([]byte("datos"))
+	}))
+	defer origen.Close()
+
+	h := NewHandler("/proxy/hls?u=", true, ConBuscadorCabeceras(
+		func(_ context.Context, _ string) (string, string) {
+			return "https://ref.example/", "UA-Especial/1"
+		}))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg.ts"), nil)
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, quiero 200", rec.Code)
+	}
+	if gotRef != "https://ref.example/" {
+		t.Errorf("Referer = %q, quiero el del stream", gotRef)
+	}
+	if gotUA != "UA-Especial/1" {
+		t.Errorf("User-Agent = %q, quiero el del stream", gotUA)
+	}
+}
+
+// Sin cabeceras propias se manda el User-Agent de siempre y ningún Referer:
+// mandar un Referer inventado podría romper orígenes que hoy funcionan.
+func TestProxySinCabecerasUsaElDeSiempre(t *testing.T) {
+	var gotRef, gotUA string
+	origen := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRef = r.Header.Get("Referer")
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "video/mp2t")
+		_, _ = w.Write([]byte("datos"))
+	}))
+	defer origen.Close()
+
+	h := NewHandler("/proxy/hls?u=", true, ConBuscadorCabeceras(
+		func(_ context.Context, _ string) (string, string) {
+			return "", ""
+		}))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg.ts"), nil)
+	h.ServeHTTP(rec, req)
+
+	if gotUA != userAgent {
+		t.Errorf("User-Agent = %q, quiero el de siempre (%q)", gotUA, userAgent)
+	}
+	if gotRef != "" {
+		t.Errorf("Referer = %q, quiero ninguno", gotRef)
+	}
+}
+
+// Un buscador nil (o un fallo de DB, que se traduce en cadenas vacías) no puede
+// romper el proxy: se cae al comportamiento anterior.
+func TestProxyBuscadorNil(t *testing.T) {
+	var gotUA string
+	origen := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "video/mp2t")
+		_, _ = w.Write([]byte("datos"))
+	}))
+	defer origen.Close()
+
+	h := NewHandler("/proxy/hls?u=", true) // sin opciones: como todas las llamadas de siempre
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg.ts"), nil)
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, quiero 200: un buscador nil no puede romper el relay", rec.Code)
+	}
+	if gotUA != userAgent {
+		t.Errorf("User-Agent = %q, quiero el de siempre", gotUA)
 	}
 }

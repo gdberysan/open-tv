@@ -50,11 +50,31 @@ const userAgent = "VLC/3.0.20 LibVLC/3.0.20"
 // donde el filtro de destinos no le deja, se corta aquí.
 const maxRedirecciones = 5
 
+// BuscadorCabeceras resuelve las cabeceras que el ORIGEN exige para una URL.
+// Devuelve vacías si no hay ninguna o si la URL no está en el catálogo. Nunca
+// devuelve error: un fallo de lectura se traduce en "usa las de siempre", que
+// es el comportamiento anterior y siempre es seguro.
+type BuscadorCabeceras func(ctx context.Context, url string) (referrer, userAgent string)
+
+// Option configura parámetros opcionales del Handler, igual que hace
+// opensource.Option con su Provider.
+type Option func(*Handler)
+
+// ConBuscadorCabeceras conecta la búsqueda de cabeceras por stream. Sin ella el
+// proxy se comporta como siempre: User-Agent fijo y ningún Referer.
+func ConBuscadorCabeceras(b BuscadorCabeceras) Option {
+	return func(h *Handler) { h.cabeceras = b }
+}
+
 // Handler relaya HLS al navegador de la misma máquina.
 type Handler struct {
 	client     *http.Client
 	prefijo    string
 	privadasOK bool
+	// cabeceras resuelve el Referer/User-Agent que el origen exige, cuando el
+	// catálogo lo sabe. nil (el zero value, o cualquier caso donde devuelva
+	// cadenas vacías) cae al User-Agent fijo de siempre.
+	cabeceras BuscadorCabeceras
 }
 
 // NewHandler construye el proxy. prefijo es la ruta con la que se reescriben
@@ -63,7 +83,7 @@ type Handler struct {
 // permitirDestinosPrivados solo es true en tests: los servidores de httptest
 // viven en 127.0.0.1, que en producción es exactamente lo que hay que
 // bloquear. En el router se monta siempre con false.
-func NewHandler(prefijo string, permitirDestinosPrivados bool) *Handler {
+func NewHandler(prefijo string, permitirDestinosPrivados bool, opts ...Option) *Handler {
 	h := &Handler{
 		prefijo:    prefijo,
 		privadasOK: permitirDestinosPrivados,
@@ -94,6 +114,10 @@ func NewHandler(prefijo string, permitirDestinosPrivados bool) *Handler {
 		// de una nube, y sin esto el proxy lo seguiría y relayaría la
 		// respuesta interna al navegador.
 		CheckRedirect: h.checkRedirect,
+	}
+
+	for _, opt := range opts {
+		opt(h)
 	}
 	return h
 }
@@ -144,7 +168,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no se pudo construir la petición", http.StatusBadGateway)
 		return
 	}
-	req.Header.Set("User-Agent", userAgent)
+	// Cabeceras del ORIGEN, no del cliente: las del navegador siguen sin
+	// viajar. Si el stream no declara ninguna, se usan las de siempre.
+	ua := userAgent
+	if h.cabeceras != nil {
+		ref, uaStream := h.cabeceras(ctx, destino.String())
+		if uaStream != "" {
+			ua = uaStream
+		}
+		if ref != "" {
+			req.Header.Set("Referer", ref)
+		}
+	}
+	req.Header.Set("User-Agent", ua)
 	// Range sí viaja: EXT-X-BYTERANGE hace que el reproductor pida trozos.
 	if rango := r.Header.Get("Range"); rango != "" {
 		req.Header.Set("Range", rango)
