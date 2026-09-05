@@ -165,15 +165,6 @@ func (f *fakeChannelRepo) batchCount() int {
 	return len(f.batches)
 }
 
-func (f *fakeChannelRepo) lastBatch() []domain.Channel {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.batches) == 0 {
-		return nil
-	}
-	return f.batches[len(f.batches)-1]
-}
-
 // allChannelIDs junta los IDs de todos los batches persistidos, para
 // comprobar la fusión de varias fuentes sin asumir cuántas llamadas a
 // SaveBatch hizo cada una.
@@ -1379,17 +1370,11 @@ https://delm3u.example/x.m3u8
 `
 
 type enriquecedorFalso struct {
-	streams    map[string][]iptvorg.StreamExtra // clave "canal|feed"
-	categorias map[string]string
+	streams map[string][]iptvorg.StreamExtra // clave "canal|feed"
 }
 
 func (e *enriquecedorFalso) Streams(canal, feed string) []iptvorg.StreamExtra {
 	return e.streams[canal+"|"+feed]
-}
-
-func (e *enriquecedorFalso) Categoria(canal string) (string, bool) {
-	c, ok := e.categorias[canal]
-	return c, ok
 }
 
 func servidorM3U(t *testing.T, cuerpo string) *httptest.Server {
@@ -1504,54 +1489,5 @@ func TestEnriquecedorDeProduccionRespetaElContexto(t *testing.T) {
 	}
 	if transcurrido := time.Since(inicio); transcurrido > 5*time.Second {
 		t.Errorf("tardó %v: no está respetando la cancelación del ctx", transcurrido)
-	}
-}
-
-// ── tests: categorías desde channels.json (Tarea 5) ────────────────────────
-
-const m3uCategorias = `#EXTM3U
-#EXTINF:-1 tvg-id="Uno.in@HD" group-title="General",Uno
-https://uno.example/x.m3u8
-#EXTINF:-1 tvg-id="Dos.in@HD" group-title="",Dos
-https://dos.example/x.m3u8
-#EXTINF:-1 tvg-id="Tres.in@HD" group-title="News",Tres
-https://tres.example/x.m3u8
-`
-
-// Se rellena SOLO lo débil: vacío, «General» o «Undefined» (los cajones de
-// sastre). Una categoría real del M3U gana siempre — si no, este cambio
-// reescribiría de golpe la taxonomía de 12.000 canales.
-func TestSyncRellenaCategoriasDebiles(t *testing.T) {
-	srv := servidorM3U(t, m3uCategorias)
-	enr := &enriquecedorFalso{categorias: map[string]string{
-		"Uno.in": "movies", "Dos.in": "movies", "Tres.in": "movies",
-	}}
-
-	sources := &fakeSourceRepo{fuentes: []ports.Source{
-		{ID: "src-a", URL: srv.URL, Kind: "url", IsActive: true},
-	}}
-	chRepo := &fakeChannelRepo{}
-	stRepo := &fakeStreamRepo{}
-
-	s := NewSyncer(nil, sources, chRepo, stRepo, nil, nil, "", Config{
-		NuevoEnriquecedor: func(context.Context, string) opensource.Enriquecedor { return enr },
-	})
-	if err := s.SyncOnce(context.Background()); err != nil {
-		t.Fatalf("SyncOnce: %v", err)
-	}
-
-	porNombre := map[string]string{}
-	for _, c := range chRepo.lastBatch() {
-		porNombre[c.Name] = c.CategoryID
-	}
-
-	if got := porNombre["Uno"]; got != "movies" {
-		t.Errorf("«General» quedó en %q, quiero movies", got)
-	}
-	if got := porNombre["Dos"]; got != "movies" {
-		t.Errorf("categoría vacía quedó en %q, quiero movies", got)
-	}
-	if got := porNombre["Tres"]; got != "News" {
-		t.Errorf("«News» quedó en %q: una categoría real del M3U NO se pisa", got)
 	}
 }

@@ -322,16 +322,11 @@ func providerConM3UYOpts(t *testing.T, m3u string, opts ...Option) *Provider {
 
 // enriquecedorFalso permite probar la fusión sin salir a la red.
 type enriquecedorFalso struct {
-	streams    map[string][]iptvorg.StreamExtra // clave "canal|feed"
-	categorias map[string]string
+	streams map[string][]iptvorg.StreamExtra // clave "canal|feed"
 }
 
 func (e *enriquecedorFalso) Streams(canal, feed string) []iptvorg.StreamExtra {
 	return e.streams[canal+"|"+feed]
-}
-func (e *enriquecedorFalso) Categoria(canal string) (string, bool) {
-	c, ok := e.categorias[canal]
-	return c, ok
 }
 
 const m3uUnCanal = `#EXTM3U

@@ -1,7 +1,6 @@
-// Package iptvorg lee la API pública de iptv-org (streams.json y channels.json)
-// para aportar lo que el index.m3u descarta: los mirrors extra de cada canal,
-// las cabeceras que algunos orígenes exigen, y la categoría real de los canales
-// que el M3U deja en «General».
+// Package iptvorg lee streams.json, la API pública de iptv-org, para aportar
+// lo que el index.m3u descarta: los mirrors extra de cada canal y las
+// cabeceras que algunos orígenes exigen.
 //
 // Es un colaborador OPCIONAL del proveedor opensource: sin él, ese proveedor se
 // comporta exactamente igual que siempre, que es lo que necesitan los M3U que
@@ -20,15 +19,14 @@ import (
 )
 
 const (
-	URLStreams  = "https://iptv-org.github.io/api/streams.json"
-	URLChannels = "https://iptv-org.github.io/api/channels.json"
+	URLStreams = "https://iptv-org.github.io/api/streams.json"
 
 	// maxJSONBytes acota la descarga. Medido el 2026-09-04: streams.json pesa
-	// ~3,5 MB y channels.json ~7,8 MB. 64 MB deja margen de sobra sin permitir
-	// que un upstream roto agote la memoria.
+	// ~3,5 MB. 64 MB deja margen de sobra sin permitir que un upstream roto
+	// agote la memoria.
 	maxJSONBytes = 64 << 20
 
-	// tiempoCarga cubre las dos descargas juntas.
+	// tiempoCarga cubre la descarga completa.
 	tiempoCarga = 2 * time.Minute
 )
 
@@ -46,13 +44,11 @@ type StreamExtra struct {
 type claveFeed struct{ canal, feed string }
 
 type Enriquecedor struct {
-	client      *http.Client
-	urlStreams  string
-	urlChannels string
+	client     *http.Client
+	urlStreams string
 
-	mu         sync.RWMutex
-	porFeed    map[claveFeed][]StreamExtra
-	categorias map[string]string
+	mu      sync.RWMutex
+	porFeed map[claveFeed][]StreamExtra
 }
 
 func NuevoEnriquecedor(client *http.Client) *Enriquecedor {
@@ -60,11 +56,9 @@ func NuevoEnriquecedor(client *http.Client) *Enriquecedor {
 		client = &http.Client{Timeout: tiempoCarga}
 	}
 	return &Enriquecedor{
-		client:      client,
-		urlStreams:  URLStreams,
-		urlChannels: URLChannels,
-		porFeed:     make(map[claveFeed][]StreamExtra),
-		categorias:  make(map[string]string),
+		client:     client,
+		urlStreams: URLStreams,
+		porFeed:    make(map[claveFeed][]StreamExtra),
 	}
 }
 
@@ -88,14 +82,6 @@ type entradaStream struct {
 	UserAgent *string `json:"user_agent"`
 }
 
-// entradaCanal refleja SOLO lo que se usa de channels.json. OJO: este fichero
-// NO tiene campo `languages` (comprobado sobre el JSON real), y pesa ~7,8 MB,
-// así que se guarda únicamente la categoría y se tira el resto.
-type entradaCanal struct {
-	ID         string   `json:"id"`
-	Categories []string `json:"categories"`
-}
-
 func valor(p *string) string {
 	if p == nil {
 		return ""
@@ -103,16 +89,12 @@ func valor(p *string) string {
 	return *p
 }
 
-// Cargar descarga e indexa los dos ficheros. Se llama UNA vez por sync, nunca
+// Cargar descarga e indexa streams.json. Se llama UNA vez por sync, nunca
 // por canal.
 func (e *Enriquecedor) Cargar(ctx context.Context) error {
 	var streams []entradaStream
 	if err := e.descargarJSON(ctx, e.urlStreams, &streams); err != nil {
 		return fmt.Errorf("iptvorg.Cargar (streams): %w", err)
-	}
-	var canales []entradaCanal
-	if err := e.descargarJSON(ctx, e.urlChannels, &canales); err != nil {
-		return fmt.Errorf("iptvorg.Cargar (channels): %w", err)
 	}
 
 	porFeed := make(map[claveFeed][]StreamExtra, len(streams))
@@ -129,17 +111,8 @@ func (e *Enriquecedor) Cargar(ctx context.Context) error {
 		})
 	}
 
-	categorias := make(map[string]string, len(canales))
-	for _, c := range canales {
-		if c.ID == "" || len(c.Categories) == 0 {
-			continue
-		}
-		categorias[c.ID] = c.Categories[0]
-	}
-
 	e.mu.Lock()
 	e.porFeed = porFeed
-	e.categorias = categorias
 	e.mu.Unlock()
 	return nil
 }
@@ -179,15 +152,6 @@ func (e *Enriquecedor) Streams(canal, feed string) []StreamExtra {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.porFeed[claveFeed{canal: canal, feed: feed}]
-}
-
-// Categoria devuelve la PRIMERA categoría upstream del canal. Se usa solo para
-// rellenar las categorías débiles del M3U (ver el syncer).
-func (e *Enriquecedor) Categoria(canal string) (string, bool) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	c, ok := e.categorias[canal]
-	return c, ok
 }
 
 // totalIndexados es para tests: cuántos streams quedaron en el índice.

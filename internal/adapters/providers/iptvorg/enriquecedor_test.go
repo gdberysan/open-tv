@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// servidorFixtures sirve los dos JSON de testdata en las rutas que el
-// Enriquecedor pide, para poder probar Cargar() sin salir a la red.
+// servidorFixtures sirve el JSON de testdata en la ruta que el Enriquecedor
+// pide, para poder probar Cargar() sin salir a la red.
 func servidorFixtures(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -17,8 +17,6 @@ func servidorFixtures(t *testing.T) *httptest.Server {
 		switch r.URL.Path {
 		case "/api/streams.json":
 			fichero = "testdata/streams.json"
-		case "/api/channels.json":
-			fichero = "testdata/channels.json"
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -40,7 +38,6 @@ func cargado(t *testing.T) *Enriquecedor {
 	t.Cleanup(srv.Close)
 	e := NuevoEnriquecedor(srv.Client())
 	e.urlStreams = srv.URL + "/api/streams.json"
-	e.urlChannels = srv.URL + "/api/channels.json"
 	if err := e.Cargar(context.Background()); err != nil {
 		t.Fatalf("Cargar: %v", err)
 	}
@@ -100,20 +97,5 @@ func TestStreamsSinCanalSeDescartan(t *testing.T) {
 	e := cargado(t)
 	if n := e.totalIndexados(); n != 4 {
 		t.Errorf("indexados %d, quiero 4 (el huérfano no cuenta)", n)
-	}
-}
-
-func TestCategoria(t *testing.T) {
-	e := cargado(t)
-
-	got, ok := e.Categoria("AndTV.in")
-	if !ok || got != "entertainment" {
-		t.Errorf("Categoria = (%q,%v), quiero (entertainment,true): se toma la PRIMERA", got, ok)
-	}
-	if _, ok := e.Categoria("Solo.uk"); ok {
-		t.Error("un canal con categories vacío no debe reportar categoría")
-	}
-	if _, ok := e.Categoria("NoExiste.xx"); ok {
-		t.Error("un canal desconocido no debe reportar categoría")
 	}
 }

@@ -56,7 +56,6 @@ type Provider struct {
 // exactamente igual que siempre.
 type Enriquecedor interface {
 	Streams(canal, feed string) []iptvorg.StreamExtra
-	Categoria(canal string) (string, bool)
 }
 
 // WithEnriquecedor conecta la API de iptv-org. Solo debe usarse cuando la
@@ -351,19 +350,6 @@ func (p *Provider) GetStreamsDeCanal(_ context.Context, channelID domain.Channel
 		salida = append(salida, s)
 	}
 	return salida, nil
-}
-
-// CategoriaDe devuelve la categoría upstream del canal cuyo tvg_id se pasa.
-// Sin enriquecedor, o sin tvg_id, no hay categoría.
-func (p *Provider) CategoriaDe(tvgID string) (string, bool) {
-	p.mu.RLock()
-	enr := p.enriquecedor
-	p.mu.RUnlock()
-	if enr == nil || tvgID == "" {
-		return "", false
-	}
-	canal, _ := iptvorg.SepararTvgID(tvgID)
-	return enr.Categoria(canal)
 }
 
 // TvgURLs devuelve las URLs de guía EPG (url-tvg / x-tvg-url) que la fuente
