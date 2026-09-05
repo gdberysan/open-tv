@@ -25,7 +25,11 @@ func NewStreamRepository(db *sql.DB) *SQLiteStreamRepository {
 	return &SQLiteStreamRepository{db: db}
 }
 
-const streamColumns = ` id, channel_id, url, protocol, latency_ms, is_alive, last_checked `
+// Las cabeceras van en el SELECT: sin ellas domain.Stream.Referrer/UserAgent
+// volvían SIEMPRE vacíos y el health-check —que lee por FindAll— chequeaba
+// pelados los streams cuyo origen exige Referer/User-Agent, se comía un 403 y
+// acababa marcándolos muertos.
+const streamColumns = ` id, channel_id, url, protocol, referrer, user_agent, latency_ms, is_alive, last_checked `
 
 // El upsert preserva latency_ms/is_alive/last_checked: son resultado del
 // health-check, no del sync, y un re-sync no debe borrarlos. last_seen_at SÍ se
@@ -242,6 +246,7 @@ func scanStream(rows *sql.Rows) (domain.Stream, error) {
 	)
 	if err := rows.Scan(
 		&s.ID, (*string)(&s.ChannelID), &s.URL, (*string)(&s.Protocol),
+		&s.Referrer, &s.UserAgent,
 		&latencyMs, &isAlive, &lastChecked,
 	); err != nil {
 		return domain.Stream{}, err

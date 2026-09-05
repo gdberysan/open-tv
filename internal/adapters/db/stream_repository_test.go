@@ -843,3 +843,58 @@ func TestStreamCabecerasPorURLFallbackUsaElIndice(t *testing.T) {
 		t.Errorf("el plan no usa idx_streams_url: %v", plan)
 	}
 }
+
+// Las cabeceras tienen que sobrevivir el ROUNDTRIP por los finders, no solo
+// por CabecerasPorURL: el health-check lee el catálogo con FindAll y, si el
+// SELECT no trae referrer/user_agent, chequea pelados justo los streams cuyo
+// origen los exige — 403, tres pasadas, y muertos. Este es el punto de unión
+// del que depende toda la cadena de cabeceras y no tenía cobertura.
+func TestStreamCabecerasSobrevivenALosFinders(t *testing.T) {
+	ctx := context.Background()
+	base := nuevaDBDePrueba(t)
+	canales := db.NewChannelRepository(base)
+	streams := db.NewStreamRepository(base)
+
+	if err := canales.SaveBatch(ctx, []domain.Channel{
+		{ID: "p1-c1", Name: "C1", ProviderID: "p1", ProviderType: domain.ProviderOpenSource},
+	}); err != nil {
+		t.Fatalf("SaveBatch canales: %v", err)
+	}
+	if err := streams.SaveBatch(ctx, []domain.Stream{
+		{ID: "st-1", ChannelID: "p1-c1", URL: "https://con/x.m3u8", Protocol: domain.ProtocolHLS,
+			Referrer: "https://ref/", UserAgent: "UA/1"},
+	}); err != nil {
+		t.Fatalf("SaveBatch streams: %v", err)
+	}
+
+	todos, err := streams.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll: %v", err)
+	}
+	if len(todos) != 1 {
+		t.Fatalf("FindAll devolvió %d streams, quiero 1", len(todos))
+	}
+	if todos[0].Referrer != "https://ref/" || todos[0].UserAgent != "UA/1" {
+		t.Errorf("FindAll: (%q,%q), quiero (https://ref/, UA/1)", todos[0].Referrer, todos[0].UserAgent)
+	}
+
+	delCanal, err := streams.FindByChannelID(ctx, "p1-c1")
+	if err != nil {
+		t.Fatalf("FindByChannelID: %v", err)
+	}
+	if len(delCanal) != 1 || delCanal[0].Referrer != "https://ref/" || delCanal[0].UserAgent != "UA/1" {
+		t.Errorf("FindByChannelID: %+v, quiero las cabeceras intactas", delCanal)
+	}
+
+	// FindBestByChannelID solo mira los vivos: hay que chequearlo antes.
+	if err := streams.MarkAlive(ctx, "st-1", 42); err != nil {
+		t.Fatalf("MarkAlive: %v", err)
+	}
+	mejor, err := streams.FindBestByChannelID(ctx, "p1-c1")
+	if err != nil {
+		t.Fatalf("FindBestByChannelID: %v", err)
+	}
+	if mejor.Referrer != "https://ref/" || mejor.UserAgent != "UA/1" {
+		t.Errorf("FindBestByChannelID: (%q,%q), quiero las cabeceras intactas", mejor.Referrer, mejor.UserAgent)
+	}
+}
