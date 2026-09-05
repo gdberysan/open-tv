@@ -74,8 +74,8 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.error.formato': 'Your browser cannot play this format. Try Safari or the installed app.',
   'reproductor.error.caducado': "The channel's address expired.",
 
-  'reproductor.error.mirrorsDisponibles': 'There are {n} mirrors with better health.',
-  'reproductor.error.probarSiguienteMirror': 'Try the next mirror',
+  'reproductor.error.mirrorsProbados': 'Tried {n} mirrors, none of them played.',
+  'reproductor.error.reintentar': 'Retry',
 
   'reproductor.airplay': 'AirPlay',
   'reproductor.cast.emitiendo': 'Casting to AirPlay — {canal}',

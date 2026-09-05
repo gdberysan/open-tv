@@ -30,6 +30,9 @@ const hlsState = vi.hoisted(() => ({
     /** Error NO fatal: hls.js los emite a montones en directos sanos y se
      *  recupera solo. No debe matar el intento. */
     fallarNoFatal: (motivo: string) => void
+    /** Error fatal CON status HTTP, que es lo que clasificarFallo necesita para
+     *  distinguir un 404 ('caducado') de un fallo sin señal ('desconocido'). */
+    fallarConStatus: (motivo: string, status: number) => void
     progreso: () => void
   }>,
 }))
@@ -69,13 +72,21 @@ vi.mock('hls.js', async () => {
       ;(this.oyentes[evento] ??= []).push(cb)
     }
     loadSource(url: string) {
-      const emitirError = (motivo: string, fatal: boolean) => {
-        this.oyentes['error']?.forEach((cb) => cb('error', { type: 'otherError', details: motivo, fatal }))
+      const emitirError = (motivo: string, fatal: boolean, status?: number) => {
+        this.oyentes['error']?.forEach((cb) =>
+          cb('error', {
+            type: 'otherError',
+            details: motivo,
+            fatal,
+            ...(status === undefined ? {} : { response: { code: status } }),
+          }),
+        )
       }
       hlsState.instancias.push({
         url,
         fallar: (motivo: string) => emitirError(motivo, true),
         fallarNoFatal: (motivo: string) => emitirError(motivo, false),
+        fallarConStatus: (motivo: string, status: number) => emitirError(motivo, true, status),
         progreso: () => this.oyentes['frag_loaded']?.forEach((cb) => cb('frag_loaded', {})),
       })
     }
@@ -254,7 +265,7 @@ describe('Reproductor — failover entre mirrors', () => {
   // Tarea 14 (P0.6): el error terminal de agotar el failover, cuando el
   // canal SÍ tenía mirrors, ofrece un CTA que reanuda el MISMO mecanismo
   // (reproducir()) en vez de ser un callejón sin salida.
-  it('agotados los mirrors, el error ofrece «Probar el siguiente mirror» y el clic reanuda el failover', async () => {
+  it('agotados los mirrors, el error dice cuántos se probaron y el clic reintenta la cadena', async () => {
     hlsState.instancias.length = 0
     const mirrors: Mirror[] = [
       { url: 'https://muerto/x.m3u8', vivo: true, latenciaMs: 100, webOk: true },
@@ -274,10 +285,10 @@ describe('Reproductor — failover entre mirrors', () => {
 
     await vi.waitFor(() => expect(screen.queryAllByText(t('reproductor.error.noArranco')).length).toBeGreaterThan(0))
 
-    // El texto informativo cuenta los mirrors que traía ESTE intento (2).
-    // getByText ya lanza si no lo encuentra — no hace falta un matcher aparte.
-    screen.getByText(t('reproductor.error.mirrorsDisponibles', { n: 2 }))
-    const boton = screen.getByRole('button', { name: t('reproductor.error.probarSiguienteMirror') })
+    // El texto informativo cuenta los mirrors PROBADOS (2), que es lo que de
+    // verdad pasó: la cadena los agotó. getByText ya lanza si no lo encuentra.
+    screen.getByText(t('reproductor.error.mirrorsProbados', { n: 2 }))
+    const boton = screen.getByRole('button', { name: t('reproductor.error.reintentar') })
 
     hlsState.instancias.length = 0
     boton.click()
@@ -289,9 +300,9 @@ describe('Reproductor — failover entre mirrors', () => {
     expect(hlsState.instancias[0].url).toBe('https://muerto/x.m3u8')
   })
 
-  // Sin mirrors (fallback de compatibilidad al destino único): no hay
-  // failover que reanudar, así que el CTA no debe aparecer.
-  it('sin mirrors, el error NO ofrece el CTA de mirror', async () => {
+  // Sin mirrors (fallback de compatibilidad al destino único): no hay cadena
+  // que anunciar, pero reintentar sigue teniendo sentido.
+  it('sin mirrors, no se anuncia recuento pero sí se puede reintentar', async () => {
     hlsState.instancias.length = 0
     const fuente = {
       mirrors: vi.fn(async () => []),
@@ -305,8 +316,12 @@ describe('Reproductor — failover entre mirrors', () => {
     hlsState.instancias[0].fallar('manifestLoadError')
 
     await vi.waitFor(() => expect(screen.queryAllByText(t('reproductor.error.noArranco')).length).toBeGreaterThan(0))
-    expect(screen.queryByRole('button', { name: t('reproductor.error.probarSiguienteMirror') })).toBeNull()
-    expect(screen.queryByText(t('reproductor.error.mirrorsDisponibles', { n: 1 }))).toBeNull()
+    // El CTA ahora es «Reintentar» y se ofrece SIEMPRE que haya error: un
+    // usuario delante de un fallo sin ninguna acción es peor que uno que puede
+    // volver a intentarlo. Lo que NO debe salir es el recuento de mirrors,
+    // porque aquí no hubo cadena que recorrer.
+    expect(screen.getByRole('button', { name: t('reproductor.error.reintentar') })).toBeTruthy()
+    expect(screen.queryByText(t('reproductor.error.mirrorsProbados', { n: 1 }))).toBeNull()
   })
 
   // Ronda 2 de revisión (gate manual en Chrome real): el <video> de la app se
@@ -1712,5 +1727,45 @@ describe('Reproductor — pestaña oculta', () => {
     } finally {
       ponerVisibilidad('visible')
     }
+  })
+})
+
+// Caso AMC (720p), reportado por el dueño el 2026-09-04. El failover SÍ probó
+// los dos mirrors automáticamente —eso funcionaba—, pero la tarjeta de error
+// mentía tres veces: decía «La dirección del canal caducó» (la clase del ÚLTIMO
+// intento, cuando el primero falló por lentitud), anunciaba «Hay 2 mirrors con
+// mejor salud» (era el TOTAL, ya agotado, y sin filtrar por salud) y ofrecía
+// «Probar el siguiente mirror» cuando no quedaba ninguno.
+describe('Reproductor — la tarjeta de error no miente sobre los mirrors', () => {
+  it('con dos mirrors que fallan por causas distintas, no afirma ninguna', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [
+      { url: 'https://lento/x.m3u8', vivo: true, latenciaMs: 100, webOk: true },
+      { url: 'https://ido/x.m3u8', vivo: false, latenciaMs: 900, webOk: true },
+    ]
+    const fuente = {
+      mirrors: vi.fn(async () => mirrors),
+      proxyDisponible: vi.fn(async () => false),
+    }
+
+    render(Reproductor, { canal, fuente: fuente as any })
+
+    // Mirror 1: sin señal concreta -> 'desconocido' (el lento de AMC).
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    hlsState.instancias[0].fallar('bufferStalledError')
+
+    // Mirror 2: 404 -> 'caducado' (el que ya no existe).
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(2))
+    hlsState.instancias[1].fallarConStatus('manifestLoadError', 404)
+
+    // Con causas contradictorias se muestra la triple adivinanza declarada, NO
+    // «la dirección caducó», que solo era verdad de uno de los dos.
+    await vi.waitFor(() =>
+      expect(screen.queryAllByText(t('reproductor.error.noArranco')).length).toBeGreaterThan(0),
+    )
+    expect(screen.queryAllByText(t('reproductor.error.caducado'))).toHaveLength(0)
+
+    // Y el recuento dice lo que de verdad pasó: se probaron los dos.
+    expect(screen.getByText(t('reproductor.error.mirrorsProbados', { n: 2 }))).toBeTruthy()
   })
 })

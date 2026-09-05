@@ -127,8 +127,8 @@ export const es = {
   // Tarea 14 (P0.6): CTA del error de reproducción cuando el canal SÍ tenía
   // mirrors (más allá del destino único de compatibilidad) — reanuda el
   // mismo failover de P0.5 en vez de dejar un callejón sin salida.
-  'reproductor.error.mirrorsDisponibles': 'Hay {n} mirrors con mejor salud.',
-  'reproductor.error.probarSiguienteMirror': 'Probar el siguiente mirror',
+  'reproductor.error.mirrorsProbados': 'Se probaron {n} mirrors, ninguno llegó a reproducir.',
+  'reproductor.error.reintentar': 'Reintentar',
 
   // AirPlay (spec 2026-09-03): sin nombre de dispositivo posible — WebKit no
   // expone uno a la página (ver spec §2.6) — así que el texto es genérico.
