@@ -585,7 +585,7 @@ jobs:
       - name: arrancar el gateway con el catálogo real
         run: |
           DB_PATH=$RUNNER_TEMP/censo.db LISTEN_ADDR=127.0.0.1:8090 \
-            ./open-tv serve --no-browser &
+./open-tv serve --no-browser &
           for i in $(seq 1 60); do
             curl -sf http://127.0.0.1:8090/channels?limit=1 >/dev/null && break
             sleep 10
@@ -616,7 +616,7 @@ dilo en el informe — **no dejes un workflow que no hayas visto ejecutar**.
 
 Run:
 ```bash
-cd /Users/usuario/Dev/open-tv && ./open-tv serve --no-browser &
+./open-tv serve --no-browser &   # desde la raíz del repo
 cd web && npx playwright test --config=<la config del censo> --project=chromium
 ```
 Expected: termina, escribe `censo.json` y registra la tasa. **Pegar la tasa
