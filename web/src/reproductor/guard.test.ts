@@ -122,3 +122,64 @@ describe('PlaybackGuard', () => {
     vi.useRealTimers()
   })
 })
+
+// ── Regresión: canales vivos que el guard mataba antes de tiempo ──
+// Evidencia real (Chrome, 2026-09-04, muestra de 30 canales del catálogo):
+// el arranque real tiene p50 2,2 s y p90 6,6 s, así que el presupuesto de 7 s
+// caía JUSTO sobre la cola. Con la contención del arranque de la propia app
+// (catálogo + cientos de logos cargando a la vez que el primer canal), dos
+// canales de la muestra que reproducen perfectamente —111 TV y A Spor—
+// tardaron 13,3 s y 7,9 s en dar la segunda posición y el guard los declaró
+// "no llegó a reproducir". Medidos en solitario arrancaban en 5,0 s: no
+// estaban caídos, estaban compitiendo por ancho de banda.
+describe('PlaybackGuard: carga lenta pero viva', () => {
+  it('un error NO fatal antes de arrancar no mata el intento', () => {
+    const fatal = vi.fn()
+    const g = new PlaybackGuard({ alFallar: fatal })
+    g.armarTimeoutDeCarga()
+
+    // hls.js emite estos constantemente en directos que se ven perfectamente;
+    // se recupera solo. Matar aquí es matar un canal sano.
+    g.alError('networkError:fragLoadError', false)
+
+    expect(fatal).not.toHaveBeenCalled()
+  })
+
+  it('el progreso del pipeline aplaza el timeout de carga', () => {
+    const fatal = vi.fn()
+    const g = new PlaybackGuard({ alFallar: fatal, timeoutCarga: 7_000 })
+    g.armarTimeoutDeCarga()
+
+    // Segmentos llegando y buffer creciendo: está vivo, solo es lento.
+    vi.advanceTimersByTime(6_000)
+    g.alProgreso()
+    vi.advanceTimersByTime(6_000)
+
+    expect(fatal).not.toHaveBeenCalled()
+  })
+
+  it('sin progreso, el timeout de carga sigue disparando a los 7 s', () => {
+    const fatal = vi.fn()
+    const g = new PlaybackGuard({ alFallar: fatal, timeoutCarga: 7_000 })
+    g.armarTimeoutDeCarga()
+
+    vi.advanceTimersByTime(7_000)
+
+    expect(fatal).toHaveBeenCalledOnce()
+  })
+
+  it('el progreso no aplaza la carga más allá del techo absoluto', () => {
+    const fatal = vi.fn()
+    const g = new PlaybackGuard({ alFallar: fatal, timeoutCarga: 7_000, timeoutCargaTotal: 20_000 })
+    g.armarTimeoutDeCarga()
+
+    // Un origen que descarga sin parar pero nunca llega a reproducir no puede
+    // colgar la UI para siempre: el techo manda.
+    for (let i = 0; i < 10; i++) {
+      vi.advanceTimersByTime(5_000)
+      g.alProgreso()
+    }
+
+    expect(fatal).toHaveBeenCalledOnce()
+  })
+})

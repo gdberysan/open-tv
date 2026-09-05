@@ -23,7 +23,15 @@ import { noCasteaPorFormato, marcarFalloFormato } from '../estado/castFallidos'
 // planDeFailover + el avance de índice lo que se prueba aquí, no la
 // decodificación real (eso es el e2e/gate manual con ffmpeg).
 const hlsState = vi.hoisted(() => ({
-  instancias: [] as Array<{ url: string; fallar: (motivo: string) => void }>,
+  instancias: [] as Array<{
+    url: string
+    /** Error FATAL: el que de verdad termina un intento en hls.js. */
+    fallar: (motivo: string) => void
+    /** Error NO fatal: hls.js los emite a montones en directos sanos y se
+     *  recupera solo. No debe matar el intento. */
+    fallarNoFatal: (motivo: string) => void
+    progreso: () => void
+  }>,
 }))
 
 // Ronda 1 de revisión: un import('hls.js') que resuelve DESPUÉS de que su
@@ -47,7 +55,12 @@ const hlsGate = vi.hoisted(() => {
 vi.mock('hls.js', async () => {
   await hlsGate.promesa
   class FakeHls {
-    static Events = { ERROR: 'error', MANIFEST_PARSED: 'manifest_parsed' } as const
+    static Events = {
+      ERROR: 'error',
+      MANIFEST_PARSED: 'manifest_parsed',
+      FRAG_LOADED: 'frag_loaded',
+      BUFFER_APPENDED: 'buffer_appended',
+    } as const
     static isSupported() {
       return true
     }
@@ -56,11 +69,14 @@ vi.mock('hls.js', async () => {
       ;(this.oyentes[evento] ??= []).push(cb)
     }
     loadSource(url: string) {
+      const emitirError = (motivo: string, fatal: boolean) => {
+        this.oyentes['error']?.forEach((cb) => cb('error', { type: 'otherError', details: motivo, fatal }))
+      }
       hlsState.instancias.push({
         url,
-        fallar: (motivo: string) => {
-          this.oyentes['error']?.forEach((cb) => cb('error', { type: 'otherError', details: motivo }))
-        },
+        fallar: (motivo: string) => emitirError(motivo, true),
+        fallarNoFatal: (motivo: string) => emitirError(motivo, false),
+        progreso: () => this.oyentes['frag_loaded']?.forEach((cb) => cb('frag_loaded', {})),
       })
     }
     attachMedia() {}
@@ -1613,5 +1629,45 @@ describe('Reproductor — fixes de la revisión final del cast', () => {
       loadSpy.mockRestore()
       playSpy.mockRestore()
     }
+  })
+})
+
+// Regresión medida en Chrome real el 2026-09-04 sobre una muestra de 30
+// canales del catálogo: el arranque real tiene p50 2,2 s y p90 6,6 s, así que
+// el corte fijo de 7 s del guard caía justo sobre la cola SANA. Dos canales
+// que reproducen perfectamente (111 TV, A Spor) tardaron 13,3 s y 7,9 s en dar
+// la segunda posición bajo la contención del arranque de la propia app —el
+// catálogo y cientos de logos cargando a la vez que el primer canal— y se
+// anunciaron como "no llegó a reproducir". En solitario arrancaban en 5,0 s.
+// Además hls.js emitía no-fatales ('aborted', 'fragLoadError') que el
+// Reproductor pasaba al guard SIN el flag fatal, matando el intento al vuelo
+// pese a que el comentario del propio código decía ignorarlos.
+describe('Reproductor — un canal lento pero vivo no se declara caído', () => {
+  it('un error NO fatal de hls.js no cruza de mirror ni muestra error', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [
+      { url: 'https://lento/x.m3u8', vivo: true, latenciaMs: 100, webOk: true },
+      { url: 'https://otro/x.m3u8', vivo: true, latenciaMs: 200, webOk: true },
+    ]
+    const fuente = {
+      mirrors: vi.fn(async () => mirrors),
+      proxyDisponible: vi.fn(async () => false),
+    }
+    const intentadas: string[] = []
+
+    render(Reproductor, {
+      canal,
+      fuente: fuente as any,
+      alIntentar: (url: string) => intentadas.push(url),
+    })
+
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    hlsState.instancias[0].fallarNoFatal('fragLoadError')
+
+    // Nada de failover ni de cartel de error: hls.js se recupera de esto solo.
+    await new Promise((r) => setTimeout(r, 0))
+    expect(hlsState.instancias).toHaveLength(1)
+    expect(intentadas).toEqual(['https://lento/x.m3u8'])
+    expect(screen.queryAllByText(t('reproductor.error.noArranco'))).toHaveLength(0)
   })
 })
