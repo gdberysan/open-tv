@@ -68,7 +68,7 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.pip.desactivar': 'Exit Picture-in-Picture',
   'reproductor.envivo': 'Live',
   'reproductor.error.noArranco': 'The channel never started playing. It may be down, geo-blocked, or its address expired.',
-  'reproductor.error.corte': 'The channel stopped broadcasting.',
+  'reproductor.error.corte': "Lost the channel's signal.",
   'reproductor.error.caido': 'The channel is down or its address expired.',
   'reproductor.error.geo': 'It may be geo-blocked in your region or require access.',
   'reproductor.error.formato': 'Your browser cannot play this format. Try Safari or the installed app.',

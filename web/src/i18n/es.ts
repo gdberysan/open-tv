@@ -118,7 +118,7 @@ export const es = {
   // no un estado de salud (ese es senal.viva/muerta/sinDatos, en SenalCanal).
   'reproductor.envivo': 'En vivo',
   'reproductor.error.noArranco': 'El canal no llegó a reproducir. Puede estar caído, geo-bloqueado o su dirección caducó.',
-  'reproductor.error.corte': 'El canal dejó de emitir.',
+  'reproductor.error.corte': 'Se perdió la señal del canal.',
   'reproductor.error.caido': 'El canal está caído o su dirección caducó.',
   'reproductor.error.geo': 'Puede estar geo-bloqueado en tu región o requerir acceso.',
   'reproductor.error.formato': 'Tu navegador no puede reproducir este formato. Prueba en Safari o en la app instalada.',
