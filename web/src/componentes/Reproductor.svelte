@@ -1248,6 +1248,16 @@
   video { width: 100%; height: 100%; object-fit: contain; background: #000; }
   .estado {
     position: absolute;
+    /* Por ENCIMA de .overlay, por la MISMA razón que .activar-sonido más
+       abajo: el overlay es un hermano POSTERIOR en el DOM, también absoluto
+       con inset:0 y pointer-events auto, así que se pinta encima y se come el
+       puntero. Sin esto, el botón «Reintentar» de la tarjeta de error era
+       visible pero inclicable (reportado por el dueño el 2026-09-04), y el
+       scrim del overlay atenuaba la tarjeta al aparecer. opacity:0 en el
+       overlay NO desactiva el hit-testing, así que no bastaba con que el
+       overlay estuviera oculto: el clic se perdía igual.
+       z-index 2 para quedar también por encima de .activar-sonido (1). */
+    z-index: 2;
     color: var(--text-body);
     background: rgba(14, 19, 27, 0.85);
     padding: var(--space-3) var(--space-5);
