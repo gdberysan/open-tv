@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { PlaybackGuard } from './guard'
+import { PlaybackGuard, type OpcionesGuard } from './guard'
 
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
@@ -234,6 +234,73 @@ describe('PlaybackGuard: pestaña oculta', () => {
     vi.advanceTimersByTime(60_000)
 
     expect(confirmado).toHaveBeenCalledOnce()
+    expect(fatal).not.toHaveBeenCalled()
+  })
+})
+
+// ── Regresión: el watchdog de atasco era ciego al progreso ──
+// Reportado por el dueño (2026-09-04) con AXN Latin America South: el canal
+// arrancaba, se quedaba a tirones y acababa en «El canal dejó de emitir».
+// Medido contra su origen (Astra): la ventana en vivo es cortísima y los
+// segmentos rotan; al pedir uno ya caducado NO devuelve 404, devuelve HTTP 200
+// con Content-Type video/MP2T y exactamente 188 bytes — UN paquete TS nulo. El
+// cliente se descuelga del directo y hls.js intenta recuperarse saltando al
+// borde, pero el watchdog lo mataba a los 8 s por mirar SOLO la posición.
+// alProgreso() ya distinguía «lento pero vivo» de «muerto» al CARGAR; después
+// de arrancar volvía a ser ciego. Esto lo hace simétrico.
+describe('PlaybackGuard: atasco consciente del progreso', () => {
+  const arrancado = (o: OpcionesGuard) => {
+    const g = new PlaybackGuard(o)
+    g.armarTimeoutDeCarga()
+    g.alPosicion(0)
+    g.alPosicion(1) // confirma reproducción
+    return g
+  }
+
+  it('el progreso durante un atasco aplaza el corte', () => {
+    const fatal = vi.fn()
+    const g = arrancado({ alFallar: fatal, timeoutAtasco: 8_000 })
+
+    g.alError('bufferStalledError')
+    vi.advanceTimersByTime(6_000)
+    g.alProgreso() // hls.js sigue trayendo segmentos: se está recuperando
+    vi.advanceTimersByTime(6_000)
+
+    expect(fatal).not.toHaveBeenCalled()
+  })
+
+  it('sin progreso, el corte sigue disparando a los 8 s', () => {
+    const fatal = vi.fn()
+    const g = arrancado({ alFallar: fatal, timeoutAtasco: 8_000 })
+
+    g.alError('bufferStalledError')
+    vi.advanceTimersByTime(8_000)
+
+    expect(fatal).toHaveBeenCalledOnce()
+  })
+
+  it('el techo absoluto manda: progreso eterno no evita el corte para siempre', () => {
+    const fatal = vi.fn()
+    const g = arrancado({ alFallar: fatal, timeoutAtasco: 8_000, timeoutAtascoTotal: 30_000 })
+
+    g.alError('bufferStalledError')
+    for (let i = 0; i < 12; i++) {
+      vi.advanceTimersByTime(5_000)
+      g.alProgreso()
+    }
+
+    expect(fatal).toHaveBeenCalledOnce()
+  })
+
+  it('si la posición vuelve a avanzar, no hay corte: es la recuperación real', () => {
+    const fatal = vi.fn()
+    const g = arrancado({ alFallar: fatal, timeoutAtasco: 8_000 })
+
+    g.alError('bufferStalledError')
+    vi.advanceTimersByTime(4_000)
+    g.alPosicion(2.5) // el vídeo volvió a correr
+    vi.advanceTimersByTime(30_000)
+
     expect(fatal).not.toHaveBeenCalled()
   })
 })

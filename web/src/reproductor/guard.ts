@@ -7,6 +7,8 @@ export interface OpcionesGuard {
   /** Techo ABSOLUTO de la carga: ni con progreso continuo se pasa de aquí. */
   timeoutCargaTotal?: number
   timeoutAtasco?: number
+  /** Techo ABSOLUTO del atasco: ni con progreso continuo se pasa de aquí. */
+  timeoutAtascoTotal?: number
 }
 
 /**
@@ -38,6 +40,7 @@ export class PlaybackGuard {
   private readonly timeoutCarga: number
   private readonly timeoutCargaTotal: number
   private readonly timeoutAtasco: number
+  private readonly timeoutAtascoTotal: number
 
   private tCarga?: ReturnType<typeof setTimeout>
   private vencimientoCarga = 0
@@ -46,6 +49,8 @@ export class PlaybackGuard {
   private destruido = false
   private ultimaPosicion = 0
   private armadoEn = 0
+  private atascoDesde = 0
+  private mensajeAtasco = ''
   private restanteAlPausar: number | null = null
   private pausadoEn = 0
   private avanzoDesdeElError = false
@@ -62,6 +67,10 @@ export class PlaybackGuard {
     // sin parar y nunca llega a reproducir, para que no cuelgue la UI.
     this.timeoutCargaTotal = o.timeoutCargaTotal ?? 20_000
     this.timeoutAtasco = o.timeoutAtasco ?? 8_000
+    // Techo del atasco. Los 8 s se miden SIN progreso, así que un vídeo
+    // congelado de verdad sigue muriendo en 8 s; este techo acota al que
+    // descarga sin parar y nunca vuelve a avanzar.
+    this.timeoutAtascoTotal = o.timeoutAtascoTotal ?? 30_000
   }
 
   /** Armar ANTES de asignar la fuente: si la carga se cuelga, el timeout tiene
@@ -92,10 +101,35 @@ export class PlaybackGuard {
    * que el corte fijo de 7 s caía justo sobre la cola sana.
    */
   alProgreso(): void {
-    if (this.destruido || this.arrancado) return
-    const restante = this.timeoutCargaTotal - (Date.now() - this.armadoEn)
+    if (this.destruido) return
+
+    if (!this.arrancado) {
+      const restante = this.timeoutCargaTotal - (Date.now() - this.armadoEn)
+      if (restante <= 0) return
+      this.programarCarga(Math.min(this.timeoutCarga, restante))
+      return
+    }
+
+    // Ya arrancado: si hay una vigilancia de atasco en curso, el progreso la
+    // aplaza igual que aplaza la carga. Antes esto salía por la puerta de
+    // arriba y el watchdog miraba SOLO la posición, así que mataba a hls.js
+    // en plena recuperación —saltando al borde del directo— a los 8 s. Es el
+    // caso de AXN Latin America South: origen con ventana en vivo cortísima
+    // que devuelve 188 bytes (un paquete TS nulo) con HTTP 200 para los
+    // segmentos ya caducados, en vez de un error.
+    if (!this.tAtasco) return
+    const restante = this.timeoutAtascoTotal - (Date.now() - this.atascoDesde)
     if (restante <= 0) return
-    this.programarCarga(Math.min(this.timeoutCarga, restante))
+    this.programarAtasco(Math.min(this.timeoutAtasco, restante))
+  }
+
+  private programarAtasco(ms: number): void {
+    if (this.tAtasco) clearTimeout(this.tAtasco)
+    this.tAtasco = setTimeout(() => {
+      this.tAtasco = undefined
+      if (this.destruido) return
+      if (!this.avanzoDesdeElError) this.alFallar(this.mensajeAtasco)
+    }, ms)
   }
 
   /**
@@ -161,11 +195,9 @@ export class PlaybackGuard {
     // curso, no re-armar — errores repetidos no deben extender la ventana.
     if (this.tAtasco) return
     this.avanzoDesdeElError = false
-    this.tAtasco = setTimeout(() => {
-      this.tAtasco = undefined
-      if (this.destruido) return
-      if (!this.avanzoDesdeElError) this.alFallar(mensaje)
-    }, this.timeoutAtasco)
+    this.atascoDesde = Date.now()
+    this.mensajeAtasco = mensaje
+    this.programarAtasco(this.timeoutAtasco)
   }
 
   destruir(): void {
