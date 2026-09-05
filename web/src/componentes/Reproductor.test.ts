@@ -1671,3 +1671,46 @@ describe('Reproductor — un canal lento pero vivo no se declara caído', () => 
     expect(screen.queryAllByText(t('reproductor.error.noArranco'))).toHaveLength(0)
   })
 })
+
+// Chrome no abre un MediaSource en una pestaña oculta (comprobado aislando
+// userActivation de visibilityState en Chrome real, 2026-09-04): hls.js sigue
+// sondeando la playlist pero no pide un segmento y readyState no pasa de 0.
+// La app gastaba ahí su presupuesto de 7 s y anunciaba "no llegó a reproducir"
+// sobre un canal sano, sin reintentar nunca al volver la pestaña. Como la app
+// reanuda «continuar viendo» al cargar, abrirla en segundo plano daba ese
+// error SIEMPRE.
+describe('Reproductor — pestaña oculta', () => {
+  const ponerVisibilidad = (estado: 'hidden' | 'visible') => {
+    Object.defineProperty(document, 'visibilityState', { value: estado, configurable: true })
+    Object.defineProperty(document, 'hidden', { value: estado === 'hidden', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+
+  it('oculta no muestra error, y al volver a verse reintenta el canal', async () => {
+    hlsState.instancias.length = 0
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+
+    const mirrors: Mirror[] = [{ url: 'https://uno/x.m3u8', vivo: true, latenciaMs: 100, webOk: true }]
+    const fuente = {
+      mirrors: vi.fn(async () => mirrors),
+      proxyDisponible: vi.fn(async () => false),
+    }
+
+    try {
+      render(Reproductor, { canal, fuente: fuente as any, alIntentar: () => {} })
+
+      await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+
+      // Oculta: el presupuesto está congelado, así que no se declara caído.
+      await new Promise((r) => setTimeout(r, 50))
+      expect(screen.queryAllByText(t('reproductor.error.noArranco'))).toHaveLength(0)
+
+      // Al volver a verse, se reintenta desde cero con un MediaSource utilizable.
+      ponerVisibilidad('visible')
+      await vi.waitFor(() => expect(hlsState.instancias.length).toBeGreaterThan(1))
+    } finally {
+      ponerVisibilidad('visible')
+    }
+  })
+})

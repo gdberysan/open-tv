@@ -358,6 +358,34 @@
     guardActual?.alProgreso()
   }
 
+  /**
+   * Chrome NO abre un MediaSource en una pestaña oculta: el <video> se queda
+   * con un blob que nunca llega a 'sourceopen', hls.js sigue sondeando la
+   * playlist —el canal está VIVO— pero no pide un solo segmento. Gastar ahí el
+   * presupuesto de carga era declarar caído un canal sano, y como la app
+   * reanuda «continuar viendo» al arrancar, abrirla en segundo plano daba ese
+   * error siempre.
+   *
+   * Oculta: se congela el presupuesto. Al volver a verse, se reintenta desde
+   * cero en vez de confiar en que el navegador reanime un MediaSource que
+   * nació muerto — un intento nuevo es barato y sí tiene garantía de arrancar.
+   */
+  function onVisibilidad() {
+    if (destruido) return
+    if (document.hidden) {
+      guardActual?.pausar()
+      return
+    }
+    // Solo si el intento en curso no llegó a confirmar: un canal que ya se ve
+    // no se reinicia por cambiar de pestaña.
+    if (cargando) {
+      limpiarIntento()
+      reproducir()
+      return
+    }
+    guardActual?.reanudar()
+  }
+
   function onVideoError() {
     const codigo = video?.error?.code
     if (codigo !== undefined) infoUltimoError = { mediaErrorCode: codigo }
@@ -457,6 +485,9 @@
       // El guard se arma ANTES de tocar la fuente: si la carga se cuelga, el
       // timeout tiene que saltar igual. Armarlo después fue el bug original.
       guard.armarTimeoutDeCarga()
+      // Ya oculta al empezar: no se gasta presupuesto que el navegador no deja
+      // usar (ver onVisibilidad).
+      if (document.hidden) guard.pausar()
 
       video.addEventListener('timeupdate', onTimeUpdate)
       video.addEventListener('error', onVideoError)
@@ -945,8 +976,11 @@
     }
   }
 
+  document.addEventListener('visibilitychange', onVisibilidad)
+
   onDestroy(() => {
     destruido = true
+    document.removeEventListener('visibilitychange', onVisibilidad)
     limpiarIntento()
     if (temporizadorOverlay !== undefined) clearTimeout(temporizadorOverlay)
     if (temporizadorAvisoCast !== undefined) clearTimeout(temporizadorAvisoCast)

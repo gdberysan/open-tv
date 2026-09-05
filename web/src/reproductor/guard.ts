@@ -40,11 +40,14 @@ export class PlaybackGuard {
   private readonly timeoutAtasco: number
 
   private tCarga?: ReturnType<typeof setTimeout>
+  private vencimientoCarga = 0
   private tAtasco?: ReturnType<typeof setTimeout>
   private arrancado = false
   private destruido = false
   private ultimaPosicion = 0
   private armadoEn = 0
+  private restanteAlPausar: number | null = null
+  private pausadoEn = 0
   private avanzoDesdeElError = false
   private posicionReferencia: number | null = null
 
@@ -70,6 +73,7 @@ export class PlaybackGuard {
   }
 
   private programarCarga(ms: number): void {
+    this.vencimientoCarga = Date.now() + ms
     if (this.tCarga) clearTimeout(this.tCarga)
     this.tCarga = setTimeout(() => {
       if (this.destruido || this.arrancado) return
@@ -92,6 +96,32 @@ export class PlaybackGuard {
     const restante = this.timeoutCargaTotal - (Date.now() - this.armadoEn)
     if (restante <= 0) return
     this.programarCarga(Math.min(this.timeoutCarga, restante))
+  }
+
+  /**
+   * Congela el presupuesto de carga. Lo llama el reproductor cuando la pestaña
+   * pasa a oculta: Chrome NO abre un MediaSource ahí, así que el intento no
+   * puede progresar por mucho que se espere. Cronometrar ese rato es declarar
+   * caído un canal sano — el fallo que se veía al abrir la app en segundo
+   * plano.
+   */
+  pausar(): void {
+    if (this.destruido || this.arrancado || this.restanteAlPausar !== null) return
+    if (!this.tCarga) return
+    this.restanteAlPausar = Math.max(0, this.vencimientoCarga - Date.now())
+    this.pausadoEn = Date.now()
+    clearTimeout(this.tCarga)
+    this.tCarga = undefined
+  }
+
+  /** Reanuda con lo que quedaba, y descuenta del techo absoluto el rato que
+   *  estuvo oculta: ese tiempo no era gastable. */
+  reanudar(): void {
+    if (this.destruido || this.arrancado || this.restanteAlPausar === null) return
+    const restante = this.restanteAlPausar
+    this.armadoEn += Date.now() - this.pausadoEn
+    this.restanteAlPausar = null
+    this.programarCarga(restante)
   }
 
   alPosicion(segundos: number): void {

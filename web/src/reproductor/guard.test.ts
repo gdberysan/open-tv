@@ -183,3 +183,57 @@ describe('PlaybackGuard: carga lenta pero viva', () => {
     expect(fatal).toHaveBeenCalledOnce()
   })
 })
+
+// ── Regresión: pestaña oculta ──
+// Chrome NO abre un MediaSource en una pestaña oculta: el <video> se queda en
+// networkState 2 con un blob que nunca llega a 'sourceopen', hls.js sigue
+// sondeando la playlist (o sea, el canal está VIVO) pero no pide un solo
+// segmento y readyState no pasa de 0. Comprobado aislando las variables en
+// Chrome real el 2026-09-04: con userActivation.hasBeenActive=true y
+// visibilityState='hidden', MediaSource.readyState se queda en 'closed'.
+// Gastar el presupuesto de carga ahí es cronometrar un tiempo que el navegador
+// no deja usar, y el resultado era declarar caído un canal sano.
+describe('PlaybackGuard: pestaña oculta', () => {
+  it('con la pestaña oculta el presupuesto de carga no corre', () => {
+    const fatal = vi.fn()
+    const g = new PlaybackGuard({ alFallar: fatal, timeoutCarga: 7_000 })
+    g.armarTimeoutDeCarga()
+
+    g.pausar()
+    vi.advanceTimersByTime(60_000)
+
+    expect(fatal).not.toHaveBeenCalled()
+  })
+
+  it('al reanudar solo queda el presupuesto que faltaba', () => {
+    const fatal = vi.fn()
+    const g = new PlaybackGuard({ alFallar: fatal, timeoutCarga: 7_000 })
+    g.armarTimeoutDeCarga()
+
+    vi.advanceTimersByTime(5_000) // quedan 2 s
+    g.pausar()
+    vi.advanceTimersByTime(60_000) // oculta: no cuenta
+    g.reanudar()
+
+    vi.advanceTimersByTime(1_999)
+    expect(fatal).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(fatal).toHaveBeenCalledOnce()
+  })
+
+  it('pausar después de arrancar no derriba una reproducción en curso', () => {
+    const fatal = vi.fn()
+    const confirmado = vi.fn()
+    const g = new PlaybackGuard({ alFallar: fatal, alConfirmar: confirmado })
+    g.armarTimeoutDeCarga()
+    g.alPosicion(0)
+    g.alPosicion(1.5)
+
+    g.pausar()
+    g.reanudar()
+    vi.advanceTimersByTime(60_000)
+
+    expect(confirmado).toHaveBeenCalledOnce()
+    expect(fatal).not.toHaveBeenCalled()
+  })
+})
