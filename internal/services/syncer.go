@@ -433,6 +433,20 @@ func (s *Syncer) sincronizarFuente(ctx context.Context, fuente ports.Source) err
 			fuente.ID, ErrCatalogoSospechoso, len(channels), anterior)
 	}
 
+	// Categorías: 2.606 canales caen hoy en «General», el cajón de sastre de
+	// iptv-org. Se rellena SOLO lo débil; una categoría real del M3U gana.
+	// El país NO se toca: los 1.683 canales sin country_code son exactamente
+	// los que no tienen tvg_id, así que no hay clave con la que unirlos (ver
+	// §2.2 del spec) — no reintentarlo.
+	for i := range channels {
+		if !categoriaDebil(channels[i].CategoryID) {
+			continue
+		}
+		if cat, ok := provider.CategoriaDe(channels[i].TvgID); ok {
+			channels[i].CategoryID = cat
+		}
+	}
+
 	if err := s.channels.SaveBatch(ctx, channels); err != nil {
 		return fmt.Errorf("services.sincronizarFuente (%s) canales: %w", fuente.ID, err)
 	}
@@ -491,6 +505,16 @@ func (s *Syncer) sincronizarFuente(ctx context.Context, fuente ports.Source) err
 		slog.Int("streams", len(streams)),
 		slog.Int64("podados", podados))
 	return nil
+}
+
+// categoriaDebil marca las categorías que no dicen nada y conviene sustituir.
+func categoriaDebil(c string) bool {
+	switch strings.ToLower(strings.TrimSpace(c)) {
+	case "", "general", "undefined":
+		return true
+	default:
+		return false
+	}
 }
 
 // refrescarEPG sella la url-tvg que la fuente declaró y, si corresponde por
