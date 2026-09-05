@@ -113,6 +113,10 @@ func alterMigrations(db *sql.DB) error {
 		// Cadencia de refresco EPG por fuente (Tarea 5 de P2); 0 = nunca
 		// refrescada. Ver services.Syncer.guiaEstaFresca.
 		"ALTER TABLE providers ADD COLUMN epg_refreshed_at INTEGER NOT NULL DEFAULT 0",
+		// Cabeceras por stream y frontera de poda (spec de mirrors, 2026-09-04).
+		"ALTER TABLE streams ADD COLUMN referrer TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE streams ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE streams ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0",
 	}
 	for _, stmt := range alters {
 		if _, err := db.Exec(stmt); err != nil {

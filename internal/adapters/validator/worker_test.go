@@ -77,6 +77,14 @@ func (f *fakeStreamRepo) MarkDead(_ context.Context, id string) error {
 	return nil
 }
 
+func (f *fakeStreamRepo) DeleteStale(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (f *fakeStreamRepo) CabecerasPorURL(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
+
 func (f *fakeStreamRepo) estado() (alive map[string]int64, dead map[string]bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

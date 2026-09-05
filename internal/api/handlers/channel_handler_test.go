@@ -158,6 +158,12 @@ func (m *mockStreamRepo) FindMirrorsByChannelID(ctx context.Context, id domain.C
 func (m *mockStreamRepo) MarkAlive(ctx context.Context, id string, latencyMs int64) error { return nil }
 func (m *mockStreamRepo) MarkDead(ctx context.Context, id string) error                   { return nil }
 func (m *mockStreamRepo) MarkBatch(context.Context, []ports.StreamHealth) error           { return nil }
+func (m *mockStreamRepo) DeleteStale(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+func (m *mockStreamRepo) CabecerasPorURL(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
 
 func setupRouter() http.Handler {
 	return setupRouterWith(&mockProvider{}, &mockStreamRepo{})

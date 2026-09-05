@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gdberysan/open-tv/internal/adapters/db"
 	"github.com/gdberysan/open-tv/internal/domain"
@@ -601,5 +602,124 @@ func TestMarkBatchUnknownNoPisaElVeredictoAnterior(t *testing.T) {
 	}
 	if !got.Valid || got.Int64 != 1 {
 		t.Errorf("web_ok = %+v, quiero que conserve 1", got)
+	}
+}
+
+// nuevaDBDePrueba abre una DB de test con los providers "p1" y "p2" ya
+// sembrados (channels.provider_id tiene FK contra providers(id)), y devuelve
+// el *sql.DB crudo para que el test construya los repos que necesite.
+func nuevaDBDePrueba(t *testing.T) *sql.DB {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.db")
+	sqlDB, err := db.Open(path)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	seedProvider(t, sqlDB, "p1")
+	seedProvider(t, sqlDB, "p2")
+	return sqlDB
+}
+
+// La poda de streams no existía: DeleteStale solo estaba en canales, así que
+// una URL sustituida upstream se quedaba para siempre y el failover acababa
+// gastando un intento entero en historia muerta.
+func TestStreamDeleteStalePodaSoloLoViejoYNoCruzaFuentes(t *testing.T) {
+	ctx := context.Background()
+	base := nuevaDBDePrueba(t) // helper ya existente en este fichero
+	canales := db.NewChannelRepository(base)
+	streams := db.NewStreamRepository(base)
+
+	// Dos canales de DOS proveedores distintos.
+	if err := canales.SaveBatch(ctx, []domain.Channel{
+		{ID: "p1-c1", Name: "C1", ProviderID: "p1", ProviderType: domain.ProviderOpenSource},
+		{ID: "p2-c1", Name: "C1", ProviderID: "p2", ProviderType: domain.ProviderOpenSource},
+	}); err != nil {
+		t.Fatalf("SaveBatch canales: %v", err)
+	}
+
+	viejo := domain.Stream{ID: "st-viejo", ChannelID: "p1-c1", URL: "https://viejo/x.m3u8", Protocol: domain.ProtocolHLS}
+	ajeno := domain.Stream{ID: "st-ajeno", ChannelID: "p2-c1", URL: "https://ajeno/x.m3u8", Protocol: domain.ProtocolHLS}
+	if err := streams.SaveBatch(ctx, []domain.Stream{viejo, ajeno}); err != nil {
+		t.Fatalf("SaveBatch streams viejos: %v", err)
+	}
+
+	time.Sleep(1100 * time.Millisecond) // last_seen_at tiene resolución de segundos
+	frontera := time.Now()
+
+	// Re-sync de p1: solo aparece un stream NUEVO.
+	nuevo := domain.Stream{ID: "st-nuevo", ChannelID: "p1-c1", URL: "https://nuevo/x.m3u8", Protocol: domain.ProtocolHLS}
+	if err := streams.SaveBatch(ctx, []domain.Stream{nuevo}); err != nil {
+		t.Fatalf("SaveBatch stream nuevo: %v", err)
+	}
+
+	n, err := streams.DeleteStale(ctx, "p1", frontera)
+	if err != nil {
+		t.Fatalf("DeleteStale: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("podados %d, quiero 1 (solo el viejo de p1)", n)
+	}
+
+	quedan, err := streams.FindByChannelID(ctx, "p1-c1")
+	if err != nil {
+		t.Fatalf("FindByChannelID: %v", err)
+	}
+	if len(quedan) != 1 || quedan[0].ID != "st-nuevo" {
+		t.Errorf("en p1 quedan %+v, quiero solo st-nuevo", quedan)
+	}
+
+	// La poda NUNCA cruza fuentes.
+	ajenos, err := streams.FindByChannelID(ctx, "p2-c1")
+	if err != nil {
+		t.Fatalf("FindByChannelID p2: %v", err)
+	}
+	if len(ajenos) != 1 {
+		t.Errorf("la poda de p1 se llevó streams de p2: quedan %d, quiero 1", len(ajenos))
+	}
+}
+
+func TestStreamCabecerasPorURL(t *testing.T) {
+	ctx := context.Background()
+	base := nuevaDBDePrueba(t)
+	canales := db.NewChannelRepository(base)
+	streams := db.NewStreamRepository(base)
+
+	if err := canales.SaveBatch(ctx, []domain.Channel{
+		{ID: "p1-c1", Name: "C1", ProviderID: "p1", ProviderType: domain.ProviderOpenSource},
+	}); err != nil {
+		t.Fatalf("SaveBatch canales: %v", err)
+	}
+	if err := streams.SaveBatch(ctx, []domain.Stream{
+		{ID: "st-1", ChannelID: "p1-c1", URL: "https://con/x.m3u8", Protocol: domain.ProtocolHLS,
+			Referrer: "https://ref/", UserAgent: "UA/1"},
+		{ID: "st-2", ChannelID: "p1-c1", URL: "https://sin/x.m3u8", Protocol: domain.ProtocolHLS},
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+
+	ref, ua, err := streams.CabecerasPorURL(ctx, "https://con/x.m3u8")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL: %v", err)
+	}
+	if ref != "https://ref/" || ua != "UA/1" {
+		t.Errorf("(%q,%q), quiero (https://ref/, UA/1)", ref, ua)
+	}
+
+	ref, ua, err = streams.CabecerasPorURL(ctx, "https://sin/x.m3u8")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL sin cabeceras: %v", err)
+	}
+	if ref != "" || ua != "" {
+		t.Errorf("(%q,%q), quiero vacías", ref, ua)
+	}
+
+	// Una URL desconocida no hereda cabeceras de otra ni es un error.
+	ref, ua, err = streams.CabecerasPorURL(ctx, "https://desconocida/x.m3u8")
+	if err != nil {
+		t.Fatalf("CabecerasPorURL desconocida: %v", err)
+	}
+	if ref != "" || ua != "" {
+		t.Errorf("(%q,%q), quiero vacías para una URL que no está", ref, ua)
 	}
 }

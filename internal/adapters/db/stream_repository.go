@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -26,20 +27,25 @@ func NewStreamRepository(db *sql.DB) *SQLiteStreamRepository {
 const streamColumns = ` id, channel_id, url, protocol, latency_ms, is_alive, last_checked `
 
 // El upsert preserva latency_ms/is_alive/last_checked: son resultado del
-// health-check, no del sync, y un re-sync no debe borrarlos.
+// health-check, no del sync, y un re-sync no debe borrarlos. last_seen_at SÍ se
+// refresca en cada sync: es la frontera que usa DeleteStale.
 const upsertStreamSQL = `
-	INSERT INTO streams (id, channel_id, url, protocol, latency_ms, is_alive, last_checked, created_at, updated_at)
-	VALUES (?, ?, ?, ?, NULL, 0, NULL, ?, ?)
+	INSERT INTO streams (id, channel_id, url, protocol, referrer, user_agent,
+	                     latency_ms, is_alive, last_checked, last_seen_at, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, NULL, 0, NULL, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
-		channel_id = excluded.channel_id,
-		url        = excluded.url,
-		protocol   = excluded.protocol,
-		updated_at = excluded.updated_at`
+		channel_id   = excluded.channel_id,
+		url          = excluded.url,
+		protocol     = excluded.protocol,
+		referrer     = excluded.referrer,
+		user_agent   = excluded.user_agent,
+		last_seen_at = excluded.last_seen_at,
+		updated_at   = excluded.updated_at`
 
 func (r *SQLiteStreamRepository) Save(ctx context.Context, s domain.Stream) error {
 	now := time.Now().Unix()
 	if _, err := r.db.ExecContext(ctx, upsertStreamSQL,
-		s.ID, string(s.ChannelID), s.URL, string(s.Protocol), now, now,
+		s.ID, string(s.ChannelID), s.URL, string(s.Protocol), s.Referrer, s.UserAgent, now, now, now,
 	); err != nil {
 		return fmt.Errorf("db.Stream.Save (id=%s): %w", s.ID, err)
 	}
@@ -68,7 +74,7 @@ func (r *SQLiteStreamRepository) SaveBatch(ctx context.Context, streams []domain
 	now := time.Now().Unix()
 	for _, s := range streams {
 		if _, err := stmt.ExecContext(ctx,
-			s.ID, string(s.ChannelID), s.URL, string(s.Protocol), now, now,
+			s.ID, string(s.ChannelID), s.URL, string(s.Protocol), s.Referrer, s.UserAgent, now, now, now,
 		); err != nil {
 			return fmt.Errorf("db.Stream.SaveBatch (Exec id=%s): %w", s.ID, err)
 		}
@@ -311,4 +317,39 @@ func argWebOK(v domain.WebSupport) any {
 	default:
 		return nil
 	}
+}
+
+// DeleteStale borra los streams de la fuente que no aparecieron en este sync.
+// streams no tiene provider_id, así que el scoping va por el canal — igual de
+// estricto: la poda de una fuente nunca toca los streams de otra.
+func (r *SQLiteStreamRepository) DeleteStale(ctx context.Context, providerID string, before time.Time) (int64, error) {
+	res, err := r.db.ExecContext(ctx, `
+		DELETE FROM streams
+		WHERE last_seen_at < ?
+		  AND channel_id IN (SELECT id FROM channels WHERE provider_id = ?)`,
+		before.Unix(), providerID)
+	if err != nil {
+		return 0, fmt.Errorf("db.Stream.DeleteStale (provider=%s): %w", providerID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("db.Stream.DeleteStale (RowsAffected): %w", err)
+	}
+	return n, nil
+}
+
+// CabecerasPorURL busca las cabeceras del stream con esa URL. Una URL que no
+// está en el catálogo devuelve vacías sin error: significa "usa las de siempre".
+func (r *SQLiteStreamRepository) CabecerasPorURL(ctx context.Context, url string) (string, string, error) {
+	var referrer, userAgent string
+	err := r.db.QueryRowContext(ctx,
+		"SELECT referrer, user_agent FROM streams WHERE url = ? LIMIT 1", url).
+		Scan(&referrer, &userAgent)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("db.Stream.CabecerasPorURL: %w", err)
+	}
+	return referrer, userAgent, nil
 }

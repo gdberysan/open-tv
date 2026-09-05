@@ -178,9 +178,15 @@ func (f *fakeChannelRepo) allChannelIDs() map[domain.ChannelID]bool {
 	return out
 }
 
+type deleteStaleStreamCall struct {
+	providerID string
+	before     time.Time
+}
+
 type fakeStreamRepo struct {
-	mu      sync.Mutex
-	batches [][]domain.Stream
+	mu           sync.Mutex
+	batches      [][]domain.Stream
+	staleStreams []deleteStaleStreamCall
 }
 
 func (f *fakeStreamRepo) Save(context.Context, domain.Stream) error { return nil }
@@ -206,6 +212,28 @@ func (f *fakeStreamRepo) MarkAlive(context.Context, string, int64) error { retur
 func (f *fakeStreamRepo) MarkDead(context.Context, string) error         { return nil }
 func (f *fakeStreamRepo) MarkBatch(context.Context, []ports.StreamHealth) error {
 	return nil
+}
+
+func (f *fakeStreamRepo) DeleteStale(_ context.Context, providerID string, before time.Time) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.staleStreams = append(f.staleStreams, deleteStaleStreamCall{providerID: providerID, before: before})
+	return 0, nil
+}
+
+func (f *fakeStreamRepo) CabecerasPorURL(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
+
+// staleStreamCalls todavía no lo usa ningún test de este fichero: lo consume
+// la Tarea 4 (poda de streams en el propio Syncer), que registra aquí sus
+// llamadas a DeleteStale para poder aserirlas.
+//
+//nolint:unused // consumido por la Tarea 4
+func (f *fakeStreamRepo) staleStreamCalls() []deleteStaleStreamCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]deleteStaleStreamCall(nil), f.staleStreams...)
 }
 
 func (f *fakeStreamRepo) lastBatch() []domain.Stream {

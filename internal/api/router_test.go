@@ -74,6 +74,12 @@ func (streamsVacio) FindMirrorsByChannelID(context.Context, domain.ChannelID) ([
 func (streamsVacio) MarkAlive(context.Context, string, int64) error        { return nil }
 func (streamsVacio) MarkDead(context.Context, string) error                { return nil }
 func (streamsVacio) MarkBatch(context.Context, []ports.StreamHealth) error { return nil }
+func (streamsVacio) DeleteStale(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+func (streamsVacio) CabecerasPorURL(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
 
 type syncVacio struct{}
 
