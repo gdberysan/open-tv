@@ -247,6 +247,11 @@
 
   let guardActual: PlaybackGuard | undefined
 
+  // Eventos del <video> que demuestran avance real de la carga (valen para el
+  // motor nativo y para hls.js). 'progress' se emite mientras el buffer crece;
+  // los otros dos marcan que ya hay medio decodificable.
+  const EVENTOS_PROGRESO = ['progress', 'loadedmetadata', 'canplay'] as const
+
   // Sesión de AirPlay (spec 2026-09-03): motorForzado fuerza 'nativo' en
   // reproducir() en vez de dejar que motorDelNavegador() decida — hoy en
   // Safari real SIEMPRE elige hls.js (canPlayType devuelve 'maybe', no
@@ -335,6 +340,7 @@
     if (video) {
       video.removeEventListener('timeupdate', onTimeUpdate)
       video.removeEventListener('error', onVideoError)
+      for (const ev of EVENTOS_PROGRESO) video.removeEventListener(ev, onProgreso)
       video.removeAttribute('src')
       video.load()
     }
@@ -342,6 +348,42 @@
 
   function onTimeUpdate() {
     guardActual?.alPosicion(video?.currentTime ?? 0)
+  }
+
+  // Prueba de que la tubería AVANZA aunque todavía no se vea nada. Sin esto la
+  // única señal de vida era timeupdate, que no llega hasta que el elemento
+  // reproduce de verdad: un canal sano pero lento moría a los 7 s. Ver
+  // PlaybackGuard.alProgreso().
+  function onProgreso() {
+    guardActual?.alProgreso()
+  }
+
+  /**
+   * Chrome NO abre un MediaSource en una pestaña oculta: el <video> se queda
+   * con un blob que nunca llega a 'sourceopen', hls.js sigue sondeando la
+   * playlist —el canal está VIVO— pero no pide un solo segmento. Gastar ahí el
+   * presupuesto de carga era declarar caído un canal sano, y como la app
+   * reanuda «continuar viendo» al arrancar, abrirla en segundo plano daba ese
+   * error siempre.
+   *
+   * Oculta: se congela el presupuesto. Al volver a verse, se reintenta desde
+   * cero en vez de confiar en que el navegador reanime un MediaSource que
+   * nació muerto — un intento nuevo es barato y sí tiene garantía de arrancar.
+   */
+  function onVisibilidad() {
+    if (destruido) return
+    if (document.hidden) {
+      guardActual?.pausar()
+      return
+    }
+    // Solo si el intento en curso no llegó a confirmar: un canal que ya se ve
+    // no se reinicia por cambiar de pestaña.
+    if (cargando) {
+      limpiarIntento()
+      reproducir()
+      return
+    }
+    guardActual?.reanudar()
   }
 
   function onVideoError() {
@@ -443,9 +485,13 @@
       // El guard se arma ANTES de tocar la fuente: si la carga se cuelga, el
       // timeout tiene que saltar igual. Armarlo después fue el bug original.
       guard.armarTimeoutDeCarga()
+      // Ya oculta al empezar: no se gasta presupuesto que el navegador no deja
+      // usar (ver onVisibilidad).
+      if (document.hidden) guard.pausar()
 
       video.addEventListener('timeupdate', onTimeUpdate)
       video.addEventListener('error', onVideoError)
+      for (const ev of EVENTOS_PROGRESO) video.addEventListener(ev, onProgreso)
 
       if (motor === 'nativo') {
         video.src = intento.url
@@ -488,11 +534,19 @@
           if (data.fatal) {
             infoUltimoError = { tipoHls: data.type, detallesHls: data.details, httpStatus: data.response?.code }
           }
-          guard.alError(`${data.type}:${data.details}`)
+          // El flag fatal decide: un no-fatal antes de arrancar ya NO mata el
+          // intento (hls.js se recupera solo de fragLoadError/bufferStalled/
+          // aborted). Antes se pasaban todos como fatales, en contra de lo que
+          // dice el comentario de arriba, y eso tiraba canales sanos.
+          guard.alError(`${data.type}:${data.details}`, !!data.fatal)
         })
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           video?.play().catch(() => {})
         })
+        // Segmentos que llegan y buffer que se anexa: la carga avanza aunque
+        // el <video> todavía no emita nada.
+        hls.on(Hls.Events.FRAG_LOADED, () => guard.alProgreso())
+        hls.on(Hls.Events.BUFFER_APPENDED, () => guard.alProgreso())
         hls.loadSource(intento.url)
         hls.attachMedia(video!)
       })
@@ -922,8 +976,11 @@
     }
   }
 
+  document.addEventListener('visibilitychange', onVisibilidad)
+
   onDestroy(() => {
     destruido = true
+    document.removeEventListener('visibilitychange', onVisibilidad)
     limpiarIntento()
     if (temporizadorOverlay !== undefined) clearTimeout(temporizadorOverlay)
     if (temporizadorAvisoCast !== undefined) clearTimeout(temporizadorAvisoCast)
