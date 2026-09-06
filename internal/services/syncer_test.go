@@ -223,6 +223,9 @@ func (f *fakeStreamRepo) DeleteStale(_ context.Context, providerID string, befor
 	return 0, nil
 }
 
+func (f *fakeStreamRepo) ImagenPorCanal(context.Context, time.Time) ([]ports.ImagenCanal, error) {
+	return nil, nil
+}
 func (f *fakeStreamRepo) CabecerasPorURL(context.Context, string) (string, string, error) {
 	return "", "", nil
 }

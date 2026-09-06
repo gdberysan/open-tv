@@ -100,6 +100,18 @@ CREATE TABLE IF NOT EXISTS streams (
     codec_ok         INTEGER CHECK (codec_ok IN (0,1)),
     codecs           TEXT    NOT NULL DEFAULT '',
     codec_checked_at INTEGER NOT NULL DEFAULT 0,
+    -- Bucle de verdad de reproducción (spec tiempo-hasta-la-imagen). audio_ok
+    -- sale de la misma PMT que codec_ok: NULL = sin sondear, 0 = vídeo mudo
+    -- (el cliente lo relega, no lo salta), 1 = trae audio. imagen_ms es el
+    -- último tiempo real hasta la imagen (0 = nunca). fallos_reales cuenta
+    -- desenlaces reales consecutivos (domain.MotivoEsFalloReal); un éxito lo
+    -- resetea. ultimo_desenlace_at/ultimo_motivo son el último desenlace de
+    -- cualquier tipo, para stats y para domain.SinImagen.
+    audio_ok            INTEGER CHECK (audio_ok IN (0,1)),
+    imagen_ms           INTEGER NOT NULL DEFAULT 0,
+    fallos_reales       INTEGER NOT NULL DEFAULT 0,
+    ultimo_desenlace_at INTEGER NOT NULL DEFAULT 0,
+    ultimo_motivo       TEXT    NOT NULL DEFAULT '',
     last_checked INTEGER,
     -- Cabeceras que el origen exige (API de iptv-org). '' = usar las de siempre.
     referrer     TEXT    NOT NULL DEFAULT '',

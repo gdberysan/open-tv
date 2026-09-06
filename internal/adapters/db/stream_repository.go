@@ -156,14 +156,18 @@ func (r *SQLiteStreamRepository) FindBestByChannelID(ctx context.Context, channe
 	return s, nil
 }
 
-// FindMirrorsByChannelID devuelve todos los mirrors del canal ordenados: vivos
-// primero (ORDER BY is_alive DESC), dentro de vivos por latencia ascendente
-// (NULLS LAST para que un vivo sin latencia medida no encabece); los muertos
-// caen al final por el is_alive DESC.
+// FindMirrorsByChannelID devuelve todos los mirrors del canal ordenados:
+// vivos primero, luego con audio antes que sin audio, luego imagen conocida
+// (imagen_ms > 0) ascendente antes que desconocida, y por último latencia
+// ascendente (NULLS LAST); los muertos caen al final por el is_alive DESC.
 func (r *SQLiteStreamRepository) FindMirrorsByChannelID(ctx context.Context, channelID domain.ChannelID) ([]ports.MirrorHealth, error) {
-	const q = `SELECT url, is_alive, COALESCE(latency_ms, 0), web_ok, codec_ok, codecs
+	const q = `SELECT url, is_alive, COALESCE(latency_ms, 0), web_ok, codec_ok, codecs,
+	                  audio_ok, imagen_ms, fallos_reales, ultimo_desenlace_at, ultimo_motivo
 	           FROM streams WHERE channel_id = ?
 	           ORDER BY is_alive DESC,
+	                    CASE WHEN audio_ok = 0 THEN 1 ELSE 0 END,
+	                    CASE WHEN imagen_ms > 0 THEN 0 ELSE 1 END,
+	                    imagen_ms ASC,
 	                    CASE WHEN latency_ms IS NULL THEN 1 ELSE 0 END,
 	                    latency_ms ASC`
 	rows, err := r.db.QueryContext(ctx, q, string(channelID))
@@ -179,8 +183,11 @@ func (r *SQLiteStreamRepository) FindMirrorsByChannelID(ctx context.Context, cha
 			aliveIn int
 			webOK   sql.NullInt64
 			codecOK sql.NullInt64
+			audioOK sql.NullInt64
+			ultimo  int64
 		)
-		if err := rows.Scan(&m.URL, &aliveIn, &m.LatencyMs, &webOK, &codecOK, &m.Codecs); err != nil {
+		if err := rows.Scan(&m.URL, &aliveIn, &m.LatencyMs, &webOK, &codecOK, &m.Codecs,
+			&audioOK, &m.ImagenMs, &m.FallosReales, &ultimo, &m.UltimoMotivo); err != nil {
 			return nil, fmt.Errorf("db.Stream.FindMirrorsByChannelID (scan): %w", err)
 		}
 		m.IsAlive = aliveIn == 1
@@ -199,6 +206,17 @@ func (r *SQLiteStreamRepository) FindMirrorsByChannelID(ctx context.Context, cha
 			m.Codec = domain.CodecOK
 		default:
 			m.Codec = domain.CodecNo
+		}
+		switch {
+		case !audioOK.Valid:
+			m.Audio = domain.AudioUnknown
+		case audioOK.Int64 == 1:
+			m.Audio = domain.AudioOK
+		default:
+			m.Audio = domain.AudioNo
+		}
+		if ultimo != 0 {
+			m.UltimoDesenlace = time.Unix(ultimo, 0)
 		}
 		mirrors = append(mirrors, m)
 	}
@@ -242,6 +260,36 @@ func (r *SQLiteStreamRepository) MarkDead(ctx context.Context, streamID string) 
 		DeadFailThreshold, now, now, streamID,
 	); err != nil {
 		return fmt.Errorf("db.Stream.MarkDead (id=%s): %w", streamID, err)
+	}
+	return nil
+}
+
+// RegistrarDesenlace aplica el desenlace REAL de un intento de reproducción
+// (spec tiempo-hasta-la-imagen §3.2-3.3) a TODAS las filas con esa URL —
+// varios canales pueden compartir mirror. Un éxito ("iniciado") guarda la
+// imagen y resetea el contador de fallos reales; un fallo real
+// (domain.MotivoEsFalloReal) lo incrementa sin tocar la última imagen vista;
+// cualquier otro motivo (geo/formato/codec) solo se anota para stats. URL
+// desconocida = no-op sin error: un mirror ya podado no debe romper nada.
+func (r *SQLiteStreamRepository) RegistrarDesenlace(ctx context.Context, url string, d ports.DesenlaceMirror) error {
+	now := time.Now().Unix()
+	var q string
+	var args []any
+	switch {
+	case d.Resultado == "iniciado":
+		q = `UPDATE streams SET imagen_ms = ?, fallos_reales = 0, ultimo_desenlace_at = ?, ultimo_motivo = '', updated_at = ? WHERE url = ?`
+		args = []any{d.MsPrimerFrame, now, now, url}
+	case domain.MotivoEsFalloReal(d.Motivo):
+		q = `UPDATE streams SET fallos_reales = fallos_reales + 1, ultimo_desenlace_at = ?, ultimo_motivo = ?, updated_at = ? WHERE url = ?`
+		args = []any{now, d.Motivo, now, url}
+	default:
+		// geo/formato/codec: se anota el motivo para stats, no cuenta como
+		// fallo del origen.
+		q = `UPDATE streams SET ultimo_desenlace_at = ?, ultimo_motivo = ?, updated_at = ? WHERE url = ?`
+		args = []any{now, d.Motivo, now, url}
+	}
+	if _, err := r.db.ExecContext(ctx, q, args...); err != nil {
+		return fmt.Errorf("db.Stream.RegistrarDesenlace (%s): %w", d.Resultado, err)
 	}
 	return nil
 }
@@ -293,6 +341,7 @@ func (r *SQLiteStreamRepository) MarkBatch(ctx context.Context, resultados []por
 		     web_ok = COALESCE(?, web_ok),
 		     codec_ok = COALESCE(?, codec_ok),
 		     codecs = COALESCE(?, codecs),
+		     audio_ok = COALESCE(?, audio_ok),
 		     codec_checked_at = CASE WHEN ? = 1 THEN ? ELSE codec_checked_at END
 		 WHERE id = ?`)
 	if err != nil {
@@ -317,7 +366,8 @@ func (r *SQLiteStreamRepository) MarkBatch(ctx context.Context, resultados []por
 	for _, res := range resultados {
 		if res.IsAlive {
 			_, err = stmtVivo.ExecContext(ctx, res.LatencyMs, now, now, argWebOK(res.Web),
-				argCodecOK(res.Codec), argCodecs(res), boolAInt(res.CodecSondeado), now, res.StreamID)
+				argCodecOK(res.Codec), argCodecs(res), argAudioOK(res.Audio),
+				boolAInt(res.CodecSondeado), now, res.StreamID)
 		} else {
 			_, err = stmtMuerto.ExecContext(ctx, DeadFailThreshold, now, now, argWebOK(res.Web), res.StreamID)
 		}
@@ -349,6 +399,19 @@ func argCodecOK(v domain.CodecSupport) any {
 	case domain.CodecOK:
 		return int64(1)
 	case domain.CodecNo:
+		return int64(0)
+	default:
+		return nil
+	}
+}
+
+// argAudioOK traduce el veredicto al argumento del COALESCE: nil para
+// "no se sabe", que deja intacto lo que ya hubiera en la columna.
+func argAudioOK(v domain.AudioSupport) any {
+	switch v {
+	case domain.AudioOK:
+		return int64(1)
+	case domain.AudioNo:
 		return int64(0)
 	default:
 		return nil
@@ -426,6 +489,74 @@ func (r *SQLiteStreamRepository) CabecerasPorURL(ctx context.Context, urlCruda s
 		return "", "", fmt.Errorf("db.Stream.CabecerasPorURL (fallback por origen): %w", err)
 	}
 	return referrer, userAgent, nil
+}
+
+// ImagenPorCanal resume el tiempo hasta la imagen por canal (spec
+// tiempo-hasta-la-imagen §3.4), agregando en Go la regla de dominio: solo
+// aparecen canales con algún desenlace registrado; ImagenMs es el menor
+// imagen_ms > 0 entre sus mirrors vivos no saltados; SinImagen es "tiene
+// mirrors vivos y TODOS están saltados" (por códec o por domain.SinImagen).
+func (r *SQLiteStreamRepository) ImagenPorCanal(ctx context.Context, ahora time.Time) ([]ports.ImagenCanal, error) {
+	const q = `SELECT channel_id, is_alive, codec_ok, imagen_ms, fallos_reales, ultimo_desenlace_at
+	           FROM streams
+	           WHERE channel_id IN (SELECT DISTINCT channel_id FROM streams WHERE ultimo_desenlace_at > 0)
+	           ORDER BY channel_id`
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("db.Stream.ImagenPorCanal: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type acum struct {
+		imagen   int64
+		vivos    int
+		saltados int
+	}
+	orden := []domain.ChannelID{}
+	porCanal := map[domain.ChannelID]*acum{}
+	for rows.Next() {
+		var (
+			ch      string
+			alive   int
+			codecOK sql.NullInt64
+			imagen  int64
+			fallos  int
+			ultimo  int64
+		)
+		if err := rows.Scan(&ch, &alive, &codecOK, &imagen, &fallos, &ultimo); err != nil {
+			return nil, fmt.Errorf("db.Stream.ImagenPorCanal (scan): %w", err)
+		}
+		id := domain.ChannelID(ch)
+		a, ya := porCanal[id]
+		if !ya {
+			a = &acum{}
+			porCanal[id] = a
+			orden = append(orden, id)
+		}
+		if alive != 1 {
+			continue
+		}
+		a.vivos++
+		var ultimoT time.Time
+		if ultimo != 0 {
+			ultimoT = time.Unix(ultimo, 0)
+		}
+		porCodec := codecOK.Valid && codecOK.Int64 == 0
+		if porCodec || domain.SinImagen(fallos, ultimoT, ahora) {
+			a.saltados++
+		} else if imagen > 0 && (a.imagen == 0 || imagen < a.imagen) {
+			a.imagen = imagen
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("db.Stream.ImagenPorCanal (rows.Err): %w", err)
+	}
+	out := make([]ports.ImagenCanal, 0, len(orden))
+	for _, id := range orden {
+		a := porCanal[id]
+		out = append(out, ports.ImagenCanal{ChannelID: id, ImagenMs: a.imagen, SinImagen: a.vivos > 0 && a.saltados == a.vivos})
+	}
+	return out, nil
 }
 
 // origenPrefijo calcula el rango [prefijo, tope) que idx_streams_url puede

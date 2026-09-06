@@ -82,6 +82,9 @@ func (streamsVacio) MarkBatch(context.Context, []ports.StreamHealth) error { ret
 func (streamsVacio) DeleteStale(context.Context, string, time.Time) (int64, error) {
 	return 0, nil
 }
+func (streamsVacio) ImagenPorCanal(context.Context, time.Time) ([]ports.ImagenCanal, error) {
+	return nil, nil
+}
 func (streamsVacio) CabecerasPorURL(context.Context, string) (string, string, error) {
 	return "", "", nil
 }

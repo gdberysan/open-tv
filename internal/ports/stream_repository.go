@@ -23,6 +23,9 @@ type StreamHealth struct {
 	Codec         domain.CodecSupport
 	Codecs        string
 	CodecSondeado bool
+	// Audio sale de la misma PMT que Codec (spec tiempo-hasta-la-imagen
+	// §3.1). Unknown nunca pisa lo que ya hubiera guardado.
+	Audio domain.AudioSupport
 }
 
 // MirrorHealth es un stream de un canal con su salud, tal y como lo consume el
@@ -35,8 +38,38 @@ type MirrorHealth struct {
 	WebOK     domain.WebSupport
 	// Codec: CodecNo = ningún navegador decodifica su vídeo; el cliente lo
 	// salta. Codecs es la cadena corta para el mensaje ("mpeg2video,mp2").
-	Codec  domain.CodecSupport
-	Codecs string
+	Codec           domain.CodecSupport
+	Codecs          string
+	Audio           domain.AudioSupport
+	ImagenMs        int64 // último tiempo real hasta la imagen; 0 = nunca
+	FallosReales    int
+	UltimoDesenlace time.Time // cero = nunca
+	UltimoMotivo    string
+}
+
+// DesenlaceMirror es lo que el reproductor cuenta de un intento REAL sobre un
+// mirror (spec tiempo-hasta-la-imagen §3.1). Resultado: "iniciado" | "fallo".
+type DesenlaceMirror struct {
+	Resultado     string
+	Motivo        string
+	MsPrimerFrame int64
+}
+
+// ImagenCanal es el resumen por canal para la tarjeta (GET /channels/imagen):
+// solo existe para canales con algún desenlace registrado.
+type ImagenCanal struct {
+	ChannelID domain.ChannelID
+	ImagenMs  int64 // menor imagen_ms > 0 entre sus mirrors vivos; 0 = ninguno
+	SinImagen bool  // TODOS sus mirrors vivos están saltados (códec o §3.3)
+}
+
+// RegistradorDesenlaces es el puerto de ESCRITURA del bucle de verdad. Va
+// aparte de StreamRepository porque el router recibe el repo de solo lectura;
+// cmd/open-tv/main.go inyecta el del pool de escritura por api.Options.
+type RegistradorDesenlaces interface {
+	// RegistrarDesenlace aplica el desenlace a TODAS las filas con esa URL.
+	// URL desconocida = no-op sin error (un mirror podado no rompe nada).
+	RegistrarDesenlace(ctx context.Context, url string, d DesenlaceMirror) error
 }
 
 type StreamRepository interface {
@@ -64,4 +97,8 @@ type StreamRepository interface {
 	// Una URL desconocida devuelve cadenas vacías y error nil: no es un fallo,
 	// es "usa las de siempre".
 	CabecerasPorURL(ctx context.Context, url string) (referrer, userAgent string, err error)
+	// ImagenPorCanal resume el tiempo hasta la imagen por canal (spec
+	// tiempo-hasta-la-imagen §3.4): solo canales con algún desenlace
+	// registrado. ahora es la referencia de tiempo para domain.SinImagen.
+	ImagenPorCanal(ctx context.Context, ahora time.Time) ([]ImagenCanal, error)
 }

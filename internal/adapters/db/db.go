@@ -121,6 +121,14 @@ func alterMigrations(db *sql.DB) error {
 		"ALTER TABLE streams ADD COLUMN codec_ok INTEGER",
 		"ALTER TABLE streams ADD COLUMN codecs TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE streams ADD COLUMN codec_checked_at INTEGER NOT NULL DEFAULT 0",
+		// Bucle de verdad de reproducción (spec tiempo-hasta-la-imagen,
+		// 2026-09-06): audio_ok sale de la misma PMT que codec_ok; los demás
+		// campos son el desenlace real del reproductor sobre cada mirror.
+		"ALTER TABLE streams ADD COLUMN audio_ok INTEGER",
+		"ALTER TABLE streams ADD COLUMN imagen_ms INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE streams ADD COLUMN fallos_reales INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE streams ADD COLUMN ultimo_desenlace_at INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE streams ADD COLUMN ultimo_motivo TEXT NOT NULL DEFAULT ''",
 	}
 	for _, stmt := range alters {
 		if _, err := db.Exec(stmt); err != nil {

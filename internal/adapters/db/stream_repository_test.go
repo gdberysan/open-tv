@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1096,5 +1097,211 @@ func TestCountFilteredAliveOnlyCuentaLoMismoQueLaLista(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("CountFiltered = %d, quiero 0: el mirror sin verificar no cuenta", n)
+	}
+}
+
+func TestRegistrarDesenlaceExitoYFallos(t *testing.T) {
+	ctx := context.Background()
+	stRepo, sqlDB := repoConCanal(t)
+	url := "http://a.example/1.m3u8"
+
+	leer := func() (imagen, fallos, ultimo int64, motivo string) {
+		t.Helper()
+		if err := sqlDB.QueryRow(`SELECT imagen_ms, fallos_reales, ultimo_desenlace_at, ultimo_motivo FROM streams WHERE id = 's1'`).
+			Scan(&imagen, &fallos, &ultimo, &motivo); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+
+	// Fallo real, dos veces.
+	for i := 0; i < 2; i++ {
+		if err := stRepo.RegistrarDesenlace(ctx, url, ports.DesenlaceMirror{Resultado: "fallo", Motivo: "desconocido"}); err != nil {
+			t.Fatalf("RegistrarDesenlace fallo %d: %v", i, err)
+		}
+	}
+	imagen, fallos, ultimo, motivo := leer()
+	if imagen != 0 || fallos != 2 || ultimo == 0 || motivo != "desconocido" {
+		t.Errorf("tras 2 fallos reales: imagen=%d fallos=%d ultimo=%d motivo=%q", imagen, fallos, ultimo, motivo)
+	}
+
+	// Fallo NO real: no toca fallos_reales, sí el motivo.
+	if err := stRepo.RegistrarDesenlace(ctx, url, ports.DesenlaceMirror{Resultado: "fallo", Motivo: "geo"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, fallos, _, motivo = leer(); fallos != 2 || motivo != "geo" {
+		t.Errorf("fallo geo: fallos=%d motivo=%q", fallos, motivo)
+	}
+
+	// Éxito: resetea y guarda la imagen.
+	if err := stRepo.RegistrarDesenlace(ctx, url, ports.DesenlaceMirror{Resultado: "iniciado", MsPrimerFrame: 2100}); err != nil {
+		t.Fatal(err)
+	}
+	if imagen, fallos, _, motivo = leer(); imagen != 2100 || fallos != 0 || motivo != "" {
+		t.Errorf("éxito: imagen=%d fallos=%d motivo=%q", imagen, fallos, motivo)
+	}
+
+	// Un fallo posterior NO borra la última imagen vista.
+	if err := stRepo.RegistrarDesenlace(ctx, url, ports.DesenlaceMirror{Resultado: "fallo", Motivo: "inestable"}); err != nil {
+		t.Fatal(err)
+	}
+	if imagen, fallos, _, _ = leer(); imagen != 2100 || fallos != 1 {
+		t.Errorf("fallo tras éxito: imagen=%d fallos=%d", imagen, fallos)
+	}
+}
+
+func TestRegistrarDesenlaceURLDesconocidaNoFalla(t *testing.T) {
+	stRepo, _ := repoConCanal(t)
+	if err := stRepo.RegistrarDesenlace(context.Background(), "http://nadie.example/x.m3u8", ports.DesenlaceMirror{Resultado: "fallo", Motivo: "caido"}); err != nil {
+		t.Errorf("URL desconocida debe ser no-op: %v", err)
+	}
+}
+
+func TestRegistrarDesenlaceAplicaATodasLasFilasConEsaURL(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+	seedChannel(t, chRepo, "ch-1")
+	seedChannel(t, chRepo, "ch-2")
+	if err := stRepo.SaveBatch(ctx, []domain.Stream{
+		makeStream("s1", "ch-1", "http://c.example/x.m3u8"),
+		makeStream("s2", "ch-2", "http://c.example/x.m3u8"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stRepo.RegistrarDesenlace(ctx, "http://c.example/x.m3u8", ports.DesenlaceMirror{Resultado: "iniciado", MsPrimerFrame: 900}); err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range []domain.ChannelID{"ch-1", "ch-2"} {
+		m, err := stRepo.FindMirrorsByChannelID(ctx, ch)
+		if err != nil || len(m) != 1 || m[0].ImagenMs != 900 {
+			t.Errorf("%s: %+v (%v)", ch, m, err)
+		}
+	}
+}
+
+func TestMarkBatchPersisteAudio(t *testing.T) {
+	ctx := context.Background()
+	stRepo, sqlDB := repoConCanal(t)
+	if err := stRepo.MarkBatch(ctx, []ports.StreamHealth{
+		{StreamID: "s1", IsAlive: true, Codec: domain.CodecOK, Codecs: "h264", CodecSondeado: true, Audio: domain.AudioNo},
+		{StreamID: "s2", IsAlive: true, Codec: domain.CodecOK, Codecs: "h264,aac", CodecSondeado: true, Audio: domain.AudioOK},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var a1, a2 sql.NullInt64
+	_ = sqlDB.QueryRow(`SELECT audio_ok FROM streams WHERE id='s1'`).Scan(&a1)
+	_ = sqlDB.QueryRow(`SELECT audio_ok FROM streams WHERE id='s2'`).Scan(&a2)
+	if !a1.Valid || a1.Int64 != 0 || !a2.Valid || a2.Int64 != 1 {
+		t.Errorf("audio_ok s1=%v s2=%v", a1, a2)
+	}
+	// Unknown no pisa.
+	if err := stRepo.MarkBatch(ctx, []ports.StreamHealth{{StreamID: "s1", IsAlive: true, CodecSondeado: true}}); err != nil {
+		t.Fatal(err)
+	}
+	_ = sqlDB.QueryRow(`SELECT audio_ok FROM streams WHERE id='s1'`).Scan(&a1)
+	if !a1.Valid || a1.Int64 != 0 {
+		t.Errorf("Unknown pisó audio_ok: %v", a1)
+	}
+}
+
+// Orden: vivos; con audio antes que sin audio; imagen conocida ascendente
+// antes que desconocida; luego latencia.
+func TestFindMirrorsByChannelIDOrdenaPorAudioImagenYLatencia(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+	seedChannel(t, chRepo, "ch-1")
+	if err := stRepo.SaveBatch(ctx, []domain.Stream{
+		makeStream("rapido-mudo", "ch-1", "http://o/1.m3u8"),
+		makeStream("lento-con-imagen", "ch-1", "http://o/2.m3u8"),
+		makeStream("medio-sin-imagen", "ch-1", "http://o/3.m3u8"),
+		makeStream("muerto", "ch-1", "http://o/4.m3u8"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stRepo.MarkBatch(ctx, []ports.StreamHealth{
+		{StreamID: "rapido-mudo", IsAlive: true, LatencyMs: 50, Codec: domain.CodecOK, CodecSondeado: true, Audio: domain.AudioNo},
+		{StreamID: "lento-con-imagen", IsAlive: true, LatencyMs: 900, Codec: domain.CodecOK, CodecSondeado: true, Audio: domain.AudioOK},
+		{StreamID: "medio-sin-imagen", IsAlive: true, LatencyMs: 300, Codec: domain.CodecOK, CodecSondeado: true, Audio: domain.AudioOK},
+		{StreamID: "muerto", IsAlive: false},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stRepo.RegistrarDesenlace(ctx, "http://o/2.m3u8", ports.DesenlaceMirror{Resultado: "iniciado", MsPrimerFrame: 1500}); err != nil {
+		t.Fatal(err)
+	}
+	mirrors, err := stRepo.FindMirrorsByChannelID(ctx, "ch-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var urls []string
+	for _, m := range mirrors {
+		urls = append(urls, m.URL)
+	}
+	quiero := []string{"http://o/2.m3u8", "http://o/3.m3u8", "http://o/1.m3u8", "http://o/4.m3u8"}
+	if fmt.Sprint(urls) != fmt.Sprint(quiero) {
+		t.Errorf("orden = %v, quiero %v", urls, quiero)
+	}
+	if mirrors[0].Audio != domain.AudioOK || mirrors[2].Audio != domain.AudioNo || mirrors[0].ImagenMs != 1500 {
+		t.Errorf("campos: %+v", mirrors[:3])
+	}
+}
+
+func TestImagenPorCanal(t *testing.T) {
+	ctx := context.Background()
+	chRepo, stRepo := openStreamTestRepos(t)
+	for _, ch := range []string{"visto", "sin-imagen", "por-codec", "nunca"} {
+		seedChannel(t, chRepo, ch)
+	}
+	if err := stRepo.SaveBatch(ctx, []domain.Stream{
+		makeStream("v1", "visto", "http://v/1.m3u8"), makeStream("v2", "visto", "http://v/2.m3u8"),
+		makeStream("f1", "sin-imagen", "http://f/1.m3u8"), makeStream("f2", "sin-imagen", "http://f/2.m3u8"),
+		makeStream("c1", "por-codec", "http://c/1.m3u8"),
+		makeStream("n1", "nunca", "http://n/1.m3u8"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	vivos := []ports.StreamHealth{}
+	for _, id := range []string{"v1", "v2", "f1", "f2", "c1", "n1"} {
+		vivos = append(vivos, ports.StreamHealth{StreamID: id, IsAlive: true, LatencyMs: 100})
+	}
+	vivos[4].Codec, vivos[4].CodecSondeado = domain.CodecNo, true // c1: MPEG-2
+	if err := stRepo.MarkBatch(ctx, vivos); err != nil {
+		t.Fatal(err)
+	}
+	ok := func(url string, d ports.DesenlaceMirror) {
+		t.Helper()
+		if err := stRepo.RegistrarDesenlace(ctx, url, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ok("http://v/1.m3u8", ports.DesenlaceMirror{Resultado: "iniciado", MsPrimerFrame: 3000})
+	ok("http://v/2.m3u8", ports.DesenlaceMirror{Resultado: "iniciado", MsPrimerFrame: 1200})
+	for _, u := range []string{"http://f/1.m3u8", "http://f/2.m3u8"} {
+		ok(u, ports.DesenlaceMirror{Resultado: "fallo", Motivo: "desconocido"})
+		ok(u, ports.DesenlaceMirror{Resultado: "fallo", Motivo: "inestable"})
+	}
+	// por-codec: un fallo real sobre un mirror que además es CodecNo — el canal
+	// entero está saltado (por códec), aunque no llegue al umbral de fallos.
+	ok("http://c/1.m3u8", ports.DesenlaceMirror{Resultado: "fallo", Motivo: "desconocido"})
+
+	got, err := stRepo.ImagenPorCanal(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	porCanal := map[domain.ChannelID]ports.ImagenCanal{}
+	for _, ic := range got {
+		porCanal[ic.ChannelID] = ic
+	}
+	if _, hay := porCanal["nunca"]; hay {
+		t.Error("un canal sin desenlaces no debe aparecer")
+	}
+	if v := porCanal["visto"]; v.ImagenMs != 1200 || v.SinImagen {
+		t.Errorf("visto: %+v (quiero el menor imagen_ms, 1200, y sin_imagen=false)", v)
+	}
+	if f := porCanal["sin-imagen"]; !f.SinImagen || f.ImagenMs != 0 {
+		t.Errorf("sin-imagen: %+v", f)
+	}
+	if c := porCanal["por-codec"]; !c.SinImagen {
+		t.Errorf("por-codec: %+v (todos sus mirrors vivos están saltados por códec)", c)
 	}
 }

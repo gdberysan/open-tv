@@ -106,6 +106,8 @@ type mockStreamRepo struct {
 	// único que permite fijar WebOK a un valor concreto en el test, porque
 	// domain.Stream no tiene campo Web (ver FindMirrorsByChannelID).
 	mirrors []ports.MirrorHealth
+	// imagen es lo que devuelve ImagenPorCanal; nil = catálogo vacío.
+	imagen []ports.ImagenCanal
 }
 
 func (m *mockStreamRepo) Save(ctx context.Context, s domain.Stream) error         { return nil }
@@ -164,6 +166,9 @@ func (m *mockStreamRepo) MarkDead(ctx context.Context, id string) error         
 func (m *mockStreamRepo) MarkBatch(context.Context, []ports.StreamHealth) error           { return nil }
 func (m *mockStreamRepo) DeleteStale(context.Context, string, time.Time) (int64, error) {
 	return 0, nil
+}
+func (m *mockStreamRepo) ImagenPorCanal(context.Context, time.Time) ([]ports.ImagenCanal, error) {
+	return m.imagen, nil
 }
 func (m *mockStreamRepo) CabecerasPorURL(context.Context, string) (string, string, error) {
 	return "", "", nil
