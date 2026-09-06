@@ -29,7 +29,7 @@ func NewStreamRepository(db *sql.DB) *SQLiteStreamRepository {
 // volvían SIEMPRE vacíos y el health-check —que lee por FindAll— chequeaba
 // pelados los streams cuyo origen exige Referer/User-Agent, se comía un 403 y
 // acababa marcándolos muertos.
-const streamColumns = ` id, channel_id, url, protocol, referrer, user_agent, latency_ms, is_alive, last_checked `
+const streamColumns = ` id, channel_id, url, protocol, referrer, user_agent, latency_ms, is_alive, last_checked, codec_checked_at `
 
 // El upsert preserva latency_ms/is_alive/last_checked: son resultado del
 // health-check, no del sync, y un re-sync no debe borrarlos. last_seen_at SÍ se
@@ -161,7 +161,7 @@ func (r *SQLiteStreamRepository) FindBestByChannelID(ctx context.Context, channe
 // (NULLS LAST para que un vivo sin latencia medida no encabece); los muertos
 // caen al final por el is_alive DESC.
 func (r *SQLiteStreamRepository) FindMirrorsByChannelID(ctx context.Context, channelID domain.ChannelID) ([]ports.MirrorHealth, error) {
-	const q = `SELECT url, is_alive, COALESCE(latency_ms, 0), web_ok
+	const q = `SELECT url, is_alive, COALESCE(latency_ms, 0), web_ok, codec_ok, codecs
 	           FROM streams WHERE channel_id = ?
 	           ORDER BY is_alive DESC,
 	                    CASE WHEN latency_ms IS NULL THEN 1 ELSE 0 END,
@@ -178,8 +178,9 @@ func (r *SQLiteStreamRepository) FindMirrorsByChannelID(ctx context.Context, cha
 			m       ports.MirrorHealth
 			aliveIn int
 			webOK   sql.NullInt64
+			codecOK sql.NullInt64
 		)
-		if err := rows.Scan(&m.URL, &aliveIn, &m.LatencyMs, &webOK); err != nil {
+		if err := rows.Scan(&m.URL, &aliveIn, &m.LatencyMs, &webOK, &codecOK, &m.Codecs); err != nil {
 			return nil, fmt.Errorf("db.Stream.FindMirrorsByChannelID (scan): %w", err)
 		}
 		m.IsAlive = aliveIn == 1
@@ -190,6 +191,14 @@ func (r *SQLiteStreamRepository) FindMirrorsByChannelID(ctx context.Context, cha
 			m.WebOK = domain.WebOK
 		default:
 			m.WebOK = domain.WebNo
+		}
+		switch {
+		case !codecOK.Valid:
+			m.Codec = domain.CodecUnknown
+		case codecOK.Int64 == 1:
+			m.Codec = domain.CodecOK
+		default:
+			m.Codec = domain.CodecNo
 		}
 		mirrors = append(mirrors, m)
 	}
@@ -239,15 +248,16 @@ func (r *SQLiteStreamRepository) MarkDead(ctx context.Context, streamID string) 
 
 func scanStream(rows *sql.Rows) (domain.Stream, error) {
 	var (
-		s           domain.Stream
-		latencyMs   sql.NullInt64
-		isAlive     int
-		lastChecked sql.NullInt64
+		s              domain.Stream
+		latencyMs      sql.NullInt64
+		isAlive        int
+		lastChecked    sql.NullInt64
+		codecCheckedAt int64
 	)
 	if err := rows.Scan(
 		&s.ID, (*string)(&s.ChannelID), &s.URL, (*string)(&s.Protocol),
 		&s.Referrer, &s.UserAgent,
-		&latencyMs, &isAlive, &lastChecked,
+		&latencyMs, &isAlive, &lastChecked, &codecCheckedAt,
 	); err != nil {
 		return domain.Stream{}, err
 	}
@@ -255,6 +265,9 @@ func scanStream(rows *sql.Rows) (domain.Stream, error) {
 	s.IsAlive = isAlive == 1
 	if lastChecked.Valid {
 		s.LastChecked = time.Unix(lastChecked.Int64, 0)
+	}
+	if codecCheckedAt != 0 {
+		s.CodecCheckedAt = time.Unix(codecCheckedAt, 0)
 	}
 	return s, nil
 }
@@ -277,7 +290,10 @@ func (r *SQLiteStreamRepository) MarkBatch(ctx context.Context, resultados []por
 	stmtVivo, err := tx.PrepareContext(ctx,
 		`UPDATE streams
 		 SET is_alive = 1, fail_count = 0, latency_ms = ?, last_checked = ?, updated_at = ?,
-		     web_ok = COALESCE(?, web_ok)
+		     web_ok = COALESCE(?, web_ok),
+		     codec_ok = COALESCE(?, codec_ok),
+		     codecs = COALESCE(?, codecs),
+		     codec_checked_at = CASE WHEN ? = 1 THEN ? ELSE codec_checked_at END
 		 WHERE id = ?`)
 	if err != nil {
 		return fmt.Errorf("db.Stream.MarkBatch (Prepare vivo): %w", err)
@@ -300,7 +316,8 @@ func (r *SQLiteStreamRepository) MarkBatch(ctx context.Context, resultados []por
 	now := time.Now().Unix()
 	for _, res := range resultados {
 		if res.IsAlive {
-			_, err = stmtVivo.ExecContext(ctx, res.LatencyMs, now, now, argWebOK(res.Web), res.StreamID)
+			_, err = stmtVivo.ExecContext(ctx, res.LatencyMs, now, now, argWebOK(res.Web),
+				argCodecOK(res.Codec), argCodecs(res), boolAInt(res.CodecSondeado), now, res.StreamID)
 		} else {
 			_, err = stmtMuerto.ExecContext(ctx, DeadFailThreshold, now, now, argWebOK(res.Web), res.StreamID)
 		}
@@ -323,6 +340,33 @@ func argWebOK(v domain.WebSupport) any {
 	default:
 		return nil
 	}
+}
+
+// argCodecOK y argCodecs: nil para "no se sabe", que el COALESCE deja
+// intacto. codecs solo se escribe con un veredicto real.
+func argCodecOK(v domain.CodecSupport) any {
+	switch v {
+	case domain.CodecOK:
+		return int64(1)
+	case domain.CodecNo:
+		return int64(0)
+	default:
+		return nil
+	}
+}
+
+func argCodecs(res ports.StreamHealth) any {
+	if res.Codec == domain.CodecUnknown {
+		return nil
+	}
+	return res.Codecs
+}
+
+func boolAInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // DeleteStale borra los streams de la fuente que no aparecieron en este sync.

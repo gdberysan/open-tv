@@ -93,6 +93,13 @@ CREATE TABLE IF NOT EXISTS streams (
     -- NULL = sin comprobar, y hay que distinguirlo de 0: la tarjeta pinta
     -- cosas distintas para "no se ve" y "todavía no lo sé".
     web_ok       INTEGER CHECK (web_ok IN (0,1)),
+    -- Veredicto de la sonda del primer segmento (PAT/PMT): NULL = sin sondear,
+    -- 0 = ningún navegador decodifica su vídeo, 1 = H.264. codecs es la
+    -- cadena corta para stats y mensaje; codec_checked_at (epoch s, 0 = nunca)
+    -- es la caducidad: solo se vuelve a sondear pasadas 24 h.
+    codec_ok         INTEGER CHECK (codec_ok IN (0,1)),
+    codecs           TEXT    NOT NULL DEFAULT '',
+    codec_checked_at INTEGER NOT NULL DEFAULT 0,
     last_checked INTEGER,
     -- Cabeceras que el origen exige (API de iptv-org). '' = usar las de siempre.
     referrer     TEXT    NOT NULL DEFAULT '',

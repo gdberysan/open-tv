@@ -606,6 +606,118 @@ func TestMarkBatchUnknownNoPisaElVeredictoAnterior(t *testing.T) {
 	}
 }
 
+func TestMarkBatchPersisteCodec(t *testing.T) {
+	ctx := context.Background()
+	stRepo, sqlDB := repoConCanal(t)
+
+	err := stRepo.MarkBatch(ctx, []ports.StreamHealth{
+		{StreamID: "s1", IsAlive: true, LatencyMs: 10, Codec: domain.CodecNo, Codecs: "mpeg2video,mp2", CodecSondeado: true},
+		{StreamID: "s2", IsAlive: true, LatencyMs: 10}, // sin sondear
+	})
+	if err != nil {
+		t.Fatalf("MarkBatch: %v", err)
+	}
+
+	var codecOK sql.NullInt64
+	var codecs string
+	var checkedAt int64
+	if err := sqlDB.QueryRow(`SELECT codec_ok, codecs, codec_checked_at FROM streams WHERE id = 's1'`).Scan(&codecOK, &codecs, &checkedAt); err != nil {
+		t.Fatalf("leyendo s1: %v", err)
+	}
+	if !codecOK.Valid || codecOK.Int64 != 0 || codecs != "mpeg2video,mp2" || checkedAt == 0 {
+		t.Errorf("s1: codec_ok=%v codecs=%q checked_at=%d", codecOK, codecs, checkedAt)
+	}
+	if err := sqlDB.QueryRow(`SELECT codec_ok, codecs, codec_checked_at FROM streams WHERE id = 's2'`).Scan(&codecOK, &codecs, &checkedAt); err != nil {
+		t.Fatalf("leyendo s2: %v", err)
+	}
+	if codecOK.Valid || codecs != "" || checkedAt != 0 {
+		t.Errorf("s2 no se sondeó y no debe cambiar: codec_ok=%v codecs=%q checked_at=%d", codecOK, codecs, checkedAt)
+	}
+}
+
+// Una sonda que corrió pero no pudo decidir (fMP4, timeout, PMT fuera del
+// prefijo) sella codec_checked_at —para no reintentar cada hora— pero NO
+// pisa el veredicto anterior.
+func TestMarkBatchCodecUnknownSellaPeroNoPisa(t *testing.T) {
+	ctx := context.Background()
+	stRepo, sqlDB := repoConCanal(t)
+
+	if err := stRepo.MarkBatch(ctx, []ports.StreamHealth{
+		{StreamID: "s1", IsAlive: true, Codec: domain.CodecNo, Codecs: "mpeg2video,mp2", CodecSondeado: true},
+	}); err != nil {
+		t.Fatalf("MarkBatch 1: %v", err)
+	}
+	// Forzar un sello viejo para poder ver que el segundo MarkBatch lo renueva.
+	if _, err := sqlDB.Exec(`UPDATE streams SET codec_checked_at = 1 WHERE id = 's1'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := stRepo.MarkBatch(ctx, []ports.StreamHealth{
+		{StreamID: "s1", IsAlive: true, Codec: domain.CodecUnknown, CodecSondeado: true},
+	}); err != nil {
+		t.Fatalf("MarkBatch 2: %v", err)
+	}
+	var codecOK sql.NullInt64
+	var codecs string
+	var despues int64
+	if err := sqlDB.QueryRow(`SELECT codec_ok, codecs, codec_checked_at FROM streams WHERE id = 's1'`).Scan(&codecOK, &codecs, &despues); err != nil {
+		t.Fatal(err)
+	}
+	if !codecOK.Valid || codecOK.Int64 != 0 || codecs != "mpeg2video,mp2" {
+		t.Errorf("Unknown pisó el veredicto: codec_ok=%v codecs=%q", codecOK, codecs)
+	}
+	if despues <= 1 {
+		t.Errorf("codec_checked_at debía renovarse: %d", despues)
+	}
+}
+
+func TestFindMirrorsByChannelIDDevuelveCodec(t *testing.T) {
+	ctx := context.Background()
+	stRepo, _ := repoConCanal(t)
+	if err := stRepo.MarkBatch(ctx, []ports.StreamHealth{
+		{StreamID: "s1", IsAlive: true, LatencyMs: 10, Codec: domain.CodecNo, Codecs: "mpeg2video,mp2", CodecSondeado: true},
+		{StreamID: "s2", IsAlive: true, LatencyMs: 20},
+	}); err != nil {
+		t.Fatalf("MarkBatch: %v", err)
+	}
+	mirrors, err := stRepo.FindMirrorsByChannelID(ctx, "ch-1")
+	if err != nil {
+		t.Fatalf("FindMirrorsByChannelID: %v", err)
+	}
+	if len(mirrors) != 2 {
+		t.Fatalf("mirrors = %d", len(mirrors))
+	}
+	if mirrors[0].Codec != domain.CodecNo || mirrors[0].Codecs != "mpeg2video,mp2" {
+		t.Errorf("s1: %+v", mirrors[0])
+	}
+	if mirrors[1].Codec != domain.CodecUnknown || mirrors[1].Codecs != "" {
+		t.Errorf("s2 sin sondear debe ser Unknown: %+v", mirrors[1])
+	}
+}
+
+func TestFindAllDevuelveCodecCheckedAt(t *testing.T) {
+	ctx := context.Background()
+	stRepo, _ := repoConCanal(t)
+	if err := stRepo.MarkBatch(ctx, []ports.StreamHealth{
+		{StreamID: "s1", IsAlive: true, Codec: domain.CodecOK, Codecs: "h264,aac", CodecSondeado: true},
+	}); err != nil {
+		t.Fatalf("MarkBatch: %v", err)
+	}
+	todos, err := stRepo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll: %v", err)
+	}
+	porID := map[string]domain.Stream{}
+	for _, s := range todos {
+		porID[s.ID] = s
+	}
+	if porID["s1"].CodecCheckedAt.IsZero() {
+		t.Error("s1 sondeado: CodecCheckedAt no puede ser cero")
+	}
+	if !porID["s2"].CodecCheckedAt.IsZero() {
+		t.Error("s2 nunca sondeado: CodecCheckedAt debe ser cero")
+	}
+}
+
 // nuevaDBDePrueba abre una DB de test con los providers "p1" y "p2" ya
 // sembrados (channels.provider_id tiene FK contra providers(id)), y devuelve
 // el *sql.DB crudo para que el test construya los repos que necesite.

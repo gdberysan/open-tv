@@ -117,6 +117,10 @@ func alterMigrations(db *sql.DB) error {
 		"ALTER TABLE streams ADD COLUMN referrer TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE streams ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE streams ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0",
+		// Sonda de códecs por segmento (spec salud-por-segmento, 2026-09-05).
+		"ALTER TABLE streams ADD COLUMN codec_ok INTEGER",
+		"ALTER TABLE streams ADD COLUMN codecs TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE streams ADD COLUMN codec_checked_at INTEGER NOT NULL DEFAULT 0",
 	}
 	for _, stmt := range alters {
 		if _, err := db.Exec(stmt); err != nil {

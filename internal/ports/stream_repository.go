@@ -16,6 +16,13 @@ type StreamHealth struct {
 	// (el cero valor) significa "no se pudo preguntar" y NO pisa lo que ya
 	// hubiera guardado.
 	Web domain.WebSupport
+	// Codec es el veredicto de la sonda del primer segmento (spec
+	// salud-por-segmento). CodecSondeado dice si la sonda CORRIÓ en este
+	// chequeo: si corrió, se sella codec_checked_at aunque el veredicto sea
+	// CodecUnknown; un Unknown nunca pisa un veredicto anterior.
+	Codec         domain.CodecSupport
+	Codecs        string
+	CodecSondeado bool
 }
 
 // MirrorHealth es un stream de un canal con su salud, tal y como lo consume el
@@ -26,6 +33,10 @@ type MirrorHealth struct {
 	IsAlive   bool
 	LatencyMs int64
 	WebOK     domain.WebSupport
+	// Codec: CodecNo = ningún navegador decodifica su vídeo; el cliente lo
+	// salta. Codecs es la cadena corta para el mensaje ("mpeg2video,mp2").
+	Codec  domain.CodecSupport
+	Codecs string
 }
 
 type StreamRepository interface {
