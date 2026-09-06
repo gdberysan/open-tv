@@ -445,10 +445,15 @@
   // directa o por su versión proxeada (planDeFailover puede haber generado
   // un intento cuya url es urlProxy(mirror.url), no mirror.url tal cual).
   // Además de fijar mirrorActual, alDesenlace() la usa para reportar la URL
-  // RAW del mirror (nunca intento.url a secas): el backend correla
+  // RAW del mirror (NUNCA intento.url a secas): el backend correla
   // RegistrarDesenlace por `url = ?` contra streams.url, que guarda la RAW,
   // así que reportar la proxeada (Tarea 8, hallazgo real contra AMC (720p))
   // no encontraba fila y el fallo se perdía en silencio (no-op sin error).
+  // mirrorsVigentes se puebla en AMBAS ramas de reproducir() (mirrors[] Y el
+  // destino único legacy, fix round 1) para que esto nunca falle ahí donde sí
+  // hay un origen real que reportar; si de verdad no hay match, alDesenlace()
+  // recibe '' (mejor no reportar que reportar una url que el servidor nunca
+  // podrá casar).
   function mirrorDe(intento: Intento): Mirror | null {
     return mirrorsVigentes.find((m) => intento.url === m.url || urlProxy(m.url) === intento.url) ?? null
   }
@@ -508,7 +513,7 @@
               motor,
               via: via(intento),
               mirrorIndex: intento.mirrorIndex,
-              url: mirrorDe(intento)?.url ?? intento.url,
+              url: mirrorDe(intento)?.url ?? '', // mejor no reportar que reportar una url que el servidor nunca podrá casar
               oculto: ocultoEnIntento,
               motorForzado: motorForzado !== null,
             })
@@ -531,7 +536,7 @@
             via: via(intento),
             mirrorIndex: intento.mirrorIndex,
             msPrimerFrame: performance.now() - inicio,
-            url: mirrorDe(intento)?.url ?? intento.url,
+            url: mirrorDe(intento)?.url ?? '', // mejor no reportar que reportar una url que el servidor nunca podrá casar
             oculto: ocultoEnIntento,
             motorForzado: motorForzado !== null,
           })
@@ -702,6 +707,10 @@
         // compatibilidad con el destino único de siempre, como un solo mirror.
         const destinoUnico = await fuente.destino(canal.id)
         if (destruido || miId !== intentoId) return
+        // mirrorDe() necesita ESTO para resolver la url RAW del origen (la
+        // que guarda streams.url): el desenlace siempre lleva la URL cruda,
+        // nunca la proxeada, aunque el plan de esta rama sea solo-proxy.
+        mirrorsVigentes = [{ url: destinoUnico.url, vivo: null, latenciaMs: 0, webOk: canal.webOk }]
         const proxyDisp = await fuente.proxyDisponible()
         if (destruido || miId !== intentoId) return
         const plan = planDeReproduccion({
@@ -772,7 +781,7 @@
           motor,
           via: via(intento),
           mirrorIndex: intento.mirrorIndex,
-          url: mirrorDe(intento)?.url ?? intento.url,
+          url: mirrorDe(intento)?.url ?? '', // mejor no reportar que reportar una url que el servidor nunca podrá casar
           oculto: ocultoEnIntento,
           motorForzado: motorForzado !== null,
         })

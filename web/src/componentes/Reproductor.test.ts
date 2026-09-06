@@ -224,7 +224,14 @@ describe('Reproductor — failover entre mirrors', () => {
   // tiene su ÚNICA url en i=0 — "i > 0" la etiquetaba como 'directo' en las
   // stats, cuando sí es por proxy. Contra el código viejo, este test
   // fallaría (via sería 'directo').
-  it('plan legacy solo-proxy (sin mirrors, webOk=false) reporta via="proxy", no "directo"', async () => {
+  //
+  // Fix round 1 de la Tarea 8: la misma rama (mirrorsVigentes se quedaba
+  // vacío en el camino legacy) hacía que mirrorDe(intento) SIEMPRE fallara
+  // aquí, y el fallback `?? intento.url` reportaba la url PROXEADA al
+  // desenlace — el mismo bug que ya se había arreglado para el camino con
+  // mirrors[], sobreviviendo en este otro. Contra el código viejo,
+  // desenlaces[0].url sería urlProxy('https://unico/x.m3u8'), no la RAW.
+  it('plan legacy solo-proxy (sin mirrors, webOk=false) reporta via="proxy" y la URL RAW del destino, no la proxeada', async () => {
     hlsState.instancias.length = 0
     const fuente = {
       mirrors: vi.fn(async () => []),
@@ -248,6 +255,9 @@ describe('Reproductor — failover entre mirrors', () => {
 
     await vi.waitFor(() => expect(desenlaces.length).toBeGreaterThan(0))
     expect(desenlaces[0].via).toBe('proxy')
+    // La RAW del destino, la misma que streams.url guarda en el backend —
+    // nunca la proxeada, aunque el ÚNICO intento de esta rama sea por proxy.
+    expect(desenlaces[0].url).toBe('https://unico/x.m3u8')
   })
 
   // Hallazgo real de la Tarea 8 (verificación contra AMC (720p)): el backend
