@@ -22,6 +22,16 @@ type guardiaRed struct {
 // (un manifiesto). Sin timeout de cliente: lo pone el contexto de cada
 // petición. Sin keep-alive y con 4 conexiones por host, como el checker.
 func NuevoClienteGuardado(permitirDestinosPrivados bool) *http.Client {
+	return NuevoClienteGuardadoConTope(permitirDestinosPrivados, 4)
+}
+
+// NuevoClienteGuardadoConTope es NuevoClienteGuardado con el tope de
+// conexiones por host parametrizado. Existe porque la sonda de códecs del
+// validador comparte host con este mismo cliente (el proxy/manifiesto): si
+// las dos usaran el tope de 4, un host con miles de streams vería hasta 8
+// conexiones simultáneas y el límite que existe precisamente para evitar los
+// falsos muertos de nginx (limit_conn) quedaría duplicado sin querer.
+func NuevoClienteGuardadoConTope(permitirDestinosPrivados bool, maxConnsPerHost int) *http.Client {
 	g := guardiaRed{privadasOK: permitirDestinosPrivados}
 	dialer := &net.Dialer{
 		Timeout: tiempoPeticion,
@@ -35,7 +45,7 @@ func NuevoClienteGuardado(permitirDestinosPrivados bool) *http.Client {
 	}
 	return &http.Client{
 		Transport: &http.Transport{
-			MaxConnsPerHost:   4,
+			MaxConnsPerHost:   maxConnsPerHost,
 			DisableKeepAlives: true,
 			DialContext:       dialer.DialContext,
 		},

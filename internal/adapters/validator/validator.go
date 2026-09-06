@@ -19,7 +19,11 @@ func NewValidator(cfg Config, checker *Checker) *Validator {
 		cfg = DefaultConfig()
 	}
 	if checker == nil {
-		checker = NewCheckerConSonda(nil, proxy.NuevoClienteGuardado(cfg.PermitirDestinosPrivados), cfg.Timeout)
+		// Tope propio para la sonda (maxConnsPorHostSonda, 2): el checker de
+		// manifiestos ya gasta hasta 4 contra el mismo host, y sumar 4 más
+		// duplicaría el presupuesto pensado para no disparar el limit_conn
+		// de nginx.
+		checker = NewCheckerConSonda(nil, proxy.NuevoClienteGuardadoConTope(cfg.PermitirDestinosPrivados, maxConnsPorHostSonda), cfg.Timeout)
 	}
 
 	return &Validator{

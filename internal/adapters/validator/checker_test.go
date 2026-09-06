@@ -28,6 +28,20 @@ func TestCheckerNoReutilizaConexionesInactivas(t *testing.T) {
 	}
 }
 
+// La sonda comparte host con el checker de manifiestos (hasta 4 conexiones):
+// su propio tope debe ser MENOR (2), no otro 4, o el presupuesto que evita
+// los falsos muertos por limit_conn de nginx queda duplicado sin querer.
+func TestCheckerSondaPorDefectoTieneTopeMenorQueElDeManifiestos(t *testing.T) {
+	c := validator.NewChecker(nil, time.Second)
+	tr := c.TransporteSonda()
+	if tr == nil {
+		t.Fatal("el checker debe exponer el transporte propio de la sonda")
+	}
+	if tr.MaxConnsPerHost != 2 {
+		t.Errorf("MaxConnsPerHost de la sonda = %d; quiero 2", tr.MaxConnsPerHost)
+	}
+}
+
 func TestCheckerMandaUserAgentDeReproductor(t *testing.T) {
 	var recibido string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

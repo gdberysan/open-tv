@@ -46,3 +46,16 @@ func TestNuevoClienteGuardadoSinKeepAliveYConTopePorHost(t *testing.T) {
 		t.Errorf("DisableKeepAlives=%v MaxConnsPerHost=%d; quiero true y 4", tr.DisableKeepAlives, tr.MaxConnsPerHost)
 	}
 }
+
+// La sonda de códecs necesita un tope MENOR que el del proxy/manifiesto: los
+// dos comparten el mismo host y sumados no deben superar el presupuesto que
+// evita los falsos muertos por limit_conn de nginx.
+func TestNuevoClienteGuardadoConTopePersonalizado(t *testing.T) {
+	tr, ok := proxy.NuevoClienteGuardadoConTope(false, 2).Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("el transporte debe ser *http.Transport")
+	}
+	if tr.MaxConnsPerHost != 2 {
+		t.Errorf("MaxConnsPerHost = %d; quiero 2", tr.MaxConnsPerHost)
+	}
+}

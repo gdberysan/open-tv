@@ -23,6 +23,15 @@ type HTTPChecker interface {
 // tanto al checker (falsos muertos) como al usuario reproduciendo.
 const maxConnsPerHost = 4
 
+// maxConnsPorHostSonda acota, POR SEPARADO, el cliente de la sonda de
+// códecs (manifiesto intermedio + segmento). El checker de manifiestos ya
+// gasta hasta maxConnsPerHost (4) contra ese mismo host; si la sonda usara
+// el mismo tope, un host con muchos streams podría ver hasta 4+4=8
+// conexiones simultáneas, duplicando el presupuesto que existe justo para
+// evitar los falsos muertos de nginx. El presupuesto total por host queda
+// en 4+2=6.
+const maxConnsPorHostSonda = 2
+
 // userAgentPorDefecto identifica al checker como un reproductor. Algunos
 // orígenes filtran el default de Go (Go-http-client/2.0) con un 403. Se usa
 // cuando el stream no exige un User-Agent propio.
@@ -37,6 +46,9 @@ type Checker struct {
 	// piden las URLs que dicta un manifiesto de terceros: media playlist y
 	// segmento. El manifiesto en sí sigue yendo por client, como siempre.
 	sonda HTTPChecker
+	// transporteSonda es el *http.Transport del cliente por defecto de la
+	// sonda (nil si se inyectó un HTTPChecker desde fuera). Solo para tests.
+	transporteSonda *http.Transport
 }
 
 // NewChecker instancia un Checker con la configuración dada.
@@ -62,15 +74,22 @@ func NewCheckerConSonda(client, sonda HTTPChecker, timeout time.Duration) *Check
 		}
 		client = &http.Client{Timeout: timeout, Transport: tr}
 	}
+	var trSonda *http.Transport
 	if sonda == nil {
-		sonda = proxy.NuevoClienteGuardado(false)
+		clienteSonda := proxy.NuevoClienteGuardadoConTope(false, maxConnsPorHostSonda)
+		trSonda, _ = clienteSonda.Transport.(*http.Transport)
+		sonda = clienteSonda
 	}
-	return &Checker{client: client, transport: tr, timeout: timeout, sonda: sonda}
+	return &Checker{client: client, transport: tr, timeout: timeout, sonda: sonda, transporteSonda: trSonda}
 }
 
 // Transport expone el transporte propio del checker, o nil si se le inyectó un
 // cliente desde fuera. Solo para tests.
 func (c *Checker) Transport() *http.Transport { return c.transport }
+
+// TransporteSonda expone el transporte propio del cliente de la sonda de
+// códecs, o nil si se le inyectó un HTTPChecker desde fuera. Solo para tests.
+func (c *Checker) TransporteSonda() *http.Transport { return c.transporteSonda }
 
 // Check valida una URL sin cabeceras propias. Envoltorio compatible para los
 // call sites (y tests) que no tienen Referrer/UserAgent a mano.
