@@ -50,6 +50,13 @@ type Options struct {
 	// todos los tests de router existentes— se queda con el proxy
 	// bloqueando destinos privados.
 	PermitirDestinosPrivados bool
+	// Desenlaces es el puerto de ESCRITURA de POST /streams/desenlace. Va
+	// aparte de `streams` (el StreamRepository de arriba, de solo lectura)
+	// porque RegistrarDesenlace muta la tabla streams: cmd/open-tv/main.go
+	// inyecta aquí el repo abierto sobre el pool de escritura. nil (el caso
+	// de todos los tests de router existentes, que no lo necesitan) hace que
+	// el handler responda 503 en vez de panicar.
+	Desenlaces ports.RegistradorDesenlaces
 }
 
 // Syncer es lo que el router necesita del *services.Syncer para cablear tanto
@@ -108,6 +115,12 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	r.Post("/stats/playback", sh.PostPlayback)
 	r.Get("/stats", sh.GetStats)
 
+	// El desenlace real de un intento de reproducción (spec
+	// tiempo-hasta-la-imagen §3.1): opts.Desenlaces es nil en los tests de
+	// router que no lo necesitan, y el handler responde 503 en ese caso.
+	dh := handlers.NewDesenlaceHandler(logger, opts.Desenlaces)
+	r.Post("/streams/desenlace", dh.Post)
+
 	// /sources* es exclusivo del cliente web (Flutter no lo conoce, ver
 	// contrato congelado): alta/baja/resync de las fuentes "bring your own"
 	// del usuario. "sources" tiene que ser el pool de ESCRITURA: Add y Remove
@@ -133,6 +146,7 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 		r.Get("/countries", ch.GetCountries)
 		r.Get("/categories", ch.GetCategories)
 		r.Get("/qualities", ch.GetQualities)
+		r.Get("/imagen", ch.GetImagen) // literal antes de /{id}/health, mismo cuidado que el resto
 		r.Get("/random", ch.GetRandom)
 		r.Get("/epg", eh.GetEPGLote) // ?ids=<a,b,c>
 		r.Get("/{id}/health", ch.GetHealth)

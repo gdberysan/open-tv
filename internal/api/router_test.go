@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,6 +140,9 @@ func TestTablaDeRutas(t *testing.T) {
 		// como parámetro, los selectores recibirían basura en vez de facetas.
 		{"/channels/countries", http.StatusOK},
 		{"/channels/categories", http.StatusOK},
+		// /imagen es otra literal que convive con /{id}/health: tiene que
+		// resolverse antes de que chi la confunda con un ID de canal.
+		{"/channels/imagen", http.StatusOK},
 		{"/channels/stream?id=x", http.StatusNotFound},
 		{"/channels/loquesea/health", http.StatusNotFound},
 		// /sources* (Tarea 4): alcanzables a través del router REAL, no de un
@@ -233,5 +237,29 @@ func TestProxyApagadoNoRompeFallbackSPA(t *testing.T) {
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/canal/x", nil))
 	if rec.Code != http.StatusOK {
 		t.Errorf("/canal/x (ruta del cliente, no de la API) = %d, quiero %d (fallback SPA)", rec.Code, http.StatusOK)
+	}
+}
+
+// POST /streams/desenlace es mutante: MismoOrigen (global) lo corta en
+// cross-site antes de llegar al handler; en mismo origen, sin registrador (el
+// caso de este test, api.Options{} sin Desenlaces) responde 503, nunca panic.
+func TestStreamsDesenlaceEsMutanteProtegido(t *testing.T) {
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), nil, api.Options{})
+	cuerpo := `{"url":"http://o/x.m3u8","resultado":"fallo","motivo":"caido"}`
+	// Cross-site: lo corta MismoOrigen antes de llegar al handler.
+	req := httptest.NewRequest(http.MethodPost, "/streams/desenlace", strings.NewReader(cuerpo))
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("cross-site → %d, quiero 403", rec.Code)
+	}
+	// Mismo origen sin registrador (tests): 503, no panic.
+	req = httptest.NewRequest(http.MethodPost, "/streams/desenlace", strings.NewReader(cuerpo))
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("sin registrador → %d, quiero 503", rec.Code)
 	}
 }

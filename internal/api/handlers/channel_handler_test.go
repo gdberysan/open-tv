@@ -486,7 +486,10 @@ func TestGetStreamURLIncluyeAirplayOK(t *testing.T) {
 // mirrors ordenados por salud de la Tarea 1, con web_ok mapeado a bool/null.
 func TestGetChannelStreamsDevuelveMirrorsOrdenados(t *testing.T) {
 	streams := &mockStreamRepo{mirrors: []ports.MirrorHealth{
-		{URL: "https://a/x.m3u8", IsAlive: true, LatencyMs: 100, WebOK: domain.WebOK, Codec: domain.CodecNo, Codecs: "mp2,mpeg2video"},
+		{
+			URL: "https://a/x.m3u8", IsAlive: true, LatencyMs: 100, WebOK: domain.WebOK, Codec: domain.CodecNo, Codecs: "mp2,mpeg2video",
+			Audio: domain.AudioNo, ImagenMs: 2100, FallosReales: 2, UltimoDesenlace: time.Now().Add(-time.Hour), UltimoMotivo: "desconocido",
+		},
 		{URL: "https://b/x.m3u8", IsAlive: true, LatencyMs: 300, WebOK: domain.WebNo},
 	}}
 	h := NewChannelHandler(slog.New(slog.DiscardHandler), &mockRepo{}, &mockProvider{}, streams, nil)
@@ -512,6 +515,71 @@ func TestGetChannelStreamsDevuelveMirrorsOrdenados(t *testing.T) {
 	}
 	if got[1]["codec_ok"] != nil || got[1]["codecs"] != "" {
 		t.Errorf("sin sondear debe ser null y '': %v", got[1])
+	}
+	if got[0]["audio_ok"] != false {
+		t.Errorf("audio_ok del primero = %v, quiero false", got[0]["audio_ok"])
+	}
+	if got[0]["imagen_ms"] != float64(2100) {
+		t.Errorf("imagen_ms del primero = %v, quiero 2100", got[0]["imagen_ms"])
+	}
+	if got[0]["sin_imagen"] != true {
+		t.Errorf("sin_imagen del primero = %v, quiero true", got[0]["sin_imagen"])
+	}
+	if s, ok := got[0]["ultimo_fallo_hace_s"].(float64); !ok || s < 3590 || s > 3610 {
+		t.Errorf("ultimo_fallo_hace_s del primero = %v, quiero ~3600", got[0]["ultimo_fallo_hace_s"])
+	}
+	if got[1]["audio_ok"] != nil {
+		t.Errorf("audio_ok del segundo = %v, quiero nil", got[1]["audio_ok"])
+	}
+	if got[1]["sin_imagen"] != false {
+		t.Errorf("sin_imagen del segundo = %v, quiero false", got[1]["sin_imagen"])
+	}
+	if got[1]["ultimo_fallo_hace_s"] != float64(0) {
+		t.Errorf("ultimo_fallo_hace_s del segundo = %v, quiero 0", got[1]["ultimo_fallo_hace_s"])
+	}
+}
+
+// GET /channels/imagen agrega solo los canales con desenlace registrado
+// (ImagenPorCanal), y sirve {} en vez de null cuando el catálogo está vacío.
+func TestGetImagenDevuelveSoloCanalesConDatos(t *testing.T) {
+	streams := &mockStreamRepo{imagen: []ports.ImagenCanal{
+		{ChannelID: "c1", ImagenMs: 1200},
+		{ChannelID: "c2", SinImagen: true},
+	}}
+	h := NewChannelHandler(slog.New(slog.DiscardHandler), &mockRepo{}, &mockProvider{}, streams, nil)
+
+	rec := httptest.NewRecorder()
+	h.GetImagen(rec, httptest.NewRequest(http.MethodGet, "/channels/imagen", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("código %d: %s", rec.Code, rec.Body.String())
+	}
+	var got map[string]struct {
+		ImagenMs  int64 `json:"imagen_ms"`
+		SinImagen bool  `json:"sin_imagen"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(got) != 2 || got["c1"].ImagenMs != 1200 || got["c1"].SinImagen != false {
+		t.Errorf("c1 mal: %+v", got["c1"])
+	}
+	if got["c2"].ImagenMs != 0 || got["c2"].SinImagen != true {
+		t.Errorf("c2 mal: %+v", got["c2"])
+	}
+}
+
+func TestGetImagenVacioEsObjetoVacio(t *testing.T) {
+	h := NewChannelHandler(slog.New(slog.DiscardHandler), &mockRepo{}, &mockProvider{}, &mockStreamRepo{}, nil)
+
+	rec := httptest.NewRecorder()
+	h.GetImagen(rec, httptest.NewRequest(http.MethodGet, "/channels/imagen", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("código %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.TrimSpace(rec.Body.String()) != "{}" {
+		t.Errorf("cuerpo = %q, quiero {}", rec.Body.String())
 	}
 }
 

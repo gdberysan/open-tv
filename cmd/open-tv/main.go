@@ -271,6 +271,10 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 			HostsPermitidos:          hostsPermitidos(ln),
 			Agregador:                agregador,
 			PermitirDestinosPrivados: permitirDestinosPrivados(),
+			// Desenlaces necesita el pool de ESCRITURA: RegistrarDesenlace
+			// muta streams.imagen_ms/fallos_reales, y streamRepoRO está
+			// abierto en modo read-only.
+			Desenlaces: streamRepo,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,

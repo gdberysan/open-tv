@@ -187,6 +187,14 @@ type mirrorJSON struct {
 	// mensaje al usuario nombra un formato de VÍDEO y decir «viene en aac» sería
 	// mentir el códec equivocado. '' si no se sabe o si el PMT no traía vídeo.
 	Codecs string `json:"codecs"`
+	// AudioOK, ImagenMs, SinImagen y UltimoFalloHaceS son de la spec
+	// tiempo-hasta-la-imagen (§3.1/§3.5): audio_ok null = sin sondear;
+	// sin_imagen se decide en el SERVIDOR (domain.SinImagen) y viaja ya
+	// resuelta, el cliente nunca rederiva la regla de histéresis.
+	AudioOK          *bool `json:"audio_ok"`
+	ImagenMs         int64 `json:"imagen_ms"`
+	SinImagen        bool  `json:"sin_imagen"`
+	UltimoFalloHaceS int64 `json:"ultimo_fallo_hace_s"`
 }
 
 // GetChannelStreams devuelve los mirrors de un canal ordenados por salud, para
@@ -207,12 +215,42 @@ func (h *ChannelHandler) GetChannelStreams(w http.ResponseWriter, r *http.Reques
 		h.writeError(w, http.StatusNotFound, "Canal sin mirrors")
 		return
 	}
+	ahora := time.Now()
 	salida := make([]mirrorJSON, 0, len(mirrors))
 	for _, m := range mirrors {
+		// ultimo_fallo_hace_s solo tiene sentido con algún fallo real
+		// registrado: sin eso, "hace cuánto" no es una pregunta con respuesta.
+		var haceS int64
+		if m.FallosReales > 0 && !m.UltimoDesenlace.IsZero() {
+			haceS = int64(ahora.Sub(m.UltimoDesenlace).Seconds())
+		}
 		salida = append(salida, mirrorJSON{
 			URL: m.URL, IsAlive: m.IsAlive, LatencyMs: m.LatencyMs, WebOK: webOKaPtr(m.WebOK),
 			CodecOK: codecOKaPtr(m.Codec), Codecs: domain.CodecsDeVideo(m.Codecs),
+			AudioOK: audioOKaPtr(m.Audio), ImagenMs: m.ImagenMs,
+			SinImagen:        domain.SinImagen(m.FallosReales, m.UltimoDesenlace, ahora),
+			UltimoFalloHaceS: haceS,
 		})
+	}
+	h.writeJSON(w, http.StatusOK, salida)
+}
+
+// GetImagen: GET /channels/imagen → {id: {imagen_ms, sin_imagen}} solo para
+// canales con algún desenlace registrado. Objeto vacío, nunca null.
+func (h *ChannelHandler) GetImagen(w http.ResponseWriter, r *http.Request) {
+	lista, err := h.streams.ImagenPorCanal(r.Context(), time.Now())
+	if err != nil {
+		h.logger.Error("GetImagen: fallo agregando", slog.Any("error", err))
+		h.writeError(w, http.StatusInternalServerError, "Error agregando la imagen por canal")
+		return
+	}
+	type imagenJSON struct {
+		ImagenMs  int64 `json:"imagen_ms"`
+		SinImagen bool  `json:"sin_imagen"`
+	}
+	salida := make(map[string]imagenJSON, len(lista))
+	for _, ic := range lista {
+		salida[string(ic.ChannelID)] = imagenJSON{ImagenMs: ic.ImagenMs, SinImagen: ic.SinImagen}
 	}
 	h.writeJSON(w, http.StatusOK, salida)
 }
@@ -239,6 +277,21 @@ func codecOKaPtr(v domain.CodecSupport) *bool {
 		t := true
 		return &t
 	case domain.CodecNo:
+		f := false
+		return &f
+	default:
+		return nil
+	}
+}
+
+// audioOKaPtr traduce el tri-estado de audio del sondeo de códecs al *bool
+// del cable (nil = sin sondear).
+func audioOKaPtr(v domain.AudioSupport) *bool {
+	switch v {
+	case domain.AudioOK:
+		t := true
+		return &t
+	case domain.AudioNo:
 		f := false
 		return &f
 	default:

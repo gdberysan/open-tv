@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"time"
 
+	"github.com/gdberysan/open-tv/internal/domain"
 	"github.com/gdberysan/open-tv/internal/stats"
 )
 
@@ -57,6 +59,16 @@ func (c *DBCatalogoStats) Resumen(ctx context.Context) (map[string]any, error) {
 	if err := c.db.QueryRowContext(ctx, q).Scan(&total, &vivos, &webOK, &webNo, &codecNo); err != nil {
 		return nil, fmt.Errorf("agregando el catálogo: %w", err)
 	}
+
+	imagenP50, err := c.imagenP50Ms(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sinImagen, err := c.sinImagenCount(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	return map[string]any{
 		"streams_totales": total,
 		"vivos":           vivos,
@@ -65,7 +77,71 @@ func (c *DBCatalogoStats) Resumen(ctx context.Context) (map[string]any, error) {
 		"web_no":          webNo,
 		"web_desconocido": total - webOK - webNo,
 		"codec_no":        codecNo,
+		"imagen_p50_ms":   imagenP50,
+		"sin_imagen":      sinImagen,
 	}, nil
+}
+
+// imagenP50Ms es la mediana de los tiempos hasta la imagen REALES (spec
+// tiempo-hasta-la-imagen §3.5): elemento n/2 de la lista ascendente, 0 si no
+// hay ninguno todavía. Se calcula en Go y no en SQL (SQLite no trae PERCENTILE
+// nativo) sobre una columna que en catálogos reales cabe de sobra en memoria.
+func (c *DBCatalogoStats) imagenP50Ms(ctx context.Context) (int64, error) {
+	rows, err := c.db.QueryContext(ctx, `SELECT imagen_ms FROM streams WHERE imagen_ms > 0 ORDER BY imagen_ms`)
+	if err != nil {
+		return 0, fmt.Errorf("agregando imagen_p50_ms: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var valores []int64
+	for rows.Next() {
+		var ms int64
+		if err := rows.Scan(&ms); err != nil {
+			return 0, fmt.Errorf("agregando imagen_p50_ms: %w", err)
+		}
+		valores = append(valores, ms)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("agregando imagen_p50_ms: %w", err)
+	}
+	if len(valores) == 0 {
+		return 0, nil
+	}
+	return valores[len(valores)/2], nil
+}
+
+// sinImagenCount cuenta los mirrors que domain.SinImagen salta AHORA MISMO:
+// el mismo umbral que aplica el servidor en /channels/streams, para que el
+// número de este agregado y lo que ve el cliente no puedan divergir.
+func (c *DBCatalogoStats) sinImagenCount(ctx context.Context) (int, error) {
+	rows, err := c.db.QueryContext(ctx,
+		`SELECT fallos_reales, ultimo_desenlace_at FROM streams WHERE fallos_reales >= ?`,
+		domain.UmbralFallosReales)
+	if err != nil {
+		return 0, fmt.Errorf("agregando sin_imagen: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	ahora := time.Now()
+	var n int
+	for rows.Next() {
+		var fallosReales int
+		var ultimoUnix int64
+		if err := rows.Scan(&fallosReales, &ultimoUnix); err != nil {
+			return 0, fmt.Errorf("agregando sin_imagen: %w", err)
+		}
+		var ultimo time.Time
+		if ultimoUnix > 0 {
+			ultimo = time.Unix(ultimoUnix, 0)
+		}
+		if domain.SinImagen(fallosReales, ultimo, ahora) {
+			n++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("agregando sin_imagen: %w", err)
+	}
+	return n, nil
 }
 
 // StatsHandler responde los endpoints de observabilidad local: el cliente
