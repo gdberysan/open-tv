@@ -1150,6 +1150,54 @@ func TestRegistrarDesenlaceExitoYFallos(t *testing.T) {
 	}
 }
 
+// Un fallo NO real (geo/formato/codec) NO debe re-armar la ventana de «sin
+// imagen»: si los 2 fallos reales que dispararon SinImagen ya caducaron (más
+// de 24h), un geo 403 posterior en ese mismo mirror no puede hacer que vuelva
+// a saltarse — solo se anota el motivo para stats (spec §3.2/§3.3).
+func TestRegistrarDesenlaceFalloNoRealNoReArmaLaVentana(t *testing.T) {
+	ctx := context.Background()
+	stRepo, sqlDB := repoConCanal(t)
+	url := "http://a.example/1.m3u8"
+
+	// Dos fallos reales.
+	for i := 0; i < 2; i++ {
+		if err := stRepo.RegistrarDesenlace(ctx, url, ports.DesenlaceMirror{Resultado: "fallo", Motivo: "desconocido"}); err != nil {
+			t.Fatalf("RegistrarDesenlace fallo real %d: %v", i, err)
+		}
+	}
+
+	// Se envejece la ventana a mano: 25h atrás, fuera de VentanaFallosReales.
+	haceRato := time.Now().Add(-25 * time.Hour).Unix()
+	if _, err := sqlDB.Exec(`UPDATE streams SET ultimo_desenlace_at = ? WHERE id = 's1'`, haceRato); err != nil {
+		t.Fatal(err)
+	}
+
+	// Un fallo NO real (geo) no debe tocar esa fecha.
+	if err := stRepo.RegistrarDesenlace(ctx, url, ports.DesenlaceMirror{Resultado: "fallo", Motivo: "geo"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var fallos int64
+	var ultimo int64
+	var motivo string
+	if err := sqlDB.QueryRow(`SELECT fallos_reales, ultimo_desenlace_at, ultimo_motivo FROM streams WHERE id = 's1'`).
+		Scan(&fallos, &ultimo, &motivo); err != nil {
+		t.Fatal(err)
+	}
+	if fallos != 2 {
+		t.Errorf("fallos_reales = %d, quiero 2 (el fallo geo no cuenta)", fallos)
+	}
+	if ultimo != haceRato {
+		t.Errorf("ultimo_desenlace_at = %d, quiero que NO cambie (%d): el fallo no real re-armó la ventana", ultimo, haceRato)
+	}
+	if motivo != "geo" {
+		t.Errorf("ultimo_motivo = %q, quiero \"geo\"", motivo)
+	}
+	if domain.SinImagen(int(fallos), time.Unix(ultimo, 0), time.Now()) {
+		t.Error("SinImagen debe ser false: la ventana ya expiró y el fallo geo no debió re-armarla")
+	}
+}
+
 func TestRegistrarDesenlaceURLDesconocidaNoFalla(t *testing.T) {
 	stRepo, _ := repoConCanal(t)
 	if err := stRepo.RegistrarDesenlace(context.Background(), "http://nadie.example/x.m3u8", ports.DesenlaceMirror{Resultado: "fallo", Motivo: "caido"}); err != nil {

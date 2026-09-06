@@ -118,8 +118,13 @@ En `schema.sql` Y en `alterMigrations`, como siempre.
 - **Fallo real:** `fallos_reales += 1`, `ultimo_desenlace_at = now`,
   `ultimo_motivo = motivo`. `imagen_ms` NO se toca: sigue siendo la última
   vez que sí se vio.
-- **Fallo no real** (`geo`/`formato`/`codec`): solo `ultimo_motivo` y
-  `ultimo_desenlace_at`.
+- **Fallo no real** (`geo`/`formato`/`codec`): **solo `ultimo_motivo`**
+  (para stats). `ultimo_desenlace_at` **NO se toca** — corregido tras la
+  revisión de rama completa (defecto de spec, no del código): un geo 403
+  en un mirror cuyos fallos reales ya caducaron (pasadas las 24 h de
+  §3.3) no debe re-armar la ventana y volver a saltarlo. Para "es geo" ya
+  existe el motivo/mensaje de clase (`reproductor.error.geo`); la ventana
+  de «sin imagen» es solo para fallos reales.
 
 ### 3.3 La regla de «sin imagen desde aquí»
 
@@ -130,6 +135,10 @@ Misma filosofía que la histéresis del health-check (`DeadFailThreshold =
 `UmbralFallosReales = 2`, `VentanaFallosReales = 24h`. Se evalúa en el
 servidor (una función pura en `domain`, `SinImagen(fallos, ultimoAt, ahora)`)
 y viaja ya decidida en el cable: el cliente **nunca** rederiva la regla.
+Importante: **solo un fallo real actualiza `ultimo_desenlace_at`** (§3.2);
+un fallo no real (geo/formato/codec) nunca re-arma la ventana, así que una
+racha de fallos reales ya caducada no revive por culpa de un motivo ajeno
+al origen.
 
 ### 3.4 Orden de los mirrors
 

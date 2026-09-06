@@ -13,6 +13,7 @@ import (
 )
 
 var _ ports.StreamRepository = (*SQLiteStreamRepository)(nil)
+var _ ports.RegistradorDesenlaces = (*SQLiteStreamRepository)(nil)
 
 // SQLiteStreamRepository implementa ports.StreamRepository sobre SQLite.
 // Persiste las URLs de stream que antes solo vivían en el caché en memoria
@@ -268,8 +269,12 @@ func (r *SQLiteStreamRepository) MarkDead(ctx context.Context, streamID string) 
 // (spec tiempo-hasta-la-imagen §3.2-3.3) a TODAS las filas con esa URL —
 // varios canales pueden compartir mirror. Un éxito ("iniciado") guarda la
 // imagen y resetea el contador de fallos reales; un fallo real
-// (domain.MotivoEsFalloReal) lo incrementa sin tocar la última imagen vista;
-// cualquier otro motivo (geo/formato/codec) solo se anota para stats. URL
+// (domain.MotivoEsFalloReal) lo incrementa Y re-arma ultimo_desenlace_at (la
+// ventana de domain.SinImagen); cualquier otro motivo (geo/formato/codec) NO
+// es fallo del origen: solo se anota ultimo_motivo para stats, SIN tocar
+// ultimo_desenlace_at — un geo 403 en un mirror cuyos fallos reales ya
+// caducaron no debe re-armar la ventana y volver a saltarlo (para "es geo"
+// ya está el motivo/mensaje de clase, no hace falta la ventana). URL
 // desconocida = no-op sin error: un mirror ya podado no debe romper nada.
 func (r *SQLiteStreamRepository) RegistrarDesenlace(ctx context.Context, url string, d ports.DesenlaceMirror) error {
 	now := time.Now().Unix()
@@ -283,10 +288,10 @@ func (r *SQLiteStreamRepository) RegistrarDesenlace(ctx context.Context, url str
 		q = `UPDATE streams SET fallos_reales = fallos_reales + 1, ultimo_desenlace_at = ?, ultimo_motivo = ?, updated_at = ? WHERE url = ?`
 		args = []any{now, d.Motivo, now, url}
 	default:
-		// geo/formato/codec: se anota el motivo para stats, no cuenta como
-		// fallo del origen.
-		q = `UPDATE streams SET ultimo_desenlace_at = ?, ultimo_motivo = ?, updated_at = ? WHERE url = ?`
-		args = []any{now, d.Motivo, now, url}
+		// geo/formato/codec: se anota el motivo para stats; NO toca
+		// ultimo_desenlace_at, así que no re-arma la ventana de SinImagen.
+		q = `UPDATE streams SET ultimo_motivo = ?, updated_at = ? WHERE url = ?`
+		args = []any{d.Motivo, now, url}
 	}
 	if _, err := r.db.ExecContext(ctx, q, args...); err != nil {
 		return fmt.Errorf("db.Stream.RegistrarDesenlace (%s): %w", d.Resultado, err)

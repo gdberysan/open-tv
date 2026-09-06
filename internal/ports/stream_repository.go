@@ -80,7 +80,9 @@ type StreamRepository interface {
 	FindByChannelID(ctx context.Context, channelID domain.ChannelID) ([]domain.Stream, error)
 	FindBestByChannelID(ctx context.Context, channelID domain.ChannelID) (domain.Stream, error) // menor latencia, is_alive=true
 	// FindMirrorsByChannelID devuelve TODOS los mirrors del canal ordenados:
-	// vivos primero, dentro de vivos por latencia ascendente, muertos al final.
+	// vivos primero; dentro de vivos, con audio antes que sin audio; luego
+	// imagen conocida (imagen_ms > 0) ascendente antes que desconocida; luego
+	// latencia ascendente; los muertos van al final.
 	FindMirrorsByChannelID(ctx context.Context, channelID domain.ChannelID) ([]MirrorHealth, error)
 	MarkAlive(ctx context.Context, streamID string, latencyMs int64) error
 	MarkDead(ctx context.Context, streamID string) error
