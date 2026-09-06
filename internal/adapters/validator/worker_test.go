@@ -20,6 +20,7 @@ type fakeStreamRepo struct {
 	streams []domain.Stream
 	alive   map[string]int64 // streamID → latencia
 	dead    map[string]bool
+	salud   map[string]ports.StreamHealth // último resultado por stream
 }
 
 func newFakeStreamRepo(streams []domain.Stream) *fakeStreamRepo {
@@ -27,6 +28,7 @@ func newFakeStreamRepo(streams []domain.Stream) *fakeStreamRepo {
 		streams: streams,
 		alive:   make(map[string]int64),
 		dead:    make(map[string]bool),
+		salud:   make(map[string]ports.StreamHealth),
 	}
 }
 
@@ -57,6 +59,10 @@ func (f *fakeStreamRepo) MarkAlive(_ context.Context, id string, latencyMs int64
 // sobre los mapas alive/dead sigan valiendo.
 func (f *fakeStreamRepo) MarkBatch(ctx context.Context, resultados []ports.StreamHealth) error {
 	for _, r := range resultados {
+		f.mu.Lock()
+		f.salud[r.StreamID] = r
+		f.mu.Unlock()
+
 		var err error
 		if r.IsAlive {
 			err = f.MarkAlive(ctx, r.StreamID, r.LatencyMs)
@@ -68,6 +74,12 @@ func (f *fakeStreamRepo) MarkBatch(ctx context.Context, resultados []ports.Strea
 		}
 	}
 	return nil
+}
+
+func (f *fakeStreamRepo) saludDe(id string) ports.StreamHealth {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.salud[id]
 }
 
 func (f *fakeStreamRepo) MarkDead(_ context.Context, id string) error {
@@ -298,5 +310,126 @@ func TestWorker_Start_TerminaAlCancelar(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Start no terminó tras cancelar el contexto")
+	}
+}
+
+// Prefijo TS mínimo con PAT + PMT (MPEG-2 + MP2), para no depender de los
+// helpers del paquete externo de tests.
+func prefijoMPEG2() []byte {
+	paquete := func(pid int, seccion []byte) []byte {
+		p := make([]byte, 188)
+		for i := range p {
+			p[i] = 0xff
+		}
+		//nolint:gosec // pid es un literal de test (0 o 0x1000): cabe en 13 bits, sin overflow real
+		p[0], p[1], p[2], p[3], p[4] = 0x47, 0x40|byte(pid>>8), byte(pid), 0x10, 0
+		copy(p[5:], seccion)
+		return p
+	}
+	seccion := func(tableID byte, cuerpo []byte) []byte {
+		largo := len(cuerpo) + 4
+		//nolint:gosec // largo es el tamaño de una sección de test, muy por debajo de 255
+		s := append([]byte{tableID, 0xb0 | byte(largo>>8), byte(largo)}, cuerpo...)
+		return append(s, 0, 0, 0, 0)
+	}
+	pat := seccion(0x00, []byte{0x00, 0x01, 0xc1, 0x00, 0x00, 0x00, 0x01, 0xf0, 0x00})
+	pmt := seccion(0x02, []byte{0x00, 0x01, 0xc1, 0x00, 0x00, 0xe1, 0x00, 0xf0, 0x00,
+		0x02, 0xe1, 0x00, 0xf0, 0x00, 0x03, 0xe1, 0x01, 0xf0, 0x00})
+	return append(paquete(0, pat), paquete(0x1000, pmt)...)
+}
+
+func origenHLS(t *testing.T, hitsSeg *atomic.Int32) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/media.m3u8":
+			_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:4.0,\nseg.ts\n"))
+		case "/seg.ts":
+			hitsSeg.Add(1)
+			w.Header().Set("Content-Type", "video/MP2T")
+			_, _ = w.Write(prefijoMPEG2())
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestWorker_SondeaSoloLosCaducados(t *testing.T) {
+	var hitsSeg atomic.Int32
+	srv := origenHLS(t, &hitsSeg)
+	ahora := time.Now()
+
+	nunca := stream("st-nunca", "ch-1", srv.URL+"/media.m3u8?a")
+	reciente := stream("st-reciente", "ch-2", srv.URL+"/media.m3u8?b")
+	reciente.IsAlive = true
+	reciente.CodecCheckedAt = ahora.Add(-time.Hour)
+	viejo := stream("st-viejo", "ch-3", srv.URL+"/media.m3u8?c")
+	viejo.IsAlive = true
+	viejo.CodecCheckedAt = ahora.Add(-25 * time.Hour)
+	resucitado := stream("st-resucitado", "ch-4", srv.URL+"/media.m3u8?d")
+	resucitado.IsAlive = false
+	resucitado.CodecCheckedAt = ahora.Add(-time.Hour)
+
+	repo := newFakeStreamRepo([]domain.Stream{nunca, reciente, viejo, resucitado})
+	cfg := Config{MaxWorkers: 4, Timeout: 2 * time.Second, PermitirDestinosPrivados: true}
+	w := NewWorker(repo, cfg, time.Hour, nil)
+	w.checkOnce(context.Background())
+
+	if got := hitsSeg.Load(); got != 3 {
+		t.Errorf("segmentos pedidos = %d, quiero 3 (nunca, viejo, resucitado)", got)
+	}
+	for _, id := range []string{"st-nunca", "st-viejo", "st-resucitado"} {
+		s := repo.saludDe(id)
+		if !s.CodecSondeado || s.Codec != domain.CodecNo || s.Codecs != "mpeg2video,mp2" {
+			t.Errorf("%s: %+v", id, s)
+		}
+	}
+	if s := repo.saludDe("st-reciente"); s.CodecSondeado {
+		t.Errorf("st-reciente no debía sondearse: %+v", s)
+	}
+}
+
+// Dos filas con la MISMA URL: si cualquiera está caducada, la URL se sondea
+// (una vez) y el veredicto se aplica a las dos.
+func TestWorker_DedupPorURLSondeaSiAlgunaFilaEstaCaducada(t *testing.T) {
+	var hitsSeg atomic.Int32
+	srv := origenHLS(t, &hitsSeg)
+	a := stream("st-a", "ch-1", srv.URL+"/media.m3u8")
+	a.IsAlive = true
+	a.CodecCheckedAt = time.Now()
+	b := stream("st-b", "ch-2", srv.URL+"/media.m3u8") // nunca sondeado
+
+	repo := newFakeStreamRepo([]domain.Stream{a, b})
+	w := NewWorker(repo, Config{MaxWorkers: 4, Timeout: 2 * time.Second, PermitirDestinosPrivados: true}, time.Hour, nil)
+	w.checkOnce(context.Background())
+
+	if hitsSeg.Load() != 1 {
+		t.Errorf("segmentos pedidos = %d, quiero 1", hitsSeg.Load())
+	}
+	for _, id := range []string{"st-a", "st-b"} {
+		if s := repo.saludDe(id); !s.CodecSondeado || s.Codec != domain.CodecNo {
+			t.Errorf("%s: %+v", id, s)
+		}
+	}
+}
+
+func TestCodecCaducado(t *testing.T) {
+	ahora := time.Now()
+	casos := []struct {
+		nombre string
+		s      domain.Stream
+		quiero bool
+	}{
+		{"nunca sondeado", domain.Stream{IsAlive: true}, true},
+		{"reciente y vivo", domain.Stream{IsAlive: true, CodecCheckedAt: ahora.Add(-time.Hour)}, false},
+		{"más de 24 h", domain.Stream{IsAlive: true, CodecCheckedAt: ahora.Add(-CaducidadCodec - time.Minute)}, true},
+		{"venía de muerto", domain.Stream{IsAlive: false, CodecCheckedAt: ahora.Add(-time.Hour)}, true},
+	}
+	for _, c := range casos {
+		if got := codecCaducado(c.s, ahora); got != c.quiero {
+			t.Errorf("%s: codecCaducado = %v, quiero %v", c.nombre, got, c.quiero)
+		}
 	}
 }

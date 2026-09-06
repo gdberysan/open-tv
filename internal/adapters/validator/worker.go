@@ -5,8 +5,24 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/gdberysan/open-tv/internal/domain"
 	"github.com/gdberysan/open-tv/internal/ports"
 )
+
+// CaducidadCodec: cuánto vale un veredicto de códecs antes de volver a
+// sondear. Los códecs de un origen casi nunca cambian; 24 h acota el daño de
+// un veredicto viejo sin gastar dos peticiones por mirror cada hora.
+const CaducidadCodec = 24 * time.Hour
+
+// codecCaducado decide si el chequeo de esta pasada debe sondear el segmento:
+// nunca sondeado, veredicto viejo, o el mirror venía de muerto (un origen que
+// vuelve puede haber cambiado de todo).
+func codecCaducado(s domain.Stream, ahora time.Time) bool {
+	if !s.IsAlive || s.CodecCheckedAt.IsZero() {
+		return true
+	}
+	return ahora.Sub(s.CodecCheckedAt) > CaducidadCodec
+}
 
 // Worker ejecuta el health-check periódico de streams: valida cada URL con
 // el pool concurrente (HEAD→GET) y persiste el resultado vía MarkAlive /
@@ -72,14 +88,20 @@ func (w *Worker) checkOnce(ctx context.Context) {
 	// mantener las cabeceras es más seguro que perderlas: sin ellas el
 	// stream se marca muerto por una razón falsa.
 	cabecerasPorURL := make(map[string]TareaCheck, len(streams))
+	ahora := time.Now()
 	for _, s := range streams {
 		byURL[s.URL] = append(byURL[s.URL], s.ID)
 		actual, ya := cabecerasPorURL[s.URL]
 		if !ya {
-			cabecerasPorURL[s.URL] = TareaCheck{URL: s.URL, Referrer: s.Referrer, UserAgent: s.UserAgent}
-		} else if actual.Referrer == "" && actual.UserAgent == "" && (s.Referrer != "" || s.UserAgent != "") {
-			cabecerasPorURL[s.URL] = TareaCheck{URL: s.URL, Referrer: s.Referrer, UserAgent: s.UserAgent}
+			cabecerasPorURL[s.URL] = TareaCheck{URL: s.URL, Referrer: s.Referrer, UserAgent: s.UserAgent,
+				CodecCaducado: codecCaducado(s, ahora)}
+			continue
 		}
+		if actual.Referrer == "" && actual.UserAgent == "" && (s.Referrer != "" || s.UserAgent != "") {
+			actual.Referrer, actual.UserAgent = s.Referrer, s.UserAgent
+		}
+		actual.CodecCaducado = actual.CodecCaducado || codecCaducado(s, ahora)
+		cabecerasPorURL[s.URL] = actual
 	}
 
 	tareas := make(chan TareaCheck)
@@ -94,15 +116,21 @@ func (w *Worker) checkOnce(ctx context.Context) {
 		}
 	}()
 
-	var alive, dead int
+	var alive, dead, sondeados int
 	resultados := make([]ports.StreamHealth, 0, len(streams))
 	for res := range w.validator.Start(ctx, tareas) {
+		if res.CodecSondeado {
+			sondeados++
+		}
 		for _, id := range byURL[res.URL] {
 			resultados = append(resultados, ports.StreamHealth{
-				StreamID:  id,
-				IsAlive:   res.IsAlive,
-				LatencyMs: res.LatencyMs,
-				Web:       res.Web,
+				StreamID:      id,
+				IsAlive:       res.IsAlive,
+				LatencyMs:     res.LatencyMs,
+				Web:           res.Web,
+				Codec:         res.Codec,
+				Codecs:        res.Codecs,
+				CodecSondeado: res.CodecSondeado,
 			})
 			if res.IsAlive {
 				alive++
@@ -123,5 +151,6 @@ func (w *Worker) checkOnce(ctx context.Context) {
 		slog.Int("streams", len(streams)),
 		slog.Int("urls_unicas", len(byURL)),
 		slog.Int("vivos", alive),
-		slog.Int("muertos", dead))
+		slog.Int("muertos", dead),
+		slog.Int("codecs_sondeados", sondeados))
 }
