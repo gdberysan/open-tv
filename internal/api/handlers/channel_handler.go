@@ -181,7 +181,12 @@ type mirrorJSON struct {
 	LatencyMs int64  `json:"latency_ms"`
 	WebOK     *bool  `json:"web_ok"`   // null = sin comprobar
 	CodecOK   *bool  `json:"codec_ok"` // null = sin sondear; false = ningún navegador decodifica su vídeo
-	Codecs    string `json:"codecs"`   // "mpeg2video,mp2"; '' si no se sabe
+	// Codecs por el cable lleva SOLO el/los códec(s) de vídeo (p.ej. "mpeg2video"),
+	// nunca la lista entera del PMT: la columna streams.codecs de la DB sí guarda
+	// esa lista completa (con audio y tipos desconocidos) para el censo, pero el
+	// mensaje al usuario nombra un formato de VÍDEO y decir «viene en aac» sería
+	// mentir el códec equivocado. '' si no se sabe o si el PMT no traía vídeo.
+	Codecs string `json:"codecs"`
 }
 
 // GetChannelStreams devuelve los mirrors de un canal ordenados por salud, para
@@ -206,7 +211,7 @@ func (h *ChannelHandler) GetChannelStreams(w http.ResponseWriter, r *http.Reques
 	for _, m := range mirrors {
 		salida = append(salida, mirrorJSON{
 			URL: m.URL, IsAlive: m.IsAlive, LatencyMs: m.LatencyMs, WebOK: webOKaPtr(m.WebOK),
-			CodecOK: codecOKaPtr(m.Codec), Codecs: m.Codecs,
+			CodecOK: codecOKaPtr(m.Codec), Codecs: domain.CodecsDeVideo(m.Codecs),
 		})
 	}
 	h.writeJSON(w, http.StatusOK, salida)

@@ -47,3 +47,22 @@ func TestNombreCodecs(t *testing.T) {
 		}
 	}
 }
+
+func TestCodecsDeVideo(t *testing.T) {
+	casos := []struct {
+		cadena string
+		quiero string
+	}{
+		{"aac,hevc", "hevc"},
+		{"mp2,mpeg2video", "mpeg2video"},
+		{"hevc,aac,0x86,0x15", "hevc"},
+		{"h264,aac", "h264"},
+		{"aac", ""},
+		{"", ""},
+	}
+	for _, c := range casos {
+		if got := domain.CodecsDeVideo(c.cadena); got != c.quiero {
+			t.Errorf("CodecsDeVideo(%q) = %q, quiero %q", c.cadena, got, c.quiero)
+		}
+	}
+}

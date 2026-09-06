@@ -481,7 +481,7 @@ func TestGetStreamURLIncluyeAirplayOK(t *testing.T) {
 // mirrors ordenados por salud de la Tarea 1, con web_ok mapeado a bool/null.
 func TestGetChannelStreamsDevuelveMirrorsOrdenados(t *testing.T) {
 	streams := &mockStreamRepo{mirrors: []ports.MirrorHealth{
-		{URL: "https://a/x.m3u8", IsAlive: true, LatencyMs: 100, WebOK: domain.WebOK, Codec: domain.CodecNo, Codecs: "mpeg2video,mp2"},
+		{URL: "https://a/x.m3u8", IsAlive: true, LatencyMs: 100, WebOK: domain.WebOK, Codec: domain.CodecNo, Codecs: "mp2,mpeg2video"},
 		{URL: "https://b/x.m3u8", IsAlive: true, LatencyMs: 300, WebOK: domain.WebNo},
 	}}
 	h := NewChannelHandler(slog.New(slog.DiscardHandler), &mockRepo{}, &mockProvider{}, streams, nil)
@@ -502,8 +502,8 @@ func TestGetChannelStreamsDevuelveMirrorsOrdenados(t *testing.T) {
 	if got[0]["web_ok"] != true || got[1]["web_ok"] != false {
 		t.Errorf("web_ok mal mapeado: %v", got)
 	}
-	if got[0]["codec_ok"] != false || got[0]["codecs"] != "mpeg2video,mp2" {
-		t.Errorf("codec_ok/codecs mal mapeados en el primero: %v", got[0])
+	if got[0]["codec_ok"] != false || got[0]["codecs"] != "mpeg2video" {
+		t.Errorf("codec_ok/codecs mal mapeados en el primero (el cable solo lleva vídeo): %v", got[0])
 	}
 	if got[1]["codec_ok"] != nil || got[1]["codecs"] != "" {
 		t.Errorf("sin sondear debe ser null y '': %v", got[1])

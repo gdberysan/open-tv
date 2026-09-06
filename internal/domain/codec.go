@@ -67,6 +67,26 @@ func NombreCodecs(streams []StreamTS) string {
 	return strings.Join(nombres, ",")
 }
 
+// CodecsDeVideo filtra la lista completa de NombreCodecs (todo el PMT, en
+// SU orden) y se queda solo con los nombres de VÍDEO conocidos, descartando
+// audio y tipos desconocidos (los "0x.."). Es lo que viaja por el cable en
+// /channels/streams: la columna codecs de la DB guarda el PMT entero para
+// el censo, pero el mensaje al usuario («el vídeo viene en X») solo debe
+// nombrar vídeo, nunca un códec de audio.
+func CodecsDeVideo(cadena string) string {
+	if cadena == "" {
+		return ""
+	}
+	video := make([]string, 0, 2)
+	for _, nombre := range strings.Split(cadena, ",") {
+		switch nombre {
+		case "mpeg2video", "mpeg4", "h264", "hevc", "vc1":
+			video = append(video, nombre)
+		}
+	}
+	return strings.Join(video, ",")
+}
+
 func nombreTipoTS(tipo byte) string {
 	switch tipo {
 	case tsVideoMPEG2:
