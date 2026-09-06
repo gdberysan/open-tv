@@ -1,0 +1,93 @@
+package domain
+
+import (
+	"fmt"
+	"strings"
+)
+
+// CodecSupport dice si el VÍDEO de un stream lo decodifica un navegador.
+//
+// Hermano de WebSupport y AirplaySupport en forma —tri-estado, "no se sabe"
+// es un veredicto legítimo— pero con OTRO significado: WebNo dice «no
+// directo, ve por el proxy»; CodecNo dice «ningún navegador lo decodifica,
+// ni lo intentes». Caso medido (2026-09-05): AMC (720p) emite vídeo MPEG-2;
+// hls.js lo tira en silencio y Safari da audio sin imagen.
+type CodecSupport int
+
+const (
+	CodecUnknown CodecSupport = iota
+	CodecNo
+	CodecOK
+)
+
+// Tipos de stream elemental de MPEG-TS (ISO/IEC 13818-1, tabla 2-34, más
+// los registrados por ATSC que ffmpeg y hls.js reconocen).
+const (
+	tsVideoMPEG2 byte = 0x02
+	tsAudioMPEG1 byte = 0x03
+	tsAudioMPEG2 byte = 0x04
+	tsAudioAAC   byte = 0x0f
+	tsVideoMPEG4 byte = 0x10
+	tsAudioLATM  byte = 0x11
+	tsVideoH264  byte = 0x1b
+	tsVideoHEVC  byte = 0x24
+	tsAudioAC3   byte = 0x81
+	tsAudioEAC3  byte = 0x87
+	tsVideoVC1   byte = 0xea
+)
+
+// ClassifyCodecs aplica una regla centrada en el vídeo: basta un stream
+// H.264 para que sirva; si hay vídeo y ninguno es H.264, no sirve; sin
+// vídeo no se juzga (el solo-audio no es asunto de este veredicto). HEVC
+// queda fuera igual que en codecsWeb: solo Safari lo abre.
+func ClassifyCodecs(streams []StreamTS) CodecSupport {
+	hayVideo := false
+	for _, s := range streams {
+		switch s.Tipo {
+		case tsVideoH264:
+			return CodecOK
+		case tsVideoMPEG2, tsVideoMPEG4, tsVideoHEVC, tsVideoVC1:
+			hayVideo = true
+		}
+	}
+	if hayVideo {
+		return CodecNo
+	}
+	return CodecUnknown
+}
+
+// NombreCodecs devuelve una cadena corta para stats y para el mensaje al
+// usuario, con los nombres que usa ffprobe. Un tipo desconocido sale en
+// hexadecimal para que el censo lo pueda contar.
+func NombreCodecs(streams []StreamTS) string {
+	nombres := make([]string, 0, len(streams))
+	for _, s := range streams {
+		nombres = append(nombres, nombreTipoTS(s.Tipo))
+	}
+	return strings.Join(nombres, ",")
+}
+
+func nombreTipoTS(tipo byte) string {
+	switch tipo {
+	case tsVideoMPEG2:
+		return "mpeg2video"
+	case tsAudioMPEG1, tsAudioMPEG2:
+		return "mp2"
+	case tsAudioAAC, tsAudioLATM:
+		return "aac"
+	case tsVideoMPEG4:
+		return "mpeg4"
+	case tsVideoH264:
+		return "h264"
+	case tsVideoHEVC:
+		return "hevc"
+	case tsAudioAC3:
+		return "ac3"
+	case tsAudioEAC3:
+		return "eac3"
+	case tsVideoVC1:
+		return "vc1"
+	default:
+		return fmt.Sprintf("0x%02x", tipo)
+	}
+}

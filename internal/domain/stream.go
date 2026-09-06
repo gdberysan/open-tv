@@ -28,4 +28,8 @@ type Stream struct {
 	LatencyMs   int64     `json:"LatencyMs"`
 	IsAlive     bool      `json:"IsAlive"`
 	LastChecked time.Time `json:"LastChecked"`
+	// CodecCheckedAt es cuándo se sondeó por última vez el códec del primer
+	// segmento (spec salud-por-segmento). Cero = nunca. Lo lee el
+	// health-worker para decidir si el veredicto está caducado.
+	CodecCheckedAt time.Time `json:"CodecCheckedAt"`
 }
