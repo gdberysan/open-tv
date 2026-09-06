@@ -17,7 +17,7 @@ import (
 )
 
 func TestCheckRedirectRechazaDestinoPrivado(t *testing.T) {
-	h := &Handler{privadasOK: false}
+	h := guardiaRed{privadasOK: false}
 
 	casos := []struct {
 		nombre      string
@@ -65,7 +65,7 @@ func TestCheckRedirectRechazaDestinoPrivado(t *testing.T) {
 // destinos privados: es la misma vía de escape que necesita ServeHTTP para
 // poder testear contra httptest.Server.
 func TestCheckRedirectPermiteDestinoPrivadoConPrivadasOK(t *testing.T) {
-	h := &Handler{privadasOK: true}
+	h := guardiaRed{privadasOK: true}
 	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:9/", nil)
 	if err := h.checkRedirect(req, nil); err != nil {
 		t.Errorf("con privadasOK=true no debería bloquear: %v", err)
@@ -77,7 +77,7 @@ func TestCheckRedirectPermiteDestinoPrivadoConPrivadasOK(t *testing.T) {
 // conexión — el mismo camino que recorre cada conexión real del proxy,
 // incluidas las de una redirección.
 func TestControlConexionRechazaIPPrivada(t *testing.T) {
-	h := &Handler{privadasOK: false}
+	h := guardiaRed{privadasOK: false}
 	for _, addr := range []string{"127.0.0.1:9999", "169.254.169.254:80", "192.168.1.1:443", "[::1]:8080"} {
 		if err := h.controlConexion("tcp", addr, nil); err == nil {
 			t.Errorf("%s: debería rechazar la conexión, dejó pasar", addr)
@@ -86,7 +86,7 @@ func TestControlConexionRechazaIPPrivada(t *testing.T) {
 }
 
 func TestControlConexionPermiteIPPublica(t *testing.T) {
-	h := &Handler{privadasOK: false}
+	h := guardiaRed{privadasOK: false}
 	if err := h.controlConexion("tcp", "93.184.216.34:443", nil); err != nil {
 		t.Errorf("una IP pública no debería bloquearse: %v", err)
 	}
@@ -95,14 +95,14 @@ func TestControlConexionPermiteIPPublica(t *testing.T) {
 // Con privadasOK=true, controlConexion no debe rechazar 127.0.0.1: es
 // exactamente la conexión que hacen los tests de relay contra httptest.Server.
 func TestControlConexionPermiteConPrivadasOK(t *testing.T) {
-	h := &Handler{privadasOK: true}
+	h := guardiaRed{privadasOK: true}
 	if err := h.controlConexion("tcp", "127.0.0.1:9999", nil); err != nil {
 		t.Errorf("con privadasOK=true no debería bloquear: %v", err)
 	}
 }
 
 func TestControlConexionExigeDireccionResoluble(t *testing.T) {
-	h := &Handler{privadasOK: false}
+	h := guardiaRed{privadasOK: false}
 	if err := h.controlConexion("tcp", "no-es-host-puerto", nil); err == nil {
 		t.Error("debería rechazar una dirección sin host:puerto")
 	}

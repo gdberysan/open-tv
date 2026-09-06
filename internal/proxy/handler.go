@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -89,32 +88,7 @@ func NewHandler(prefijo string, permitirDestinosPrivados bool, opts ...Option) *
 		privadasOK: permitirDestinosPrivados,
 	}
 
-	dialer := &net.Dialer{
-		Timeout: tiempoPeticion,
-		// Control se ejecuta con la IP YA resuelta, justo antes de que el
-		// kernel abra la conexión — no la que destinoPrivado comprobó antes
-		// de que el propio Transport volviera a resolver el hostname por su
-		// cuenta. Sin esto, un DNS que cambie de respuesta entre esa
-		// comprobación y la conexión real (rebinding) esquiva el filtro por
-		// hostname sin que el proxy se entere.
-		Control: h.controlConexion,
-	}
-
-	h.client = &http.Client{
-		// Sin timeout de cliente: lo pone el contexto por petición, que
-		// además cancela la copia en curso si el navegador cierra.
-		Transport: &http.Transport{
-			MaxConnsPerHost:   4,
-			DisableKeepAlives: true,
-			DialContext:       dialer.DialContext,
-		},
-		// El http.Client por defecto sigue redirecciones (hasta 10) sin
-		// preguntar. Un origen que en principio pasó el filtro puede
-		// responder 302 hacia 127.0.0.1 o hacia el enlace-local de metadatos
-		// de una nube, y sin esto el proxy lo seguiría y relayaría la
-		// respuesta interna al navegador.
-		CheckRedirect: h.checkRedirect,
-	}
+	h.client = NuevoClienteGuardado(permitirDestinosPrivados)
 
 	for _, opt := range opts {
 		opt(h)
@@ -206,45 +180,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.relayarBytes(w, resp, urlFinal)
-}
-
-// checkRedirect se ejecuta en cada salto de una redirección 3xx, ANTES de que
-// el cliente la siga.
-func (h *Handler) checkRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) >= maxRedirecciones {
-		return fmt.Errorf("demasiadas redirecciones (%d)", len(via))
-	}
-	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-		return fmt.Errorf("esquema no permitido en redirección: %s", req.URL.Scheme)
-	}
-	if !h.privadasOK && destinoPrivado(req.Context(), req.URL.Hostname()) {
-		return fmt.Errorf("redirección a destino no permitido: %s", req.URL.Hostname())
-	}
-	return nil
-}
-
-// controlConexion se ejecuta justo antes de que el sistema operativo abra la
-// conexión TCP, con la dirección YA resuelta. Es la única comprobación que
-// mira la IP con la que el kernel conecta de verdad, así que es la que de
-// verdad cierra el DNS-rebinding: destinoPrivado (arriba) y checkRedirect
-// comprueban el hostname en un instante anterior, y nada les garantiza que el
-// Transport resuelva ese mismo hostname a la misma IP al conectar.
-func (h *Handler) controlConexion(_, address string, _ syscall.RawConn) error {
-	if h.privadasOK {
-		return nil
-	}
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return fmt.Errorf("dirección de conexión inválida: %w", err)
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return fmt.Errorf("dirección de conexión no es una IP: %s", host)
-	}
-	if ipPrivada(ip) {
-		return fmt.Errorf("conexión bloqueada a destino privado: %s", ip)
-	}
-	return nil
 }
 
 func (h *Handler) relayarManifiesto(w http.ResponseWriter, resp *http.Response, base *url.URL) {
