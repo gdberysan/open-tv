@@ -2,6 +2,7 @@ package validator_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -117,6 +118,38 @@ func checkerDeTest() *validator.Checker {
 	return validator.NewCheckerConSonda(nil, proxy.NuevoClienteGuardado(true), 3*time.Second)
 }
 
+// clienteQueCuenta envuelve un HTTPChecker real y cuenta los bytes que se
+// leen de CADA cuerpo de respuesta que pasa por él. Sirve para probar el
+// tope de 16 KB por BYTES, no por tiempo: en loopback un io.ReadAll sin
+// límite de 4 MB tarda unos pocos milisegundos, así que cronometrar no
+// distingue "se cortó a 16 KB" de "se leyó todo igual de rápido".
+type clienteQueCuenta struct {
+	interno validator.HTTPChecker
+	leidos  atomic.Int64
+}
+
+func (c *clienteQueCuenta) Do(req *http.Request) (*http.Response, error) {
+	resp, err := c.interno.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	resp.Body = &cuerpoContado{ReadCloser: resp.Body, n: &c.leidos}
+	return resp, nil
+}
+
+// cuerpoContado delega en el ReadCloser real y suma al contador compartido
+// cada byte que el llamador realmente lee (no el tamaño del cuerpo entero).
+type cuerpoContado struct {
+	io.ReadCloser
+	n *atomic.Int64
+}
+
+func (b *cuerpoContado) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	b.n.Add(int64(n))
+	return n, err
+}
+
 func TestSondaMasterMediaSegmentoClasificaMPEG2(t *testing.T) {
 	o := nuevoOrigen(t)
 	res := checkerDeTest().CheckTarea(context.Background(), validator.TareaCheck{URL: o.srv.URL + "/master.m3u8", CodecCaducado: true})
@@ -149,13 +182,24 @@ func TestSondaMediaPlaylistDirectaH264(t *testing.T) {
 func TestSondaOrigenQueIgnoraRangeSeCortaA16KB(t *testing.T) {
 	o := nuevoOrigen(t)
 	o.cuerpoGrande = true
-	inicio := time.Now()
-	res := checkerDeTest().CheckTarea(context.Background(), validator.TareaCheck{URL: o.srv.URL + "/media.m3u8", CodecCaducado: true})
+	contador := &clienteQueCuenta{interno: proxy.NuevoClienteGuardado(true)}
+	c := validator.NewCheckerConSonda(nil, contador, 3*time.Second)
+	res := c.CheckTarea(context.Background(), validator.TareaCheck{URL: o.srv.URL + "/media.m3u8", CodecCaducado: true})
 	if res.Codec != domain.CodecNo {
 		t.Errorf("codec=%v; con la PMT en los primeros bytes debe clasificar aunque el origen ignore el Range", res.Codec)
 	}
-	if time.Since(inicio) > 2*time.Second {
-		t.Errorf("tardó %v: no puede estar leyendo los 4 MB", time.Since(inicio))
+	// El contador suma la media playlist (unos cientos de bytes, va por el
+	// mismo cliente) más el prefijo del segmento: el tope real es 16 KB,
+	// pero el margen cubre esa playlist para no acoplar el test a su
+	// tamaño exacto.
+	if leidos := contador.leidos.Load(); leidos > 16<<10+1024 {
+		t.Errorf("leídos %d bytes; el segmento de 4 MB no debe leerse entero", leidos)
+	}
+	// Y por el otro lado: si alguien quita el io.LimitReader del prefijo,
+	// esto debe seguir en verde solo porque el corte SÍ ocurrió y aun así
+	// se leyó lo bastante para encontrar la PMT (PAT+PMT = 376 bytes).
+	if leidos := contador.leidos.Load(); leidos < 376 {
+		t.Errorf("leídos %d bytes; no llega ni a la PAT+PMT (376 bytes)", leidos)
 	}
 }
 
