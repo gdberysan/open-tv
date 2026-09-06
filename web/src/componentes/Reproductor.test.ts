@@ -250,6 +250,39 @@ describe('Reproductor — failover entre mirrors', () => {
     expect(desenlaces[0].via).toBe('proxy')
   })
 
+  // Hallazgo real de la Tarea 8 (verificación contra AMC (720p)): el backend
+  // correla RegistrarDesenlace por `url = ?` contra la RAW del mirror
+  // guardada en streams.url. Si se reporta la url PROXEADA
+  // (/proxy/hls?u=...), el UPDATE no encuentra fila y el fallo se pierde en
+  // silencio (no-op, sin error) — fallos_reales nunca sube y sin_imagen nunca
+  // se dispara, aunque la UI ya muestre el error. Contra el código con el bug
+  // (url: intento.url tal cual), este test fallaría con
+  // desenlaces[0].url === urlProxy('https://uno/x.m3u8').
+  it('un mirror por proxy reporta el desenlace con la URL RAW del mirror, no la proxeada', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [{ url: 'https://uno/x.m3u8', vivo: true, latenciaMs: 100, webOk: false }]
+    const fuente = {
+      mirrors: vi.fn(async () => mirrors),
+      proxyDisponible: vi.fn(async () => true),
+    }
+    const desenlaces: DesenlaceReproduccion[] = []
+
+    render(Reproductor, {
+      canal,
+      fuente: fuente as any,
+      alDesenlace: (d) => desenlaces.push(d),
+    })
+
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    expect(hlsState.instancias[0].url).toBe(urlProxy('https://uno/x.m3u8'))
+
+    hlsState.instancias[0].fallar('manifestLoadError')
+
+    await vi.waitFor(() => expect(desenlaces.length).toBeGreaterThan(0))
+    expect(desenlaces[0].via).toBe('proxy')
+    expect(desenlaces[0].url).toBe('https://uno/x.m3u8')
+  })
+
   // Ronda 1 de revisión: un fetch que falla (mirrors()/destino()/
   // proxyDisponible()) no es "el canal no arrancó" — es exactamente el
   // mismo problema de tres estados que MensajeError.svelte separa para el

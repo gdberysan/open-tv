@@ -444,6 +444,11 @@
   // Busca el Mirror de mirrorsVigentes que originó este intento: por URL
   // directa o por su versión proxeada (planDeFailover puede haber generado
   // un intento cuya url es urlProxy(mirror.url), no mirror.url tal cual).
+  // Además de fijar mirrorActual, alDesenlace() la usa para reportar la URL
+  // RAW del mirror (nunca intento.url a secas): el backend correla
+  // RegistrarDesenlace por `url = ?` contra streams.url, que guarda la RAW,
+  // así que reportar la proxeada (Tarea 8, hallazgo real contra AMC (720p))
+  // no encontraba fila y el fallo se perdía en silencio (no-op sin error).
   function mirrorDe(intento: Intento): Mirror | null {
     return mirrorsVigentes.find((m) => intento.url === m.url || urlProxy(m.url) === intento.url) ?? null
   }
@@ -503,7 +508,7 @@
               motor,
               via: via(intento),
               mirrorIndex: intento.mirrorIndex,
-              url: intento.url,
+              url: mirrorDe(intento)?.url ?? intento.url,
               oculto: ocultoEnIntento,
               motorForzado: motorForzado !== null,
             })
@@ -526,7 +531,7 @@
             via: via(intento),
             mirrorIndex: intento.mirrorIndex,
             msPrimerFrame: performance.now() - inicio,
-            url: intento.url,
+            url: mirrorDe(intento)?.url ?? intento.url,
             oculto: ocultoEnIntento,
             motorForzado: motorForzado !== null,
           })
@@ -767,7 +772,7 @@
           motor,
           via: via(intento),
           mirrorIndex: intento.mirrorIndex,
-          url: intento.url,
+          url: mirrorDe(intento)?.url ?? intento.url,
           oculto: ocultoEnIntento,
           motorForzado: motorForzado !== null,
         })

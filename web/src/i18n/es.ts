@@ -141,7 +141,11 @@ export const es = {
   // diferencia de codec/codecGenerico (que sí son un callejón sin salida),
   // aquí SÍ hay algo que ofrecer: "Probar de todos modos" (errorProbarIgual)
   // ignora el filtro por si la señal ya se recuperó.
-  'reproductor.error.sinImagen': 'Ningún origen de este canal llega a dar imagen desde aquí (último intento hace {hace}).',
+  // {hace} YA trae su propio "hace" (formatearHace en Reproductor.svelte
+  // devuelve «hace N min»/«hace N h», no un desnudo "N min"): un "hace {hace}"
+  // aquí salía "hace hace 1 min" — hallazgo real de la Tarea 8 contra AMC
+  // (720p) en un navegador de verdad, no en los gates automatizados.
+  'reproductor.error.sinImagen': 'Ningún origen de este canal llega a dar imagen desde aquí (último intento {hace}).',
   'reproductor.error.probarIgual': 'Probar de todos modos',
 
   // Tarea 14 (P0.6): CTA del error de reproducción cuando el canal SÍ tenía
