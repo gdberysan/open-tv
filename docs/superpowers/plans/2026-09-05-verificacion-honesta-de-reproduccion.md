@@ -36,6 +36,13 @@ contra el catálogo real que mide y NUNCA tumba el build.
 
 ---
 
+> **Nota (2026-09-05, tras el spec de salud por segmento):** cuando este
+> plan se ejecute, la Tarea 1 debe añadir un origen hostil más,
+> `/hostil/mpeg2` — segmentos TS con vídeo MPEG-2 (stream type 0x02) y
+> audio MP2 — y una aserción: el reproductor muestra el mensaje de códec
+> (`reproductor.error.codecGenerico`), no el genérico ni el de Safari. Ver
+> `docs/superpowers/specs/2026-09-05-salud-por-segmento-design.md` §4.3.
+
 ## No-objetivos explícitos
 
 - **Causas mixtas entre mirrors en e2e.** El spec (§3.1, aserción 3) lo pedía,
