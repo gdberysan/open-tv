@@ -50,7 +50,17 @@ func (h *DesenlaceHandler) Post(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "url y resultado (iniciado|fallo) son obligatorios", http.StatusBadRequest)
 		return
 	}
-	d := ports.DesenlaceMirror{Resultado: body.Resultado, Motivo: body.Motivo, MsPrimerFrame: int64(math.Round(body.MsPrimerFrame))}
+	// Se acota ANTES de convertir a int64: un float fuera de rango (o
+	// negativo) convertido a int64 es comportamiento indefinido en Go.
+	// 600000 ms (10 min) es más que cualquier arranque real.
+	msPrimerFrame := body.MsPrimerFrame
+	switch {
+	case msPrimerFrame < 0:
+		msPrimerFrame = 0
+	case msPrimerFrame > 600000:
+		msPrimerFrame = 600000
+	}
+	d := ports.DesenlaceMirror{Resultado: body.Resultado, Motivo: body.Motivo, MsPrimerFrame: int64(math.Round(msPrimerFrame))}
 	if err := h.registrador.RegistrarDesenlace(r.Context(), body.URL, d); err != nil {
 		h.logger.Warn("desenlace: fallo registrando", slog.Any("error", err))
 		http.Error(w, "no se pudo registrar", http.StatusInternalServerError)

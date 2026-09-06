@@ -57,6 +57,29 @@ func TestDesenlaceHandlerRechazaCuerposInvalidos(t *testing.T) {
 	}
 }
 
+// ms_primer_frame llega del cliente como performance.now(): un valor fuera
+// de rango (o negativo) convertido directo a int64 es UB en Go. Se acota a
+// [0, 600000] (10 min, más que cualquier arranque real) ANTES de convertir.
+func TestDesenlaceHandlerAcotaMsPrimerFrame(t *testing.T) {
+	for _, c := range []struct {
+		body   string
+		quiero int64
+	}{
+		{`{"url":"http://o/x.m3u8","resultado":"iniciado","motivo":"","ms_primer_frame":1e308}`, 600000},
+		{`{"url":"http://o/x.m3u8","resultado":"iniciado","motivo":"","ms_primer_frame":-5}`, 0},
+	} {
+		reg := &registradorFalso{}
+		h := NewDesenlaceHandler(slog.New(slog.DiscardHandler), reg)
+		rec := postDesenlace(h, c.body)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("%.60s → código %d: %s", c.body, rec.Code, rec.Body.String())
+		}
+		if len(reg.des) != 1 || reg.des[0].MsPrimerFrame != c.quiero {
+			t.Errorf("%.60s → MsPrimerFrame = %+v, quiero %d", c.body, reg.des, c.quiero)
+		}
+	}
+}
+
 func TestDesenlaceHandlerSinRegistradorEs503(t *testing.T) {
 	h := NewDesenlaceHandler(slog.New(slog.DiscardHandler), nil)
 	if rec := postDesenlace(h, `{"url":"http://o/x.m3u8","resultado":"fallo","motivo":"caido"}`); rec.Code != http.StatusServiceUnavailable {
