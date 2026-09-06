@@ -57,6 +57,10 @@
   // mensajeError (canal.soloApp, el catch de mirrors()/destino(), un corte
   // tras confirmar) porque ninguno de esos tiene un failover que reanudar.
   let numMirrorsProbados = $state(0)
+  // Error sin salida: reintentar no cambia los códecs de un origen, y un
+  // botón que no puede arreglar nada es una promesa falsa (misma lección
+  // que el contador de mirrors «con mejor salud»).
+  let errorSinReintento = $state(false)
   // untrack: silenciadoInicial es a propósito SOLO el valor inicial (es la
   // condición de ENTRADA del escenario, no un estado vivo que seguir) — mismo
   // criterio que los untrack de App.svelte para lecturas iniciales; sin él,
@@ -450,6 +454,11 @@
       // Info del intento ANTERIOR no vale para clasificar este: cada intentar()
       // arranca en blanco.
       infoUltimoError = {}
+      // Lo que el demuxer de hls.js VIO: si al fallar solo había audio, el
+      // vídeo iba en un formato que tira en silencio (MPEG-2). Se anota en
+      // infoUltimoError al fallar, no antes: un canal de solo audio que sí
+      // reproduce nunca pasa por aquí.
+      const pistas = { video: false, audio: false }
 
       const guard = new PlaybackGuard({
         alFallar: (mensaje) => {
@@ -467,6 +476,7 @@
             return
           }
           zanjado = true
+          if (pistas.audio && !pistas.video) infoUltimoError = { ...infoUltimoError, sinVideo: true }
           reject(new Error(mensaje))
         },
         alConfirmar: () => {
@@ -547,6 +557,10 @@
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           video?.play().catch(() => {})
         })
+        hls.on(Hls.Events.BUFFER_CODECS, (_evt, data) => {
+          if (data.video || data.audiovideo) pistas.video = true
+          if (data.audio) pistas.audio = true
+        })
         // Segmentos que llegan y buffer que se anexa: la carga avanza aunque
         // el <video> todavía no emita nada.
         hls.on(Hls.Events.FRAG_LOADED, () => guard.alProgreso())
@@ -562,6 +576,7 @@
     const miId = ++intentoId
     cargando = true
     mensajeError = null
+    errorSinReintento = false
     numMirrorsProbados = 0
 
     const motor = motorForzado ?? motorDelNavegador(video)
@@ -576,10 +591,24 @@
       if (destruido || miId !== intentoId) return
 
       if (mirrors.length > 0) {
-        totalMirrors = mirrors.length
+        // Los mirrors cuyo vídeo ningún navegador decodifica (sonda del
+        // servidor) no se intentan: cada uno costaría el presupuesto entero
+        // del guard para acabar en el mismo sitio.
+        const reproducibles = mirrors.filter((m) => m.codecOk !== false)
+        if (reproducibles.length === 0) {
+          cargando = false
+          errorSinReintento = true
+          const codecs = mirrors.find((m) => m.codecs)?.codecs ?? ''
+          mensajeError = codecs
+            ? t('reproductor.error.codec', { codecs })
+            : t('reproductor.error.codecGenerico')
+          alDesenlace({ canalId: canal.id, resultado: 'fallo', motivo: 'codec', motor, via: 'ninguna', mirrorIndex: 0 })
+          return
+        }
+        totalMirrors = reproducibles.length
         const proxyDisp = await fuente.proxyDisponible()
         if (destruido || miId !== intentoId) return
-        intentos = planDeFailover(mirrors, motor, proxyDisp)
+        intentos = planDeFailover(reproducibles, motor, proxyDisp)
       } else {
         // Sin mirrors (fuente vieja o canal sin entrada en /channels/streams):
         // compatibilidad con el destino único de siempre, como un solo mirror.
@@ -1055,9 +1084,11 @@
         {#if numMirrorsProbados > 0}
           <p class="mirrors">{t('reproductor.error.mirrorsProbados', { n: numMirrorsProbados })}</p>
         {/if}
-        <button type="button" class="probar-mirror" onclick={reintentar}>
-          {t('reproductor.error.reintentar')}
-        </button>
+        {#if !errorSinReintento}
+          <button type="button" class="probar-mirror" onclick={reintentar}>
+            {t('reproductor.error.reintentar')}
+          </button>
+        {/if}
       </div>
     {:else if estadoCast === 'emitiendo'}
       <!-- estadoCast === 'conectando' ya se ve como "cargando" arriba (sigue

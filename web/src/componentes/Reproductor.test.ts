@@ -34,6 +34,8 @@ const hlsState = vi.hoisted(() => ({
      *  distinguir un 404 ('caducado') de un fallo sin señal ('desconocido'). */
     fallarConStatus: (motivo: string, status: number) => void
     progreso: () => void
+    /** Emite BUFFER_CODECS con las pistas que "vio" el demuxer. */
+    pistas: (o: { video: boolean; audio: boolean }) => void
   }>,
 }))
 
@@ -63,6 +65,7 @@ vi.mock('hls.js', async () => {
       MANIFEST_PARSED: 'manifest_parsed',
       FRAG_LOADED: 'frag_loaded',
       BUFFER_APPENDED: 'buffer_appended',
+      BUFFER_CODECS: 'buffer_codecs',
     } as const
     static isSupported() {
       return true
@@ -88,6 +91,13 @@ vi.mock('hls.js', async () => {
         fallarNoFatal: (motivo: string) => emitirError(motivo, false),
         fallarConStatus: (motivo: string, status: number) => emitirError(motivo, true, status),
         progreso: () => this.oyentes['frag_loaded']?.forEach((cb) => cb('frag_loaded', {})),
+        pistas: (o: { video: boolean; audio: boolean }) =>
+          this.oyentes['buffer_codecs']?.forEach((cb) =>
+            cb('buffer_codecs', {
+              ...(o.video ? { video: { container: 'video/mp4', codec: 'avc1.64001f' } } : {}),
+              ...(o.audio ? { audio: { container: 'audio/mpeg', codec: '' } } : {}),
+            }),
+          ),
       })
     }
     attachMedia() {}
@@ -377,6 +387,80 @@ describe('Reproductor — failover entre mirrors', () => {
       loadSpy.mockRestore()
       playSpy.mockRestore()
     }
+  })
+
+  it('salta los mirrors con codecOk === false y prueba solo los demás', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [
+      { url: 'https://mpeg2/x.m3u8', vivo: true, latenciaMs: 100, webOk: true, codecOk: false, codecs: 'mpeg2video,mp2' },
+      { url: 'https://h264/x.m3u8', vivo: true, latenciaMs: 200, webOk: true, codecOk: null },
+    ]
+    const fuente = { mirrors: vi.fn(async () => mirrors), proxyDisponible: vi.fn(async () => false) }
+    const intentadas: string[] = []
+    render(Reproductor, { canal, fuente: fuente as any, alIntentar: (url: string) => intentadas.push(url) })
+
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    expect(intentadas).toEqual(['https://h264/x.m3u8'])
+  })
+
+  it('con todos los mirrors indecodificables muestra el mensaje de códec al instante, sin intentar ni botón de reintento', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [
+      { url: 'https://mpeg2/x.m3u8', vivo: true, latenciaMs: 100, webOk: false, codecOk: false, codecs: 'mpeg2video,mp2' },
+      { url: 'https://hevc/x.m3u8', vivo: true, latenciaMs: 500, webOk: false, codecOk: false, codecs: 'hevc,aac' },
+    ]
+    const fuente = { mirrors: vi.fn(async () => mirrors), proxyDisponible: vi.fn(async () => true) }
+    const desenlaces: DesenlaceReproduccion[] = []
+    const intentadas: string[] = []
+    render(Reproductor, {
+      canal,
+      fuente: fuente as any,
+      alIntentar: (url: string) => intentadas.push(url),
+      alDesenlace: (d: DesenlaceReproduccion) => desenlaces.push(d),
+    })
+
+    const esperado = t('reproductor.error.codec', { codecs: 'mpeg2video,mp2' })
+    await vi.waitFor(() => expect(screen.queryAllByText(esperado).length).toBeGreaterThan(0))
+    expect(intentadas).toEqual([])
+    expect(hlsState.instancias).toHaveLength(0)
+    expect(screen.queryByText(t('reproductor.error.reintentar'))).toBeNull()
+    expect(screen.queryByText(t('reproductor.error.mirrorsProbados', { n: 2 }))).toBeNull()
+    expect(desenlaces).toEqual([
+      { canalId: 'c1', resultado: 'fallo', motivo: 'codec', motor: 'hlsjs', via: 'ninguna', mirrorIndex: 0 },
+    ])
+  })
+
+  it('si el servidor no sabía y hls.js solo vio audio, el fallo se clasifica como codec', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [{ url: 'https://mpeg2/x.m3u8', vivo: true, latenciaMs: 100, webOk: true }]
+    const fuente = { mirrors: vi.fn(async () => mirrors), proxyDisponible: vi.fn(async () => false) }
+    const desenlaces: DesenlaceReproduccion[] = []
+    render(Reproductor, { canal, fuente: fuente as any, alDesenlace: (d: DesenlaceReproduccion) => desenlaces.push(d) })
+
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    hlsState.instancias[0].pistas({ video: false, audio: true })
+    // El intento muere como muere de verdad: sin vídeo nunca avanza y el
+    // guard lo declara fatal. Aquí se fuerza con un fatal cualquiera.
+    hlsState.instancias[0].fallar('bufferStalledError')
+
+    await vi.waitFor(() => expect(screen.queryAllByText(t('reproductor.error.codecGenerico')).length).toBeGreaterThan(0))
+    expect(desenlaces.at(-1)?.motivo).toBe('codec')
+  })
+
+  it('con pista de vídeo vista, un fallo NO es codec', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [{ url: 'https://h264/x.m3u8', vivo: true, latenciaMs: 100, webOk: true }]
+    const fuente = { mirrors: vi.fn(async () => mirrors), proxyDisponible: vi.fn(async () => false) }
+    const desenlaces: DesenlaceReproduccion[] = []
+    render(Reproductor, { canal, fuente: fuente as any, alDesenlace: (d: DesenlaceReproduccion) => desenlaces.push(d) })
+
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    hlsState.instancias[0].pistas({ video: true, audio: true })
+    hlsState.instancias[0].fallar('bufferStalledError')
+
+    await vi.waitFor(() => expect(desenlaces).toHaveLength(1))
+    expect(desenlaces[0].motivo).toBe('inestable')
+    expect(screen.queryByText(t('reproductor.error.codecGenerico'))).toBeNull()
   })
 })
 
