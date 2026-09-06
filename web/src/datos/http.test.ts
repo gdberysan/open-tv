@@ -122,19 +122,25 @@ describe('HttpCatalog', () => {
     ])
   })
 
-  it('mirrors traduce las claves del cable', async () => {
+  it('mirrors traduce las claves del cable, codec_ok incluido', async () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
       respuesta([
-        { url: 'https://a/x.m3u8', is_alive: true, latency_ms: 100, web_ok: true },
-        { url: 'https://b/x.m3u8', is_alive: true, latency_ms: 300, web_ok: false },
-        { url: 'https://c/x.m3u8', is_alive: false, latency_ms: 0, web_ok: null },
+        { url: 'https://a/x.m3u8', is_alive: true, latency_ms: 100, web_ok: true, codec_ok: false, codecs: 'mpeg2video,mp2' },
+        { url: 'https://b/x.m3u8', is_alive: true, latency_ms: 300, web_ok: false, codec_ok: true, codecs: 'h264,aac' },
+        { url: 'https://c/x.m3u8', is_alive: false, latency_ms: 0, web_ok: null, codec_ok: null, codecs: '' },
+        { url: 'https://d/x.m3u8', is_alive: true, latency_ms: 50 }, // servidor viejo: sin claves
       ]),
     ))
     const mirrors = await crearHttpCatalog('').mirrors('c1')
-    expect(mirrors).toHaveLength(3)
-    expect(mirrors[0]).toEqual({ url: 'https://a/x.m3u8', vivo: true, latenciaMs: 100, webOk: true })
+    expect(mirrors).toHaveLength(4)
+    expect(mirrors[0]).toEqual({ url: 'https://a/x.m3u8', vivo: true, latenciaMs: 100, webOk: true, codecOk: false, codecs: 'mpeg2video,mp2' })
+    expect(mirrors[1].codecOk).toBe(true)
     expect(mirrors[2].vivo).toBe(false)
     expect(mirrors[2].webOk).toBeNull()
+    expect(mirrors[2].codecOk).toBeNull()
+    // "sin sondear" es un tercer estado: nunca false.
+    expect(mirrors[3].codecOk).toBeNull()
+    expect(mirrors[3].codecs).toBe('')
   })
 
   describe('fuentes', () => {

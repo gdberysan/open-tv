@@ -52,6 +52,12 @@ export interface Mirror {
   vivo: boolean | null
   latenciaMs: number
   webOk: boolean | null
+  /** Veredicto de la sonda del primer segmento: false = ningún navegador
+   *  decodifica su vídeo (el failover lo salta). null/undefined = sin
+   *  sondear. */
+  codecOk?: boolean | null
+  /** Cadena corta ("mpeg2video,mp2") para el mensaje; '' si no se sabe. */
+  codecs?: string
 }
 
 /** Un programa de la guía EPG. inicioSeg/finSeg: epoch UTC en SEGUNDOS, tal

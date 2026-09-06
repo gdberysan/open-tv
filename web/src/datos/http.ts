@@ -63,6 +63,8 @@ interface MirrorCable {
   is_alive?: boolean
   latency_ms?: number
   web_ok?: boolean | null
+  codec_ok?: boolean | null
+  codecs?: string
 }
 
 /** Forma de cable de un domain.Programa (internal/api/handlers/epg_handler.go):
@@ -179,6 +181,8 @@ export function crearHttpCatalog(base = ''): CatalogSource {
         vivo: m.is_alive ?? null,
         latenciaMs: m.latency_ms ?? 0,
         webOk: m.web_ok ?? null,
+        codecOk: m.codec_ok ?? null,
+        codecs: m.codecs ?? '',
       }))
     },
 
