@@ -46,6 +46,17 @@ func (c *Checker) sondearCodecs(ctx context.Context, urlManifiesto, cuerpo, refe
 	if seg == nil {
 		return domain.CodecUnknown, ""
 	}
+	// Desviación deliberada de la spec §3.2: allí se proponía distinguir un
+	// segmento TS por su extensión .ts o por el Content-Type video/MP2T que
+	// devuelva el origen. Ambos son adivinanzas —la extensión puede faltar o
+	// mentir, y muchos orígenes IPTV sirven MPEG-TS con un Content-Type
+	// genérico o directamente ausente—. El byte de sincronismo 0x47 (ISO/IEC
+	// 13818-1 §2.4.3.2) es la verdad sobre el formato, no una convención de
+	// nombrado: si el primer byte no es 0x47, esto NO es un paquete TS y no
+	// hay PMT que parsear, sea cual sea la URL o la cabecera. El coste es una
+	// petición de 16 KB de más en los segmentos que no son TS (fMP4 ya se
+	// descarta antes por #EXT-X-MAP), que se paga una sola vez por mirror
+	// gracias a CodecCaducado.
 	prefijo, err := c.leerPrefijo(ctx, seg, referrer, ua)
 	if err != nil || len(prefijo) == 0 || prefijo[0] != 0x47 {
 		return domain.CodecUnknown, ""

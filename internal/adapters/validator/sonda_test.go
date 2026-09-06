@@ -55,7 +55,6 @@ type origen struct {
 	hits         map[string]*atomic.Int32
 	cabeceras    map[string]http.Header
 	segmento     []byte
-	ignoraRange  bool
 	cuerpoGrande bool
 	conMap       bool
 }
@@ -101,7 +100,7 @@ func nuevoOrigen(t *testing.T) *origen {
 				}
 				return
 			}
-			if rango := r.Header.Get("Range"); rango != "" && !o.ignoraRange {
+			if rango := r.Header.Get("Range"); rango != "" {
 				w.Header().Set("Content-Range", "bytes 0-375/4623108")
 				w.WriteHeader(http.StatusPartialContent)
 			}

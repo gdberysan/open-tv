@@ -12,7 +12,7 @@ type Desenlace struct {
 	Resultado     string // "iniciado" | "fallo" | "cortado"
 	Motivo        string
 	Motor         string // "nativo" | "hlsjs"
-	Via           string // "directo" | "proxy"
+	Via           string // "directo" | "proxy" | "ninguna" (sin intento: todos los mirrors indecodificables)
 	MirrorIndex   int
 	MsPrimerFrame int
 }
