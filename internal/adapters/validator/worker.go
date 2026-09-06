@@ -131,6 +131,7 @@ func (w *Worker) checkOnce(ctx context.Context) {
 				Codec:         res.Codec,
 				Codecs:        res.Codecs,
 				CodecSondeado: res.CodecSondeado,
+				Audio:         res.Audio,
 			})
 			if res.IsAlive {
 				alive++

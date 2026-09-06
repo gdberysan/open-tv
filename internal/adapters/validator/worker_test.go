@@ -388,6 +388,9 @@ func TestWorker_SondeaSoloLosCaducados(t *testing.T) {
 		if !s.CodecSondeado || s.Codec != domain.CodecNo || s.Codecs != "mpeg2video,mp2" {
 			t.Errorf("%s: %+v", id, s)
 		}
+		if s.Audio != domain.AudioOK {
+			t.Errorf("%s: audio=%v, quiero AudioOK", id, s.Audio)
+		}
 	}
 	if s := repo.saludDe("st-reciente"); s.CodecSondeado {
 		t.Errorf("st-reciente no debía sondearse: %+v", s)

@@ -33,6 +33,10 @@ type StreamResult struct {
 	Codec         domain.CodecSupport
 	Codecs        string
 	CodecSondeado bool
+
+	// Audio sale de la misma PMT que Codec: presencia de pista de audio.
+	// Solo se rellena si la sonda corrió (CodecSondeado = true).
+	Audio domain.AudioSupport
 }
 
 // TareaCheck es una URL a comprobar junto con las cabeceras que su origen

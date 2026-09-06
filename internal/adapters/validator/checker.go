@@ -120,7 +120,7 @@ func (c *Checker) CheckTarea(ctx context.Context, t TareaCheck) StreamResult {
 	res, cuerpo, final := c.comprobar(reqCtx, t.URL, t.Referrer, t.UserAgent)
 	if t.CodecCaducado && res.IsAlive && res.Protocol == "HLS" && cuerpo != "" {
 		res.CodecSondeado = true
-		res.Codec, res.Codecs = c.sondearCodecs(reqCtx, final, cuerpo, t.Referrer, t.UserAgent)
+		res.Codec, res.Audio, res.Codecs = c.sondearCodecs(reqCtx, final, cuerpo, t.Referrer, t.UserAgent)
 	}
 	return res
 }

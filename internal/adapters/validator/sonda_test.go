@@ -158,11 +158,23 @@ func TestSondaMasterMediaSegmentoClasificaMPEG2(t *testing.T) {
 	if !res.CodecSondeado || res.Codec != domain.CodecNo || res.Codecs != "mpeg2video,mp2" {
 		t.Errorf("sondeado=%v codec=%v codecs=%q", res.CodecSondeado, res.Codec, res.Codecs)
 	}
+	if res.Audio != domain.AudioOK {
+		t.Errorf("audio=%v, quiero AudioOK", res.Audio)
+	}
 	if o.hits["/media.m3u8"].Load() != 1 || o.hits["/seg.ts"].Load() != 1 {
 		t.Errorf("hits media=%d seg=%d, quiero 1 y 1", o.hits["/media.m3u8"].Load(), o.hits["/seg.ts"].Load())
 	}
 	if rango := o.cabeceras["/seg.ts"].Get("Range"); rango != "bytes=0-16383" {
 		t.Errorf("Range = %q", rango)
+	}
+}
+
+func TestSondaH264SinAudioDaAudioNo(t *testing.T) {
+	o := nuevoOrigen(t)
+	o.segmento = segmentoTS(0x1b)
+	res := checkerDeTest().CheckTarea(context.Background(), validator.TareaCheck{URL: o.srv.URL + "/media.m3u8", CodecCaducado: true})
+	if res.Codec != domain.CodecOK || res.Audio != domain.AudioNo {
+		t.Errorf("codec=%v audio=%v, quiero OK y AudioNo", res.Codec, res.Audio)
 	}
 }
 
@@ -208,6 +220,9 @@ func TestSondaFMP4QuedaDesconocidoPeroSondeado(t *testing.T) {
 	res := checkerDeTest().CheckTarea(context.Background(), validator.TareaCheck{URL: o.srv.URL + "/media.m3u8", CodecCaducado: true})
 	if !res.CodecSondeado || res.Codec != domain.CodecUnknown {
 		t.Errorf("sondeado=%v codec=%v", res.CodecSondeado, res.Codec)
+	}
+	if res.Audio != domain.AudioUnknown {
+		t.Errorf("audio=%v, quiero AudioUnknown", res.Audio)
 	}
 	if o.hits["/seg.ts"].Load() != 0 {
 		t.Error("con EXT-X-MAP no se pide ningún segmento")

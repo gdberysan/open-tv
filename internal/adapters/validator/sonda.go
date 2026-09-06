@@ -21,30 +21,30 @@ const maxBytesPlaylistSonda = 64 << 10
 // sondearCodecs sigue el manifiesto hasta el primer segmento y lee su PMT.
 // Devuelve CodecUnknown ante CUALQUIER problema: no poder leer no es "no
 // sirve". Nunca lanza más de dos peticiones.
-func (c *Checker) sondearCodecs(ctx context.Context, urlManifiesto, cuerpo, referrer, ua string) (domain.CodecSupport, string) {
+func (c *Checker) sondearCodecs(ctx context.Context, urlManifiesto, cuerpo, referrer, ua string) (domain.CodecSupport, domain.AudioSupport, string) {
 	base, err := url.Parse(urlManifiesto)
 	if err != nil {
-		return domain.CodecUnknown, ""
+		return domain.CodecUnknown, domain.AudioUnknown, ""
 	}
 	media := cuerpo
 	if esMaster(cuerpo) {
 		u := resolverURI(base, primeraURI(cuerpo))
 		if u == nil {
-			return domain.CodecUnknown, ""
+			return domain.CodecUnknown, domain.AudioUnknown, ""
 		}
 		media, err = c.leerTexto(ctx, u, referrer, ua)
 		if err != nil {
-			return domain.CodecUnknown, ""
+			return domain.CodecUnknown, domain.AudioUnknown, ""
 		}
 		base = u
 	}
 	if strings.Contains(media, "#EXT-X-MAP") {
 		// fMP4: el códec va en el init segment (moov/stsd). Fuera de alcance.
-		return domain.CodecUnknown, ""
+		return domain.CodecUnknown, domain.AudioUnknown, ""
 	}
 	seg := resolverURI(base, primeraURI(media))
 	if seg == nil {
-		return domain.CodecUnknown, ""
+		return domain.CodecUnknown, domain.AudioUnknown, ""
 	}
 	// Desviación deliberada de la spec §3.2: allí se proponía distinguir un
 	// segmento TS por su extensión .ts o por el Content-Type video/MP2T que
@@ -59,13 +59,13 @@ func (c *Checker) sondearCodecs(ctx context.Context, urlManifiesto, cuerpo, refe
 	// gracias a CodecCaducado.
 	prefijo, err := c.leerPrefijo(ctx, seg, referrer, ua)
 	if err != nil || len(prefijo) == 0 || prefijo[0] != 0x47 {
-		return domain.CodecUnknown, ""
+		return domain.CodecUnknown, domain.AudioUnknown, ""
 	}
 	streams, err := domain.ParsearPMT(prefijo)
 	if err != nil {
-		return domain.CodecUnknown, ""
+		return domain.CodecUnknown, domain.AudioUnknown, ""
 	}
-	return domain.ClassifyCodecs(streams), domain.NombreCodecs(streams)
+	return domain.ClassifyCodecs(streams), domain.ClassifyAudio(streams), domain.NombreCodecs(streams)
 }
 
 func esMaster(cuerpo string) bool {
