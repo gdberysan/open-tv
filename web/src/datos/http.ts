@@ -65,6 +65,10 @@ interface MirrorCable {
   web_ok?: boolean | null
   codec_ok?: boolean | null
   codecs?: string
+  audio_ok?: boolean | null
+  imagen_ms?: number
+  sin_imagen?: boolean
+  ultimo_fallo_hace_s?: number
 }
 
 /** Forma de cable de un domain.Programa (internal/api/handlers/epg_handler.go):
@@ -183,7 +187,23 @@ export function crearHttpCatalog(base = ''): CatalogSource {
         webOk: m.web_ok ?? null,
         codecOk: m.codec_ok ?? null,
         codecs: m.codecs ?? '',
+        // ?? null: igual que webOk/codecOk, "sin sondear" es un tercer
+        // estado, nunca false.
+        audioOk: m.audio_ok ?? null,
+        imagenMs: m.imagen_ms ?? 0,
+        sinImagen: m.sin_imagen ?? false,
+        ultimoFalloHaceS: m.ultimo_fallo_hace_s ?? 0,
       }))
+    },
+
+    async imagen(): Promise<Record<string, { imagenMs: number; sinImagen: boolean }>> {
+      const resp = await pedir(`${base}/channels/imagen`)
+      const crudo = (await resp.json()) as Record<string, { imagen_ms?: number; sin_imagen?: boolean }> | null
+      const mapa: Record<string, { imagenMs: number; sinImagen: boolean }> = {}
+      for (const [id, v] of Object.entries(crudo ?? {})) {
+        mapa[id] = { imagenMs: v.imagen_ms ?? 0, sinImagen: v.sin_imagen ?? false }
+      }
+      return mapa
     },
 
     async frescura(): Promise<Frescura> {

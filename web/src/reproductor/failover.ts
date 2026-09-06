@@ -41,4 +41,15 @@ export interface DesenlaceReproduccion {
   via: 'directo' | 'proxy' | 'ninguna'
   mirrorIndex: number
   msPrimerFrame?: number
+  /** URL del mirror concreto que se intentó, para el reporte por-mirror
+   *  (Tarea 5): el backend correla el fallo con el registro de salud de ESE
+   *  mirror, no del canal entero. */
+  url?: string
+  /** true = la pestaña estuvo oculta (document.visibilityState) durante el
+   *  intento: hls.js no pide segmentos con la pestaña oculta, así que un
+   *  "fallo" así no dice nada sobre la salud real del mirror. */
+  oculto?: boolean
+  /** true = el motor se forzó (AirPlay/Chromecast) en vez de elegirse por la
+   *  política normal: un fallo aquí no es comparable al resto. */
+  motorForzado?: boolean
 }

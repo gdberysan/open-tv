@@ -58,6 +58,16 @@ export interface Mirror {
   codecOk?: boolean | null
   /** Cadena corta ("mpeg2video,mp2") para el mensaje; '' si no se sabe. */
   codecs?: string
+  /** Veredicto de la sonda de audio del primer segmento. null/undefined =
+   *  sin sondear, igual que codecOk. */
+  audioOk?: boolean | null
+  /** Tiempo en ms hasta el primer frame decodificado, medido server-side.
+   *  0 = sin medición aún. */
+  imagenMs?: number
+  /** true = ningún intento reciente llegó a dar imagen. */
+  sinImagen?: boolean
+  /** Segundos desde el último fallo registrado; 0 = sin fallos o desconocido. */
+  ultimoFalloHaceS?: number
 }
 
 /** Un programa de la guía EPG. inicioSeg/finSeg: epoch UTC en SEGUNDOS, tal
@@ -103,6 +113,10 @@ export interface CatalogSource {
   destino(id: string): Promise<DestinoStream>
   /** Los mirrors del canal, ordenados por salud (vivo y menor latencia primero). */
   mirrors(id: string): Promise<Mirror[]>
+  /** Tiempo-hasta-la-imagen por canal, EN LOTE. Endpoint nuevo (Task 1-4);
+   *  opcional para no romper dobles de test que no lo implementan — el
+   *  llamador usa `fuente.imagen?.()`. */
+  imagen?(): Promise<Record<string, { imagenMs: number; sinImagen: boolean }>>
   frescura(): Promise<Frescura>
   /** El proxy solo existe en el binario local. */
   proxyDisponible(): Promise<boolean>

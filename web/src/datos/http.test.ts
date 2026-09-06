@@ -122,10 +122,13 @@ describe('HttpCatalog', () => {
     ])
   })
 
-  it('mirrors traduce las claves del cable, codec_ok incluido', async () => {
+  it('mirrors traduce las claves del cable, codec_ok y audio/imagen incluidos', async () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
       respuesta([
-        { url: 'https://a/x.m3u8', is_alive: true, latency_ms: 100, web_ok: true, codec_ok: false, codecs: 'mpeg2video,mp2' },
+        {
+          url: 'https://a/x.m3u8', is_alive: true, latency_ms: 100, web_ok: true, codec_ok: false, codecs: 'mpeg2video,mp2',
+          audio_ok: false, imagen_ms: 2100, sin_imagen: true, ultimo_fallo_hace_s: 3600,
+        },
         { url: 'https://b/x.m3u8', is_alive: true, latency_ms: 300, web_ok: false, codec_ok: true, codecs: 'h264,aac' },
         { url: 'https://c/x.m3u8', is_alive: false, latency_ms: 0, web_ok: null, codec_ok: null, codecs: '' },
         { url: 'https://d/x.m3u8', is_alive: true, latency_ms: 50 }, // servidor viejo: sin claves
@@ -133,7 +136,10 @@ describe('HttpCatalog', () => {
     ))
     const mirrors = await crearHttpCatalog('').mirrors('c1')
     expect(mirrors).toHaveLength(4)
-    expect(mirrors[0]).toEqual({ url: 'https://a/x.m3u8', vivo: true, latenciaMs: 100, webOk: true, codecOk: false, codecs: 'mpeg2video,mp2' })
+    expect(mirrors[0]).toEqual({
+      url: 'https://a/x.m3u8', vivo: true, latenciaMs: 100, webOk: true, codecOk: false, codecs: 'mpeg2video,mp2',
+      audioOk: false, imagenMs: 2100, sinImagen: true, ultimoFalloHaceS: 3600,
+    })
     expect(mirrors[1].codecOk).toBe(true)
     expect(mirrors[2].vivo).toBe(false)
     expect(mirrors[2].webOk).toBeNull()
@@ -141,6 +147,11 @@ describe('HttpCatalog', () => {
     // "sin sondear" es un tercer estado: nunca false.
     expect(mirrors[3].codecOk).toBeNull()
     expect(mirrors[3].codecs).toBe('')
+    // Servidor viejo sin las claves nuevas: valores por defecto, no undefined.
+    expect(mirrors[3].audioOk).toBeNull()
+    expect(mirrors[3].imagenMs).toBe(0)
+    expect(mirrors[3].sinImagen).toBe(false)
+    expect(mirrors[3].ultimoFalloHaceS).toBe(0)
   })
 
   describe('fuentes', () => {
@@ -247,6 +258,20 @@ describe('HttpCatalog', () => {
 
       expect(String(espia.mock.calls[0][0])).toBe('/sources/sugeridas')
       expect(sugeridas).toEqual([{ label: 'Ejemplo', url: 'https://ejemplo/lista.m3u8' }])
+    })
+  })
+
+  describe('imagen', () => {
+    it('imagen() lee GET /channels/imagen y devuelve el mapa', async () => {
+      const espia = vi.fn(async (..._args: unknown[]) => respuesta({
+        c1: { imagen_ms: 1200, sin_imagen: false },
+      }))
+      vi.stubGlobal('fetch', espia)
+
+      const mapa = await crearHttpCatalog('').imagen!()
+
+      expect(String(espia.mock.calls[0][0])).toBe('/channels/imagen')
+      expect(mapa).toEqual({ c1: { imagenMs: 1200, sinImagen: false } })
     })
   })
 
