@@ -27,6 +27,12 @@ type StreamResult struct {
 	// IsAlive: esquema final, ACAO de la respuesta y CODECS del manifiesto.
 	// Cero valor = WebUnknown = no se pudo preguntar.
 	Web domain.WebSupport
+
+	// Codec/Codecs: veredicto de la sonda del primer segmento (PAT/PMT).
+	// CodecSondeado = la sonda corrió en este chequeo, decidiera o no.
+	Codec         domain.CodecSupport
+	Codecs        string
+	CodecSondeado bool
 }
 
 // TareaCheck es una URL a comprobar junto con las cabeceras que su origen
@@ -37,6 +43,10 @@ type TareaCheck struct {
 	URL       string
 	Referrer  string
 	UserAgent string
+	// CodecCaducado: el worker lo pone a true cuando el veredicto de códecs
+	// de la fila no existe, tiene más de 24 h, o el mirror venía de muerto.
+	// Solo entonces el checker sondea el segmento.
+	CodecCaducado bool
 }
 
 // Config estructura las configuraciones del Validator.
@@ -45,6 +55,9 @@ type Config struct {
 	MaxWorkers int
 	// Timeout define el tiempo de espera máximo por petición HTTP. Default: 8s.
 	Timeout time.Duration
+	// PermitirDestinosPrivados solo es true en tests: httptest vive en
+	// 127.0.0.1, que la guardia de la sonda bloquea en producción.
+	PermitirDestinosPrivados bool
 }
 
 // DefaultConfig devuelve la configuración por defecto recomendada para el validador.

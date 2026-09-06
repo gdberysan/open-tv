@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gdberysan/open-tv/internal/domain"
+	"github.com/gdberysan/open-tv/internal/proxy"
 )
 
 // HTTPChecker define la interfaz para realizar peticiones HTTP, útil para testing.
@@ -32,10 +33,20 @@ type Checker struct {
 	client    HTTPChecker
 	transport *http.Transport
 	timeout   time.Duration
+	// sonda es el cliente GUARDADO (proxy.NuevoClienteGuardado) con el que se
+	// piden las URLs que dicta un manifiesto de terceros: media playlist y
+	// segmento. El manifiesto en sí sigue yendo por client, como siempre.
+	sonda HTTPChecker
 }
 
 // NewChecker instancia un Checker con la configuración dada.
 func NewChecker(client HTTPChecker, timeout time.Duration) *Checker {
+	return NewCheckerConSonda(client, nil, timeout)
+}
+
+// NewCheckerConSonda deja inyectar el cliente de la sonda. nil = el guardado
+// de producción (bloquea destinos privados).
+func NewCheckerConSonda(client, sonda HTTPChecker, timeout time.Duration) *Checker {
 	var tr *http.Transport
 	if client == nil {
 		// DisableKeepAlives: los orígenes IPTV rotos (MistServer sobre todo)
@@ -51,11 +62,10 @@ func NewChecker(client HTTPChecker, timeout time.Duration) *Checker {
 		}
 		client = &http.Client{Timeout: timeout, Transport: tr}
 	}
-	return &Checker{
-		client:    client,
-		transport: tr,
-		timeout:   timeout,
+	if sonda == nil {
+		sonda = proxy.NuevoClienteGuardado(false)
 	}
+	return &Checker{client: client, transport: tr, timeout: timeout, sonda: sonda}
 }
 
 // Transport expone el transporte propio del checker, o nil si se le inyectó un
@@ -74,8 +84,34 @@ func (c *Checker) Check(ctx context.Context, url string) StreamResult {
 // aunque el stream funcione perfectamente. Para HLS va directo al GET: el
 // HEAD no trae el manifiesto, y sin manifiesto no hay veredicto de
 // compatibilidad. Es una petición en lugar de dos, no una más. El resto
-// conserva HEAD→GET.
+// conserva HEAD→GET. Nunca sondea códecs: eso es CheckTarea.
 func (c *Checker) CheckConCabeceras(ctx context.Context, url, referrer, userAgentStream string) StreamResult {
+	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	res, _, _ := c.comprobar(reqCtx, url, referrer, userAgentStream)
+	return res
+}
+
+// CheckTarea es lo que ejecuta el pool: el chequeo de siempre y, si la
+// tarea lo pide y el manifiesto está vivo, la sonda de códecs — dentro del
+// MISMO timeout, para que la pasada no se alargue.
+func (c *Checker) CheckTarea(ctx context.Context, t TareaCheck) StreamResult {
+	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	res, cuerpo, final := c.comprobar(reqCtx, t.URL, t.Referrer, t.UserAgent)
+	if t.CodecCaducado && res.IsAlive && res.Protocol == "HLS" && cuerpo != "" {
+		res.CodecSondeado = true
+		res.Codec, res.Codecs = c.sondearCodecs(reqCtx, final, cuerpo, t.Referrer, t.UserAgent)
+	}
+	return res
+}
+
+// comprobar hace el chequeo HEAD→GET (o GET directo para HLS) sobre reqCtx,
+// que YA trae el timeout puesto: lo recibe en vez de crearlo, porque
+// CheckTarea necesita compartirlo con la sonda. Devuelve además el cuerpo
+// del manifiesto y su URL final cuando hubo GET (cadenas vacías si solo
+// hubo HEAD, o si algo falló antes de llegar a clasificar).
+func (c *Checker) comprobar(reqCtx context.Context, url, referrer, userAgentStream string) (result StreamResult, cuerpoManifiesto, urlManifiesto string) {
 	start := time.Now()
 
 	ua := userAgentPorDefecto
@@ -83,11 +119,7 @@ func (c *Checker) CheckConCabeceras(ctx context.Context, url, referrer, userAgen
 		ua = userAgentStream
 	}
 
-	// Contexto con timeout para evitar goroutine leaks (Riesgo #6 mitigado)
-	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	result := StreamResult{
+	result = StreamResult{
 		URL:      url,
 		Protocol: inferProtocol(url),
 	}
@@ -98,7 +130,7 @@ func (c *Checker) CheckConCabeceras(ctx context.Context, url, referrer, userAgen
 		req, err := http.NewRequestWithContext(reqCtx, http.MethodHead, url, nil)
 		if err != nil {
 			result.Error = fmt.Errorf("creando HEAD request: %w", err)
-			return result
+			return result, "", ""
 		}
 		req.Header.Set("User-Agent", ua)
 		req.Header.Set("Origin", domain.OrigenWeb)
@@ -130,7 +162,7 @@ func (c *Checker) CheckConCabeceras(ctx context.Context, url, referrer, userAgen
 		reqGet, errGet := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
 		if errGet != nil {
 			result.Error = fmt.Errorf("creando GET request: %w", errGet)
-			return result
+			return result, "", ""
 		}
 		reqGet.Header.Set("User-Agent", ua)
 		// Origin va a propósito: los orígenes que reflejan el origen del
@@ -143,7 +175,7 @@ func (c *Checker) CheckConCabeceras(ctx context.Context, url, referrer, userAgen
 		respGet, errGet := c.client.Do(reqGet)
 		if errGet != nil {
 			result.Error = fmt.Errorf("error en GET request: %w", errGet)
-			return result
+			return result, "", ""
 		}
 		defer func() { _ = respGet.Body.Close() }()
 		result.StatusCode = respGet.StatusCode
@@ -155,7 +187,7 @@ func (c *Checker) CheckConCabeceras(ctx context.Context, url, referrer, userAgen
 		cuerpo, errLectura := io.ReadAll(io.LimitReader(respGet.Body, 64<<10))
 		if errLectura != nil {
 			result.Error = fmt.Errorf("leyendo cuerpo del GET: %w", errLectura)
-			return result
+			return result, "", ""
 		}
 		final := urlFinal(respGet, url)
 		result.Airplay = domain.ClassifyManifest(final, string(cuerpo))
@@ -163,10 +195,13 @@ func (c *Checker) CheckConCabeceras(ctx context.Context, url, referrer, userAgen
 			respGet.Header.Get("Access-Control-Allow-Origin"), string(cuerpo))
 
 		result.IsAlive = respGet.StatusCode >= 200 && respGet.StatusCode < 300
+
+		result.LatencyMs = time.Since(start).Milliseconds()
+		return result, string(cuerpo), final
 	}
 
 	result.LatencyMs = time.Since(start).Milliseconds()
-	return result
+	return result, "", ""
 }
 
 // urlFinal devuelve la URL tras las redirecciones. Importa: un http:// que

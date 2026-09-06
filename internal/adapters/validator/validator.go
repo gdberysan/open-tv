@@ -3,6 +3,8 @@ package validator
 import (
 	"context"
 	"sync"
+
+	"github.com/gdberysan/open-tv/internal/proxy"
 )
 
 // Validator orquesta el proceso concurrente de verificación de streams.
@@ -17,7 +19,7 @@ func NewValidator(cfg Config, checker *Checker) *Validator {
 		cfg = DefaultConfig()
 	}
 	if checker == nil {
-		checker = NewChecker(nil, cfg.Timeout)
+		checker = NewCheckerConSonda(nil, proxy.NuevoClienteGuardado(cfg.PermitirDestinosPrivados), cfg.Timeout)
 	}
 
 	return &Validator{
@@ -48,7 +50,7 @@ func (v *Validator) Start(ctx context.Context, tareas <-chan TareaCheck) <-chan 
 						return // Canal de entrada cerrado
 					}
 					// Realizamos la validación y enviamos el resultado
-					res := v.checker.CheckConCabeceras(ctx, t.URL, t.Referrer, t.UserAgent)
+					res := v.checker.CheckTarea(ctx, t)
 
 					// Intentamos enviar al canal de resultados, pero respetamos si ctx se cancela
 					select {
