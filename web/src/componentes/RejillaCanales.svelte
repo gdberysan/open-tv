@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { Readable } from 'svelte/store'
+  import { getContext } from 'svelte'
+  import { writable, type Readable } from 'svelte/store'
   import type { AhoraDespues, Canal } from '../datos/catalogo'
   import RejillaVirtual from './RejillaVirtual.svelte'
   import SenalCanal from './SenalCanal.svelte'
@@ -9,6 +10,12 @@
   import { formatearHoraLocal } from '../lib/hora'
   import { favoritos } from '../estado/favoritos'
   import { t } from '../i18n'
+  import type { ImagenStore } from '../estado/imagen'
+
+  // imagen (Tarea 7, tiempo-hasta-la-imagen): ver el mismo comentario en
+  // ListaCanalesLateral.svelte — store vacío de respaldo cuando no hay
+  // Proveedor de contexto (tests existentes de este componente).
+  const imagen: ImagenStore = getContext('imagen') ?? writable(new Map())
 
   // densidad (Tarea 5, P0.8): solo tiene sentido en modo rejilla (RejillaVirtual);
   // la vista lista no usa TarjetaCanal ni tiene columnas que ensanchar/estrechar,
@@ -112,7 +119,12 @@
              (TarjetaCanal), sin scrim/badge — aquí es una fila con su propio
              fondo (--surface-card), no una miniatura. Rejilla y lista ya
              hablan el mismo lenguaje de señal. -->
-        <SenalCanal vivo={canal.vivo} latenciaMs={canal.latenciaMs} />
+        <SenalCanal
+          vivo={canal.vivo}
+          latenciaMs={canal.latenciaMs}
+          imagenMs={$imagen.get(canal.id)?.imagenMs}
+          sinImagen={$imagen.get(canal.id)?.sinImagen}
+        />
         <MarcaWeb webOk={canal.webOk} />
         <button
           class="favorito"

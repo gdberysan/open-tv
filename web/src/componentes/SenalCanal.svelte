@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { t } from '../i18n'
+  import { idioma, t } from '../i18n'
   import type { ClaveMensaje } from '../i18n/es'
 
   // Extraído de TarjetaCanal (Tarea 8, fix 1): la rejilla pintaba punto+ms
@@ -10,7 +10,19 @@
   // — no decide tamaño ni posición, el llamador lo envuelve como quiera
   // (badge sobre miniatura con scrim en la rejilla, inline sin scrim en la
   // fila de lista). Así rejilla y lista hablan el MISMO lenguaje de señal.
-  let { vivo, latenciaMs }: { vivo: boolean | null; latenciaMs: number } = $props()
+  //
+  // imagenMs/sinImagen (Tarea 7, tiempo-hasta-la-imagen): opcionales — sin
+  // ellos el componente se comporta EXACTAMENTE como antes (los llamadores
+  // sin contexto `imagen`, incluidos los tests existentes de este mismo
+  // fichero y de los tres llamadores, no pasan nada nuevo). Precedencia:
+  // sinImagen pisa a imagenMs (un mirror sin imagen no tiene sentido
+  // mostrarlo con un tiempo), e imagenMs>0 pisa a los ms de latencia de hoy.
+  let {
+    vivo,
+    latenciaMs,
+    imagenMs,
+    sinImagen,
+  }: { vivo: boolean | null; latenciaMs: number; imagenMs?: number; sinImagen?: boolean } = $props()
 
   // Mapa único vivo→{clase,clave}: la clase gobierna el color del punto vía
   // CSS y la clave el aria-label — el color NUNCA es la única señal (mismo
@@ -25,11 +37,40 @@
   }
   const estado = $derived<EstadoSalud>(vivo === true ? 'vivo' : vivo === false ? 'muerta' : 'desconocido')
   const clave = $derived(MAPA_SALUD[estado])
+
+  // sinImagen tiene su PROPIA clase de punto (no reutiliza .muerta): un
+  // mirror puede estar vivo (responde) y aun así no dar imagen — son dos
+  // señales distintas, y confundirlas en el mismo color engañaría sobre
+  // cuál es el problema real.
+  const clasePunto = $derived(sinImagen ? 'sin-imagen' : estado)
+
+  // Un decimal, coma en es / punto en en — mismo criterio de locale que
+  // formatearHoraLocal (lib/hora.ts), pero aquí NO hay Intl que sirva:
+  // toFixed(1) da el decimal y solo hace falta cambiar el separador.
+  function formatearSegundos(ms: number): string {
+    const texto = (ms / 1000).toFixed(1)
+    return idioma.actual === 'es' ? texto.replace('.', ',') : texto
+  }
+
+  const segundos = $derived(imagenMs && imagenMs > 0 ? formatearSegundos(imagenMs) : null)
+
+  const texto = $derived(
+    sinImagen ? t('senal.sinImagen')
+    : segundos !== null ? t('senal.imagenEn', { s: segundos })
+    : latenciaMs > 0 ? `${latenciaMs} ms`
+    : null,
+  )
+
+  const etiqueta = $derived(
+    sinImagen ? t('senal.sinImagen')
+    : segundos !== null ? `${t(clave)}, ${t('senal.imagenEn', { s: segundos }).toLowerCase()}`
+    : t(clave),
+  )
 </script>
 
 <span class="senal-canal">
-  <i class="punto {estado}" role="img" aria-label={t(clave)}></i>
-  {#if latenciaMs > 0}<span class="ms">{latenciaMs} ms</span>{/if}
+  <i class="punto {clasePunto}" role="img" aria-label={etiqueta}></i>
+  {#if texto}<span class="ms">{texto}</span>{/if}
 </span>
 
 <style>
@@ -40,6 +81,7 @@
   .punto.vivo { background: var(--signal-ok); }
   .punto.muerta { background: var(--signal-error); }
   .punto.desconocido { background: var(--text-faint); }
+  .punto.sin-imagen { background: var(--signal-error); }
   .ms {
     font: var(--type-mono-label, inherit);
     letter-spacing: var(--tracking-mono, normal);

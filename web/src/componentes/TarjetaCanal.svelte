@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { Readable } from 'svelte/store'
+  import { getContext } from 'svelte'
+  import { writable, type Readable } from 'svelte/store'
   import type { AhoraDespues, Canal } from '../datos/catalogo'
   import MarcaWeb from './MarcaWeb.svelte'
   import LogoCanal from './LogoCanal.svelte'
@@ -9,6 +10,12 @@
   import { formatearHoraLocal } from '../lib/hora'
   import { favoritos } from '../estado/favoritos'
   import { t } from '../i18n'
+  import type { ImagenStore } from '../estado/imagen'
+
+  // imagen (Tarea 7, tiempo-hasta-la-imagen): ver el mismo comentario en
+  // ListaCanalesLateral.svelte — store vacío de respaldo cuando no hay
+  // Proveedor de contexto (tests existentes de esta tarjeta, sueltos).
+  const imagen: ImagenStore = getContext('imagen') ?? writable(new Map())
 
   // indice/focoActivo (Tarea 18, roving tabindex): opcionales y con
   // focoActivo por defecto en true para no romper a nadie que use esta
@@ -90,7 +97,12 @@
            punto + el ms; esta insignia solo aporta el badge/scrim, que es
            cosa del llamador, no de SenalCanal. -->
       <span class="insignia insignia-salud">
-        <SenalCanal vivo={canal.vivo} latenciaMs={canal.latenciaMs} />
+        <SenalCanal
+          vivo={canal.vivo}
+          latenciaMs={canal.latenciaMs}
+          imagenMs={$imagen.get(canal.id)?.imagenMs}
+          sinImagen={$imagen.get(canal.id)?.sinImagen}
+        />
       </span>
 
       <!-- Abajo-der: resolución, si el nombre la trae. -->

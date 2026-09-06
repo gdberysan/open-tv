@@ -41,4 +41,25 @@ describe('SenalCanal', () => {
     render(SenalCanal, { vivo: true, latenciaMs: 0 })
     expect(screen.queryByText('0 ms')).toBeNull()
   })
+
+  // Tarea 7 (tiempo-hasta-la-imagen): imagenMs/sinImagen son opcionales —
+  // sin ellos la tarjeta sigue como hoy (tests de arriba).
+  it('con imagenMs pinta «Imagen en 2,1 s» y lo dice en el aria-label', () => {
+    const { container } = render(SenalCanal, { vivo: true, latenciaMs: 120, imagenMs: 2140 })
+    expect(container.textContent).toContain('Imagen en 2,1 s')
+    expect(container.querySelector('.punto')?.getAttribute('aria-label')).toBe('Señal viva, imagen en 2,1 s')
+    expect(container.textContent).not.toContain('120 ms')
+  })
+
+  it('con sinImagen pinta el punto de error y «Sin imagen desde aquí»', () => {
+    const { container } = render(SenalCanal, { vivo: true, latenciaMs: 120, sinImagen: true })
+    expect(container.querySelector('.punto')?.classList.contains('sin-imagen')).toBe(true)
+    expect(container.querySelector('.punto')?.getAttribute('aria-label')).toBe('Sin imagen desde aquí')
+    expect(container.textContent).toContain('Sin imagen desde aquí')
+  })
+
+  it('sin datos de imagen sigue como hoy', () => {
+    const { container } = render(SenalCanal, { vivo: true, latenciaMs: 120 })
+    expect(container.textContent).toContain('120 ms')
+  })
 })

@@ -56,6 +56,9 @@ export const en: Record<ClaveMensaje, string> = {
   'senal.muerta': 'Not responding',
   'senal.sinDatos': 'Not checked yet',
 
+  'senal.sinImagen': 'No picture from here',
+  'senal.imagenEn': 'Picture in {s} s',
+
   'senal.titulo': 'Signal',
   'senal.soloViva': 'Live signal only',
 

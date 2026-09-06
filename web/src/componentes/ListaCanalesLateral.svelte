@@ -1,10 +1,19 @@
 <script lang="ts">
-  import { onDestroy, tick } from 'svelte'
+  import { getContext, onDestroy, tick } from 'svelte'
+  import { writable } from 'svelte/store'
   import type { Canal } from '../datos/catalogo'
   import LogoCanal from './LogoCanal.svelte'
   import SenalCanal from './SenalCanal.svelte'
   import { parsearResolucion } from '../lib/resolucion'
   import { t } from '../i18n'
+  import type { ImagenStore } from '../estado/imagen'
+
+  // imagen (Tarea 7, tiempo-hasta-la-imagen): contexto que App.svelte
+  // establece con setContext — los tests de este componente lo montan SIN
+  // Proveedor, así que getContext devuelve undefined; el store vacío de
+  // respaldo hace que $imagen.get(...) siga devolviendo undefined, IGUAL que
+  // hoy, sin tocar ni un test existente.
+  const imagen: ImagenStore = getContext('imagen') ?? writable(new Map())
 
   // Lista estrecha del escenario reproductor-primero (spec §3): cuadrícula de
   // miniaturas CUADRADAS (antes: filas de solo texto — la miniatura da la
@@ -207,7 +216,12 @@
         <span class="logo">
           <LogoCanal logoUrl={canal.logoUrl} nombre={canal.nombre} />
           <span class="insignia insignia-salud">
-            <SenalCanal vivo={canal.vivo} latenciaMs={canal.latenciaMs} />
+            <SenalCanal
+              vivo={canal.vivo}
+              latenciaMs={canal.latenciaMs}
+              imagenMs={$imagen.get(canal.id)?.imagenMs}
+              sinImagen={$imagen.get(canal.id)?.sinImagen}
+            />
           </span>
           {#if resolucion}<span class="insignia insignia-resolucion">{resolucion}</span>{/if}
           {#if enCurso}<span class="insignia insignia-reproduciendo">{t('escenario.reproduciendo')}</span>{/if}

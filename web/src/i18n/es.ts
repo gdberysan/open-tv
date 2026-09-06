@@ -94,6 +94,13 @@ export const es = {
   'senal.muerta': 'Sin respuesta',
   'senal.sinDatos': 'Sin comprobar',
 
+  // Tarea 7 (tiempo-hasta-la-imagen): tiempo-hasta-la-imagen por canal
+  // (Task 1-4, GET /channels/imagen), leído en SenalCanal a través del
+  // store `imagen` de App.svelte. sinImagen pisa a imagenMs (un mirror sin
+  // imagen no tiene sentido mostrarlo con un tiempo).
+  'senal.sinImagen': 'Sin imagen desde aquí',
+  'senal.imagenEn': 'Imagen en {s} s',
+
   // Tarea 6 (P0.6): bloque «Señal» de la barra lateral de facetas — encabezado
   // del grupo y la fila que resume el estado por defecto (solo canales vivos).
   'senal.titulo': 'Señal',

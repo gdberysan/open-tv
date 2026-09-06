@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick, untrack } from 'svelte'
+  import { onDestroy, onMount, setContext, tick, untrack } from 'svelte'
   import { get } from 'svelte/store'
   import { idioma, t } from './i18n'
   import { crearHttpCatalog } from './datos/http'
@@ -9,8 +9,10 @@
   import { preferencias } from './estado/preferencias'
   import { clasificarError, consultarSalud, type ClaseError } from './estado/salud'
   import { reportarDesenlace } from './estado/estadisticas'
+  import { reportarDesenlaceMirror } from './estado/desenlaces'
   import { historial, type EntradaHistorial } from './estado/historial'
   import { crearEpg } from './estado/epg'
+  import { crearImagen } from './estado/imagen'
   import { debeHacerSurf, esObjetivoInteractivo } from './lib/surf'
   import BarraLateralFacetas from './componentes/BarraLateralFacetas.svelte'
   import RejillaCanales from './componentes/RejillaCanales.svelte'
@@ -78,6 +80,19 @@
   // a mitad de vida y perder su caché/intervalo), no un olvido de
   // reactividad; sin untrack, svelte-check lo marca como warning.
   const epg = crearEpg(untrack(() => fuente))
+
+  // imagen (Tarea 7, tiempo-hasta-la-imagen): mismo principio que epg de
+  // arriba — App es el único que habla con CatalogSource, y el store se
+  // reparte hacia abajo por CONTEXTO (setContext), no por prop, porque lo
+  // leen tres llamadores a distinta profundidad del árbol (ListaCanalesLateral,
+  // RejillaCanales, TarjetaCanal vía RejillaVirtual) sin que ninguno de los
+  // intermedios necesite saber que existe. imagen.cargar() se dispara UNA
+  // vez al montar, junto al resto de datos de arranque (más abajo, en
+  // onMount) — y de nuevo tras cada desenlace de mirror reportado (ver
+  // alDesenlace del Reproductor), porque un fallo puede cambiar qué mirror
+  // sirve de imagen para un canal.
+  const imagen = crearImagen(untrack(() => fuente))
+  setContext('imagen', imagen)
 
   // Puerta de entrada: hasta que /health confirme que el catálogo ya se
   // sincronizó una vez, no tiene sentido pedir /channels — la primera
@@ -706,6 +721,7 @@
 
   onMount(() => {
     comprobarSalud()
+    void imagen.cargar()
     ;(async () => {
       try {
         const [p, c, q, f, fu] = await Promise.all([
@@ -1013,7 +1029,10 @@
                   {fuente}
                   activo={reproductorActivo}
                   silenciadoInicial={entradaSilenciada}
-                  alDesenlace={reportarDesenlace}
+                  alDesenlace={(d) => {
+                    reportarDesenlace(d)
+                    if (reportarDesenlaceMirror(d)) imagen.refrescar()
+                  }}
                   alAnterior={canalAnterior}
                   alSiguiente={canalSiguiente}
                 />
