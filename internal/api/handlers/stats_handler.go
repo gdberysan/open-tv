@@ -50,10 +50,11 @@ func (c *DBCatalogoStats) Resumen(ctx context.Context) (map[string]any, error) {
 		COUNT(*),
 		COALESCE(SUM(is_alive), 0),
 		COALESCE(SUM(CASE WHEN web_ok = 1 THEN 1 ELSE 0 END), 0),
-		COALESCE(SUM(CASE WHEN web_ok = 0 THEN 1 ELSE 0 END), 0)
+		COALESCE(SUM(CASE WHEN web_ok = 0 THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN codec_ok = 0 THEN 1 ELSE 0 END), 0)
 		FROM streams`
-	var total, vivos, webOK, webNo int
-	if err := c.db.QueryRowContext(ctx, q).Scan(&total, &vivos, &webOK, &webNo); err != nil {
+	var total, vivos, webOK, webNo, codecNo int
+	if err := c.db.QueryRowContext(ctx, q).Scan(&total, &vivos, &webOK, &webNo, &codecNo); err != nil {
 		return nil, fmt.Errorf("agregando el catálogo: %w", err)
 	}
 	return map[string]any{
@@ -63,6 +64,7 @@ func (c *DBCatalogoStats) Resumen(ctx context.Context) (map[string]any, error) {
 		"web_ok":          webOK,
 		"web_no":          webNo,
 		"web_desconocido": total - webOK - webNo,
+		"codec_no":        codecNo,
 	}, nil
 }
 

@@ -179,7 +179,9 @@ type mirrorJSON struct {
 	URL       string `json:"url"`
 	IsAlive   bool   `json:"is_alive"`
 	LatencyMs int64  `json:"latency_ms"`
-	WebOK     *bool  `json:"web_ok"` // null = sin comprobar
+	WebOK     *bool  `json:"web_ok"`   // null = sin comprobar
+	CodecOK   *bool  `json:"codec_ok"` // null = sin sondear; false = ningún navegador decodifica su vídeo
+	Codecs    string `json:"codecs"`   // "mpeg2video,mp2"; '' si no se sabe
 }
 
 // GetChannelStreams devuelve los mirrors de un canal ordenados por salud, para
@@ -204,6 +206,7 @@ func (h *ChannelHandler) GetChannelStreams(w http.ResponseWriter, r *http.Reques
 	for _, m := range mirrors {
 		salida = append(salida, mirrorJSON{
 			URL: m.URL, IsAlive: m.IsAlive, LatencyMs: m.LatencyMs, WebOK: webOKaPtr(m.WebOK),
+			CodecOK: codecOKaPtr(m.Codec), Codecs: m.Codecs,
 		})
 	}
 	h.writeJSON(w, http.StatusOK, salida)
@@ -216,6 +219,21 @@ func webOKaPtr(v domain.WebSupport) *bool {
 		t := true
 		return &t
 	case domain.WebNo:
+		f := false
+		return &f
+	default:
+		return nil
+	}
+}
+
+// codecOKaPtr traduce el tri-estado del sondeo de códecs al *bool del cable
+// (nil = sin sondear).
+func codecOKaPtr(v domain.CodecSupport) *bool {
+	switch v {
+	case domain.CodecOK:
+		t := true
+		return &t
+	case domain.CodecNo:
 		f := false
 		return &f
 	default:
