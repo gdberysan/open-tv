@@ -535,17 +535,22 @@ describe('Reproductor — mirrors sin imagen y audio (Tarea 6)', () => {
     expect(intentadas).toEqual(['https://bueno/x.m3u8'])
   })
 
-  it('con todos los mirrors sin imagen muestra el mensaje con «hace» y el botón «Probar de todos modos», que sí los intenta', async () => {
+  // F1 (revisión de rama completa): el «hace» del mensaje es el del intento
+  // MÁS RECIENTE (el mínimo ultimoFalloHaceS entre los saltados), no el más
+  // viejo — con dos mirrors sin imagen (23h y 2min) el mensaje debe hablar
+  // de los 2min, no de las 23h.
+  it('con todos los mirrors sin imagen muestra el mensaje con el «hace» del intento MÁS RECIENTE y el botón «Probar de todos modos», que sí los intenta', async () => {
     hlsState.instancias.length = 0
     const mirrors: Mirror[] = [
-      { url: 'https://falla/x.m3u8', vivo: true, latenciaMs: 100, webOk: true, sinImagen: true, ultimoFalloHaceS: 3 * 3600 },
+      { url: 'https://falla-a/x.m3u8', vivo: true, latenciaMs: 100, webOk: true, sinImagen: true, ultimoFalloHaceS: 23 * 3600 },
+      { url: 'https://falla-b/x.m3u8', vivo: true, latenciaMs: 200, webOk: true, sinImagen: true, ultimoFalloHaceS: 120 },
     ]
     const fuente = { mirrors: vi.fn(async () => mirrors), proxyDisponible: vi.fn(async () => false) }
     const desenlaces: DesenlaceReproduccion[] = []
     const intentadas: string[] = []
     render(Reproductor, { canal, fuente: fuente as any, alIntentar: (u: string) => intentadas.push(u), alDesenlace: (d: DesenlaceReproduccion) => desenlaces.push(d) })
 
-    const esperado = t('reproductor.error.sinImagen', { hace: t('tiempo.haceH', { n: 3 }) })
+    const esperado = t('reproductor.error.sinImagen', { hace: t('tiempo.haceMin', { n: 2 }) })
     await vi.waitFor(() => expect(screen.queryAllByText(esperado).length).toBeGreaterThan(0))
     expect(intentadas).toEqual([])
     expect(desenlaces).toEqual([{ canalId: 'c1', resultado: 'fallo', motivo: 'sinImagen', motor: 'hlsjs', via: 'ninguna', mirrorIndex: 0, url: '', oculto: false, motorForzado: false }])
@@ -553,7 +558,7 @@ describe('Reproductor — mirrors sin imagen y audio (Tarea 6)', () => {
 
     await fireEvent.click(screen.getByText(t('reproductor.error.probarIgual')))
     await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
-    expect(intentadas).toEqual(['https://falla/x.m3u8'])
+    expect(intentadas).toEqual(['https://falla-a/x.m3u8'])
   })
 
   it('«Probar de todos modos» ignora sinImagen pero NO los saltos por códec', async () => {

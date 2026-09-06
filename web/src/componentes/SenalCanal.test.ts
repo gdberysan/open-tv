@@ -44,17 +44,22 @@ describe('SenalCanal', () => {
 
   // Tarea 7 (tiempo-hasta-la-imagen): imagenMs/sinImagen son opcionales —
   // sin ellos la tarjeta sigue como hoy (tests de arriba).
-  it('con imagenMs pinta «Imagen en 2,1 s» y lo dice en el aria-label', () => {
+  // M6 (revisión de rama completa): el texto visible ya dice el estado
+  // entero en esta rama, así que el punto pasa a aria-hidden sin aria-label
+  // — un lector de pantalla no debe oírlo dos veces.
+  it('con imagenMs pinta «Imagen en 2,1 s» y el punto queda aria-hidden (el texto ya lo dice)', () => {
     const { container } = render(SenalCanal, { vivo: true, latenciaMs: 120, imagenMs: 2140 })
     expect(container.textContent).toContain('Imagen en 2,1 s')
-    expect(container.querySelector('.punto')?.getAttribute('aria-label')).toBe('Señal viva, imagen en 2,1 s')
+    expect(container.querySelector('.punto')?.getAttribute('aria-hidden')).toBe('true')
+    expect(container.querySelector('.punto')?.hasAttribute('aria-label')).toBe(false)
     expect(container.textContent).not.toContain('120 ms')
   })
 
-  it('con sinImagen pinta el punto de error y «Sin imagen desde aquí»', () => {
+  it('con sinImagen pinta el punto de error, aria-hidden y «Sin imagen desde aquí» (el texto ya lo dice)', () => {
     const { container } = render(SenalCanal, { vivo: true, latenciaMs: 120, sinImagen: true })
     expect(container.querySelector('.punto')?.classList.contains('sin-imagen')).toBe(true)
-    expect(container.querySelector('.punto')?.getAttribute('aria-label')).toBe('Sin imagen desde aquí')
+    expect(container.querySelector('.punto')?.getAttribute('aria-hidden')).toBe('true')
+    expect(container.querySelector('.punto')?.hasAttribute('aria-label')).toBe(false)
     expect(container.textContent).toContain('Sin imagen desde aquí')
   })
 

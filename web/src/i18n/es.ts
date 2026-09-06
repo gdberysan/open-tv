@@ -141,11 +141,10 @@ export const es = {
   // diferencia de codec/codecGenerico (que sí son un callejón sin salida),
   // aquí SÍ hay algo que ofrecer: "Probar de todos modos" (errorProbarIgual)
   // ignora el filtro por si la señal ya se recuperó.
-  // {hace} YA trae su propio "hace" (formatearHace en Reproductor.svelte
-  // devuelve «hace N min»/«hace N h», no un desnudo "N min"): un "hace {hace}"
-  // aquí salía "hace hace 1 min" — hallazgo real de la Tarea 8 contra AMC
-  // (720p) en un navegador de verdad, no en los gates automatizados.
-  'reproductor.error.sinImagen': 'Ningún origen de este canal llega a dar imagen desde aquí (último intento {hace}).',
+  // {hace} es un valor DESNUDO ("2 min", "3 h": ver tiempo.haceMin/haceH más
+  // abajo) — la propia frase pone el "hace" delante, igual que en inglés la
+  // frase pone el "ago" detrás.
+  'reproductor.error.sinImagen': 'Ningún origen de este canal llega a dar imagen desde aquí (último intento hace {hace}).',
   'reproductor.error.probarIgual': 'Probar de todos modos',
 
   // Tarea 14 (P0.6): CTA del error de reproducción cuando el canal SÍ tenía
@@ -169,12 +168,13 @@ export const es = {
   'reproductor.cast.terminada': 'Emisión por AirPlay terminada.',
 
   // Tarea 6 (tiempo-hasta-la-imagen): «hace cuánto» genérico para
-  // reproductor.error.sinImagen (formatearHace en Reproductor.svelte). En
-  // español "hace" viaja en la propia clave; en inglés viaja en la frase que
-  // la envuelve, así que ahí las claves NO llevan "ago" — misma paridad de
-  // CLAVES, no de dónde vive cada palabra.
-  'tiempo.haceMin': 'hace {n} min',
-  'tiempo.haceH': 'hace {n} h',
+  // reproductor.error.sinImagen (formatearHace en Reproductor.svelte).
+  // Claves DESNUDAS en los dos idiomas (sin "hace"/"ago"): la preposición
+  // vive en la frase que las envuelve, no aquí — así una misma clave sirve
+  // para cualquier frase que quiera componerla, sin arriesgarse a un
+  // "hace hace 1 min" si la frase ya trae la suya.
+  'tiempo.haceMin': '{n} min',
+  'tiempo.haceH': '{n} h',
 
   'estado.sincronizando': 'Sincronizando el catálogo…',
   'estado.sincronizandoDetalle': 'La primera vez tarda unos segundos: se descargan unos 13 000 canales.',

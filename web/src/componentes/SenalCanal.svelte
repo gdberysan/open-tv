@@ -66,10 +66,22 @@
     : segundos !== null ? `${t(clave)}, ${t('senal.imagenEn', { s: segundos }).toLowerCase()}`
     : t(clave),
   )
+
+  // M6 (revisión de rama completa): en las ramas sinImagen/imagenMs el texto
+  // VISIBLE ya dice el estado entero (etiqueta lo repite palabra por
+  // palabra) — un lector de pantalla lo anunciaría dos veces. El punto pasa
+  // a aria-hidden y sin aria-label ahí; en la rama por defecto (solo ms) el
+  // texto NO dice el estado de salud, así que el punto sigue siendo el
+  // único portador de esa información y conserva role="img"+aria-label.
+  const dotAnunciaEstado = $derived(!sinImagen && segundos === null)
 </script>
 
 <span class="senal-canal">
-  <i class="punto {clasePunto}" role="img" aria-label={etiqueta}></i>
+  {#if dotAnunciaEstado}
+    <i class="punto {clasePunto}" role="img" aria-label={etiqueta}></i>
+  {:else}
+    <i class="punto {clasePunto}" aria-hidden="true"></i>
+  {/if}
   {#if texto}<span class="ms">{texto}</span>{/if}
 </span>
 

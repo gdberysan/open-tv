@@ -692,7 +692,15 @@
           cargando = false
           errorSinReintento = false
           errorProbarIgual = true
-          const haceS = Math.max(...mirrors.map((m) => m.ultimoFalloHaceS ?? 0))
+          // El «hace» del mensaje es el intento MÁS RECIENTE, no el más
+          // viejo: era Math.max sobre TODOS los mirrors (incluidos los que
+          // nunca se probaron, ultimoFalloHaceS 0), lo que colaba edades
+          // absurdas. Ahora es el MÍNIMO entre los que de verdad se
+          // saltaron por sinImagen, ignorando los 0 (sin fallo registrado).
+          const edades = reproducibles
+            .filter((m) => m.sinImagen === true && (m.ultimoFalloHaceS ?? 0) > 0)
+            .map((m) => m.ultimoFalloHaceS as number)
+          const haceS = edades.length > 0 ? Math.min(...edades) : 0
           mensajeError = t('reproductor.error.sinImagen', { hace: formatearHace(haceS) })
           alDesenlace({ canalId: canal.id, resultado: 'fallo', motivo: 'sinImagen', motor, via: 'ninguna', mirrorIndex: 0, url: '', oculto: false, motorForzado: false })
           return

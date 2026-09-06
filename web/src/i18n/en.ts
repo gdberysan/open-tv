@@ -93,7 +93,8 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.cast.noDisponible': "This channel couldn't cast over AirPlay before. Still playing here.",
   'reproductor.cast.terminada': 'AirPlay casting ended.',
 
-  // Tarea 6: parity of KEYS, not of where "ago" lives — see es.ts.
+  // Tarea 6: bare values in both languages — "ago" lives in the sentence
+  // that wraps them (reproductor.error.sinImagen), not in the key itself.
   'tiempo.haceMin': '{n} min',
   'tiempo.haceH': '{n} h',
 
