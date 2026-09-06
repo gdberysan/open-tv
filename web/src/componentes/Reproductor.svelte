@@ -596,6 +596,17 @@
         // del guard para acabar en el mismo sitio.
         const reproducibles = mirrors.filter((m) => m.codecOk !== false)
         if (reproducibles.length === 0) {
+          if (motorForzado === 'nativo') {
+            // Igual que cuando el failover se agota en pleno cast: soltar la
+            // ruta AirPlay y volver al motor local; la siguiente pasada de
+            // reproducir() ya mostrará el mensaje de códec sin cast a medias.
+            motorForzado = null
+            estadoCast = 'idle'
+            terminarRutaAirplay()
+            mostrarAvisoCast(t('reproductor.cast.fallo'))
+            reproducir()
+            return
+          }
           cargando = false
           errorSinReintento = true
           const codecs = mirrors.find((m) => m.codecs)?.codecs ?? ''

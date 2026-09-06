@@ -1430,6 +1430,56 @@ describe('Reproductor — fixes de la revisión final del cast', () => {
     }
   })
 
+  it('con un cast en curso y todos los mirrors indecodificables, suelta la ruta AirPlay antes de mostrar el mensaje de códec', async () => {
+    const limpiarAirplay = conAirplayDisponible()
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    vi.useFakeTimers()
+    try {
+      const fuente = fuenteSinMirrors()
+      const { container, rerender } = render(Reproductor, { canal, fuente: fuente as any })
+      await vi.advanceTimersByTimeAsync(0)
+
+      const video = container.querySelector('video') as HTMLVideoElement
+      Object.defineProperty(video, 'webkitCurrentPlaybackTargetIsWireless', { value: true, configurable: true })
+      video.dispatchEvent(new Event('webkitcurrentplaybacktargetiswirelesschanged'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(video.src).toContain('x.m3u8') // cast en marcha: motor nativo
+
+      const cambios = espiarRutaRemota(video)
+
+      // Cambio de canal a uno cuyos mirrors son TODOS indecodificables — el
+      // mismo gesto que elegir otro canal en la lista lateral mientras el
+      // cast sigue activo.
+      const fuenteCodec = {
+        mirrors: vi.fn(async () => [
+          { url: 'https://mpeg2/x.m3u8', vivo: true, latenciaMs: 100, webOk: false, codecOk: false, codecs: 'mpeg2video,mp2' },
+        ] as Mirror[]),
+        proxyDisponible: vi.fn(async () => false),
+      }
+      await rerender({ canal: { ...canal, id: 'c2', nombre: 'Otro' } as Canal, fuente: fuenteCodec as any })
+      await vi.advanceTimersByTimeAsync(0)
+
+      // Suelta la ruta ANTES de rendirse: mismo contrato de tres pasos que el
+      // agotamiento del failover en cast (true→false + aviso transitorio).
+      expect(cambios).toEqual([true, false])
+      expect(container.querySelector('.estado.cast.aviso .mensaje')?.textContent).toBe(t('reproductor.cast.fallo'))
+
+      // El aviso se autoborra; solo entonces se ve el mensaje de códec, y sin
+      // botón de reintento (errorSinReintento).
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(container.querySelector('.estado.error .mensaje')?.textContent).toBe(
+        t('reproductor.error.codec', { codecs: 'mpeg2video,mp2' }),
+      )
+      expect(screen.queryByText(t('reproductor.error.reintentar'))).toBeNull()
+    } finally {
+      vi.useRealTimers()
+      limpiarAirplay()
+      loadSpy.mockRestore()
+      playSpy.mockRestore()
+    }
+  })
+
   it('un canal ya marcado «no castea por formato» suelta la ruta en vez de dejar el TV colgado', async () => {
     const limpiarAirplay = conAirplayDisponible()
     const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
