@@ -129,12 +129,24 @@ export const es = {
   // Safari a propósito: Safari da audio sin imagen.
   'reproductor.error.codec': 'El vídeo de este canal viene en {codecs}, un formato que ningún navegador decodifica. Solo lo puede ver un reproductor de escritorio (VLC o la app instalada).',
   'reproductor.error.codecGenerico': 'El vídeo de este canal viene en un formato que ningún navegador decodifica. Solo lo puede ver un reproductor de escritorio (VLC o la app instalada).',
+  // Tarea 6 (tiempo-hasta-la-imagen): todos los mirrors del canal están
+  // marcados sinImagen (ningún intento reciente llegó a dar imagen) — a
+  // diferencia de codec/codecGenerico (que sí son un callejón sin salida),
+  // aquí SÍ hay algo que ofrecer: "Probar de todos modos" (errorProbarIgual)
+  // ignora el filtro por si la señal ya se recuperó.
+  'reproductor.error.sinImagen': 'Ningún origen de este canal llega a dar imagen desde aquí (último intento hace {hace}).',
+  'reproductor.error.probarIgual': 'Probar de todos modos',
 
   // Tarea 14 (P0.6): CTA del error de reproducción cuando el canal SÍ tenía
   // mirrors (más allá del destino único de compatibilidad) — reanuda el
   // mismo failover de P0.5 en vez de dejar un callejón sin salida.
   'reproductor.error.mirrorsProbados': 'Se probaron {n} mirrors, ninguno llegó a reproducir.',
   'reproductor.error.reintentar': 'Reintentar',
+  // Tarea 6: nota junto a la insignia «En vivo» (y en la región polite
+  // persistente) cuando el mirror en curso está confirmado como sin pista de
+  // audio (Mirror.audioOk === false) — informativo, no un error: el vídeo sí
+  // llega.
+  'reproductor.sinAudio': 'Sin audio en este origen',
 
   // AirPlay (spec 2026-09-03): sin nombre de dispositivo posible — WebKit no
   // expone uno a la página (ver spec §2.6) — así que el texto es genérico.
@@ -144,6 +156,14 @@ export const es = {
   'reproductor.cast.fallo': 'Este canal no se puede emitir por AirPlay. Sigue reproduciéndose aquí.',
   'reproductor.cast.noDisponible': 'Este canal no se pudo emitir por AirPlay antes. Sigue reproduciéndose aquí.',
   'reproductor.cast.terminada': 'Emisión por AirPlay terminada.',
+
+  // Tarea 6 (tiempo-hasta-la-imagen): «hace cuánto» genérico para
+  // reproductor.error.sinImagen (formatearHace en Reproductor.svelte). En
+  // español "hace" viaja en la propia clave; en inglés viaja en la frase que
+  // la envuelve, así que ahí las claves NO llevan "ago" — misma paridad de
+  // CLAVES, no de dónde vive cada palabra.
+  'tiempo.haceMin': 'hace {n} min',
+  'tiempo.haceH': 'hace {n} h',
 
   'estado.sincronizando': 'Sincronizando el catálogo…',
   'estado.sincronizandoDetalle': 'La primera vez tarda unos segundos: se descargan unos 13 000 canales.',

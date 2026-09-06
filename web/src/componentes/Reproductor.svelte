@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte'
-  import type { Canal, CatalogSource } from '../datos/catalogo'
+  import type { Canal, CatalogSource, Mirror } from '../datos/catalogo'
   import { PlaybackGuard } from '../reproductor/guard'
   import { planDeReproduccion, motorDelNavegador, urlProxy, type Motor } from '../reproductor/plan'
   import { planDeFailover, type Intento, type DesenlaceReproduccion } from '../reproductor/failover'
@@ -61,6 +61,25 @@
   // botón que no puede arreglar nada es una promesa falsa (misma lección
   // que el contador de mirrors «con mejor salud»).
   let errorSinReintento = $state(false)
+  // Tarea 6 (tiempo-hasta-la-imagen): true cuando reproducir() se agotó
+  // porque TODOS los mirrors venían marcados sinImagen — a diferencia de
+  // errorSinReintento (codec: no hay nada que arreglar), aquí SÍ hay una
+  // salida: probarIgual() reintenta ignorando ese filtro. Nunca ambos a la
+  // vez (mutuamente excluyentes según qué corte de reproducir() se tome).
+  let errorProbarIgual = $state(false)
+  // true = la pestaña estuvo oculta durante el intento vigente (o el último
+  // que se hizo): lo fija intentar() al empezar y onVisibilidad() al ocultarse
+  // (ver DesenlaceReproduccion.oculto — un "fallo" con la pestaña oculta no
+  // dice nada de la salud real del mirror).
+  let ocultoEnIntento = $state(false)
+  // Mirror del intento VIGENTE (el que intentar() está probando ahora mismo),
+  // para la nota "Sin audio en este origen" del overlay — null si no aplica
+  // (compat sin mirrors, o antes de que el primer intentar() arranque).
+  let mirrorActual = $state<Mirror | null>(null)
+  // Lista de mirrors (YA filtrada por códec y sinImagen) del reproducir()
+  // vigente: la lee mirrorDe() para resolver mirrorActual por URL — no es
+  // $state porque no se pinta directamente, solo alimenta a mirrorActual.
+  let mirrorsVigentes: Mirror[] = []
   // untrack: silenciadoInicial es a propósito SOLO el valor inicial (es la
   // condición de ENTRADA del escenario, no un estado vivo que seguir) — mismo
   // criterio que los untrack de App.svelte para lecturas iniciales; sin él,
@@ -377,6 +396,7 @@
   function onVisibilidad() {
     if (destruido) return
     if (document.hidden) {
+      ocultoEnIntento = true
       guardActual?.pausar()
       return
     }
@@ -421,6 +441,13 @@
     return intento.viaProxy ? 'proxy' : 'directo'
   }
 
+  // Busca el Mirror de mirrorsVigentes que originó este intento: por URL
+  // directa o por su versión proxeada (planDeFailover puede haber generado
+  // un intento cuya url es urlProxy(mirror.url), no mirror.url tal cual).
+  function mirrorDe(intento: Intento): Mirror | null {
+    return mirrorsVigentes.find((m) => intento.url === m.url || urlProxy(m.url) === intento.url) ?? null
+  }
+
   // Mismo reparto de tres estados que MensajeError.svelte usa para el
   // catálogo: gateway caído / sin red / servidor no se pueden mezclar sin
   // repetir el diagnóstico de una tarde entera del 2026-08-07. Se usa aquí
@@ -435,6 +462,12 @@
    *  confirmar. Un fallo DESPUÉS de confirmar no rechaza: el canal ya se vio,
    *  así que es un corte, no un intento fallido — y se reporta como tal. */
   function intentar(intento: Intento, motor: Motor): Promise<void> {
+    // Tarea 6: fijados AL EMPEZAR el intento (no al fallar/confirmar): un
+    // cambio de visibilidad a mitad de intento ya lo capta onVisibilidad()
+    // (ocultoEnIntento = true), y mirrorActual identifica de una vez el
+    // origen que alimenta la nota "Sin audio en este origen" del overlay.
+    ocultoEnIntento = document.hidden
+    mirrorActual = mirrorDe(intento)
     return new Promise<void>((resolve, reject) => {
       if (!video) {
         reject(new Error('sin elemento de vídeo'))
@@ -470,6 +503,9 @@
               motor,
               via: via(intento),
               mirrorIndex: intento.mirrorIndex,
+              url: intento.url,
+              oculto: ocultoEnIntento,
+              motorForzado: motorForzado !== null,
             })
             mensajeError = t('reproductor.error.corte')
             cargando = false
@@ -490,6 +526,9 @@
             via: via(intento),
             mirrorIndex: intento.mirrorIndex,
             msPrimerFrame: performance.now() - inicio,
+            url: intento.url,
+            oculto: ocultoEnIntento,
+            motorForzado: motorForzado !== null,
           })
           resolve()
         },
@@ -571,13 +610,40 @@
     })
   }
 
-  async function reproducir() {
+  /** Teardown común de cast (Tarea 6, factorizado): cuando el intento vigente
+   *  es un cast forzado y NO queda nada que probar (todos los mirrors sin
+   *  códec, o —tras el filtro de sinImagen— sin ninguno que dé imagen),
+   *  soltar la ruta AirPlay y reanudar en local en vez de mostrar la tarjeta
+   *  de error a pantalla completa: el fallo es del cast, no del canal (mismo
+   *  criterio que ya usaba el bucle al agotarse, más abajo). Devuelve true si
+   *  actuó — el llamador debe `return` sin más. */
+  function abandonarCastSiHaceFalta(): boolean {
+    if (motorForzado !== 'nativo') return false
+    motorForzado = null
+    estadoCast = 'idle'
+    terminarRutaAirplay()
+    mostrarAvisoCast(t('reproductor.cast.fallo'))
+    reproducir()
+    return true
+  }
+
+  /** s < 3600 → «hace N min»; si no, «hace N h» (redondeado; nunca 0 min). */
+  function formatearHace(s: number): string {
+    return s < 3600
+      ? t('tiempo.haceMin', { n: Math.max(1, Math.round(s / 60)) })
+      : t('tiempo.haceH', { n: Math.round(s / 3600) })
+  }
+
+  async function reproducir(opts: { ignorarSinImagen?: boolean } = {}) {
     if (!video) return
     const miId = ++intentoId
     cargando = true
     mensajeError = null
     errorSinReintento = false
+    errorProbarIgual = false
     numMirrorsProbados = 0
+    mirrorActual = null
+    mirrorsVigentes = []
 
     const motor = motorForzado ?? motorDelNavegador(video)
     let intentos: Intento[]
@@ -596,30 +662,36 @@
         // del guard para acabar en el mismo sitio.
         const reproducibles = mirrors.filter((m) => m.codecOk !== false)
         if (reproducibles.length === 0) {
-          if (motorForzado === 'nativo') {
-            // Igual que cuando el failover se agota en pleno cast: soltar la
-            // ruta AirPlay y volver al motor local; la siguiente pasada de
-            // reproducir() ya mostrará el mensaje de códec sin cast a medias.
-            motorForzado = null
-            estadoCast = 'idle'
-            terminarRutaAirplay()
-            mostrarAvisoCast(t('reproductor.cast.fallo'))
-            reproducir()
-            return
-          }
+          if (abandonarCastSiHaceFalta()) return
           cargando = false
           errorSinReintento = true
           const codecs = mirrors.find((m) => m.codecs)?.codecs ?? ''
           mensajeError = codecs
             ? t('reproductor.error.codec', { codecs })
             : t('reproductor.error.codecGenerico')
-          alDesenlace({ canalId: canal.id, resultado: 'fallo', motivo: 'codec', motor, via: 'ninguna', mirrorIndex: 0 })
+          alDesenlace({ canalId: canal.id, resultado: 'fallo', motivo: 'codec', motor, via: 'ninguna', mirrorIndex: 0, url: '', oculto: false, motorForzado: false })
           return
         }
-        totalMirrors = reproducibles.length
+        // Mirrors sin imagen reciente (Mirror.sinImagen): probarlos cuesta el
+        // presupuesto entero del guard para acabar donde ya se sabe que acaba
+        // — igual que el filtro de códec de arriba, salvo que aquí SÍ hay una
+        // salida (probarIgual() ignora este filtro a propósito).
+        const conImagen = opts.ignorarSinImagen ? reproducibles : reproducibles.filter((m) => m.sinImagen !== true)
+        if (conImagen.length === 0) {
+          if (abandonarCastSiHaceFalta()) return
+          cargando = false
+          errorSinReintento = false
+          errorProbarIgual = true
+          const haceS = Math.max(...mirrors.map((m) => m.ultimoFalloHaceS ?? 0))
+          mensajeError = t('reproductor.error.sinImagen', { hace: formatearHace(haceS) })
+          alDesenlace({ canalId: canal.id, resultado: 'fallo', motivo: 'sinImagen', motor, via: 'ninguna', mirrorIndex: 0, url: '', oculto: false, motorForzado: false })
+          return
+        }
+        mirrorsVigentes = conImagen
+        totalMirrors = conImagen.length
         const proxyDisp = await fuente.proxyDisponible()
         if (destruido || miId !== intentoId) return
-        intentos = planDeFailover(reproducibles, motor, proxyDisp)
+        intentos = planDeFailover(conImagen, motor, proxyDisp)
       } else {
         // Sin mirrors (fuente vieja o canal sin entrada en /channels/streams):
         // compatibilidad con el destino único de siempre, como un solo mirror.
@@ -695,6 +767,9 @@
           motor,
           via: via(intento),
           mirrorIndex: intento.mirrorIndex,
+          url: intento.url,
+          oculto: ocultoEnIntento,
+          motorForzado: motorForzado !== null,
         })
         // se agota este intento; se prueba el siguiente mirror
       }
@@ -743,6 +818,14 @@
   function reintentar() {
     limpiarIntento()
     reproducir()
+  }
+
+  /** CTA "Probar de todos modos" (Tarea 6): mismo mecanismo que reintentar(),
+   *  pero ignorando el filtro de sinImagen — la señal pudo recuperarse desde
+   *  el último intento, o el veredicto del servidor puede estar desfasado. */
+  function probarIgual() {
+    limpiarIntento()
+    reproducir({ ignorarSinImagen: true })
   }
 
   // Reacciona a cambiar de canal (flechas ← →) igual que a la apertura
@@ -1095,9 +1178,14 @@
         {#if numMirrorsProbados > 0}
           <p class="mirrors">{t('reproductor.error.mirrorsProbados', { n: numMirrorsProbados })}</p>
         {/if}
-        {#if !errorSinReintento}
+        {#if !errorSinReintento && !errorProbarIgual}
           <button type="button" class="probar-mirror" onclick={reintentar}>
             {t('reproductor.error.reintentar')}
+          </button>
+        {/if}
+        {#if errorProbarIgual}
+          <button type="button" class="probar-mirror" onclick={probarIgual}>
+            {t('reproductor.error.probarIgual')}
           </button>
         {/if}
       </div>
@@ -1123,7 +1211,13 @@
     <!-- Cast (spec 2026-09-03): reusa estas DOS regiones ya existentes, no
          añade una tercera — invariante duro del proyecto (CLAUDE.md). -->
     <p class="sr-only" aria-live="polite" aria-atomic="true">
-      {cargando ? t('reproductor.cargando') : estadoCast === 'emitiendo' ? t('reproductor.cast.emitiendo', { canal: canal.nombre }) : ''}
+      {cargando
+        ? t('reproductor.cargando')
+        : estadoCast === 'emitiendo'
+          ? t('reproductor.cast.emitiendo', { canal: canal.nombre })
+          : mirrorActual?.audioOk === false
+            ? t('reproductor.sinAudio')
+            : ''}
     </p>
     <p class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">{mensajeError ?? avisoCast ?? ''}</p>
 
@@ -1155,6 +1249,14 @@
             <i class="punto-vivo" aria-hidden="true"></i>
             {t('reproductor.envivo')}
           </span>
+          <!-- Nota "Sin audio en este origen" (Tarea 6, tiempo-hasta-la-imagen):
+               solo mientras SE VE de verdad (no durante cargando/error, que
+               tienen su propia tarjeta) y el mirror en curso está confirmado
+               como sin pista de audio. La región polite persistente (más
+               abajo) reusa el mismo texto — sin región aria-live nueva. -->
+          {#if !cargando && !mensajeError && mirrorActual?.audioOk === false}
+            <span class="overlay-sin-audio">{t('reproductor.sinAudio')}</span>
+          {/if}
           {#if metaLinea}
             <span class="overlay-meta">{metaLinea}</span>
           {/if}
@@ -1388,6 +1490,14 @@
      marca "en directo" (mockup 1b), no una señal de error/salud. */
   .punto-vivo { width: 8px; height: 8px; border-radius: 50%; background: var(--signal-error); flex-shrink: 0; }
   .overlay-meta {
+    font: var(--type-mono-label);
+    letter-spacing: var(--tracking-mono);
+    color: var(--text-muted);
+  }
+  /* Nota "Sin audio en este origen" (Tarea 6): mismo tratamiento tipográfico
+     que .overlay-meta — texto plano, sin animación propia (nada que
+     prefers-reduced-motion deba anular aquí). */
+  .overlay-sin-audio {
     font: var(--type-mono-label);
     letter-spacing: var(--tracking-mono);
     color: var(--text-muted);

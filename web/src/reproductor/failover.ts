@@ -43,8 +43,9 @@ export interface DesenlaceReproduccion {
   msPrimerFrame?: number
   /** URL del mirror concreto que se intentó, para el reporte por-mirror
    *  (Tarea 5): el backend correla el fallo con el registro de salud de ESE
-   *  mirror, no del canal entero. */
-  url?: string
+   *  mirror, no del canal entero. '' en los desenlaces sin intento (todos
+   *  los mirrors descartados antes de probar ninguno: codec/sinImagen). */
+  url: string
   /** true = la pestaña estuvo oculta (document.visibilityState) durante el
    *  intento: hls.js no pide segmentos con la pestaña oculta, así que un
    *  "fallo" así no dice nada sobre la salud real del mirror. */

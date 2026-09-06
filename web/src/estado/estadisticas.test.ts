@@ -10,7 +10,7 @@ describe('reportarDesenlace', () => {
     // que datos/http.test.ts).
     const espia = vi.fn(async (..._args: unknown[]) => new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', espia)
-    reportarDesenlace({ canalId: 'c1', resultado: 'iniciado', motor: 'hlsjs', via: 'proxy', mirrorIndex: 0 }, '')
+    reportarDesenlace({ canalId: 'c1', resultado: 'iniciado', motor: 'hlsjs', via: 'proxy', mirrorIndex: 0, url: 'https://x/y.m3u8' }, '')
     // best-effort: no await; comprobamos que se llamó a fetch con el body correcto.
     expect(espia).toHaveBeenCalledOnce()
     const [url, opts] = espia.mock.calls[0]
@@ -26,7 +26,7 @@ describe('reportarDesenlace', () => {
     const espia = vi.fn(async (..._args: unknown[]) => new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', espia)
     reportarDesenlace(
-      { canalId: 'c1', resultado: 'iniciado', motor: 'hlsjs', via: 'proxy', mirrorIndex: 0, msPrimerFrame: 3128.5 },
+      { canalId: 'c1', resultado: 'iniciado', motor: 'hlsjs', via: 'proxy', mirrorIndex: 0, msPrimerFrame: 3128.5, url: 'https://x/y.m3u8' },
       '',
     )
     const [, opts] = espia.mock.calls[0]
@@ -35,6 +35,6 @@ describe('reportarDesenlace', () => {
 
   it('un fallo de red no lanza (best-effort)', () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('down') }))
-    expect(() => reportarDesenlace({ canalId: 'c1', resultado: 'fallo', motor: 'hlsjs', via: 'directo', mirrorIndex: 0 }, '')).not.toThrow()
+    expect(() => reportarDesenlace({ canalId: 'c1', resultado: 'fallo', motor: 'hlsjs', via: 'directo', mirrorIndex: 0, url: 'https://x/y.m3u8' }, '')).not.toThrow()
   })
 })

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/svelte'
+import { render, screen, fireEvent } from '@testing-library/svelte'
 import { get } from 'svelte/store'
 import { tick } from 'svelte'
 import Reproductor from './Reproductor.svelte'
@@ -426,7 +426,17 @@ describe('Reproductor — failover entre mirrors', () => {
     expect(screen.queryByText(t('reproductor.error.reintentar'))).toBeNull()
     expect(screen.queryByText(t('reproductor.error.mirrorsProbados', { n: 2 }))).toBeNull()
     expect(desenlaces).toEqual([
-      { canalId: 'c1', resultado: 'fallo', motivo: 'codec', motor: 'hlsjs', via: 'ninguna', mirrorIndex: 0 },
+      {
+        canalId: 'c1',
+        resultado: 'fallo',
+        motivo: 'codec',
+        motor: 'hlsjs',
+        via: 'ninguna',
+        mirrorIndex: 0,
+        url: '',
+        oculto: false,
+        motorForzado: false,
+      },
     ])
   })
 
@@ -461,6 +471,91 @@ describe('Reproductor — failover entre mirrors', () => {
     await vi.waitFor(() => expect(desenlaces).toHaveLength(1))
     expect(desenlaces[0].motivo).toBe('inestable')
     expect(screen.queryByText(t('reproductor.error.codecGenerico'))).toBeNull()
+  })
+})
+
+// Tarea 6 (tiempo-hasta-la-imagen): el failover también salta los mirrors sin
+// imagen (Mirror.sinImagen), ofrece «Probar de todos modos» cuando no queda
+// ninguno, y avisa «Sin audio en este origen» al reproducir uno con
+// audioOk===false. Mismo mock de hls.js que el describe de arriba.
+describe('Reproductor — mirrors sin imagen y audio (Tarea 6)', () => {
+  it('salta los mirrors con sinImagen y solo prueba los demás', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [
+      { url: 'https://falla/x.m3u8', vivo: true, latenciaMs: 100, webOk: true, sinImagen: true, ultimoFalloHaceS: 600 },
+      { url: 'https://bueno/x.m3u8', vivo: true, latenciaMs: 200, webOk: true },
+    ]
+    const fuente = { mirrors: vi.fn(async () => mirrors), proxyDisponible: vi.fn(async () => false) }
+    const intentadas: string[] = []
+    render(Reproductor, { canal, fuente: fuente as any, alIntentar: (url: string) => intentadas.push(url) })
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    expect(intentadas).toEqual(['https://bueno/x.m3u8'])
+  })
+
+  it('con todos los mirrors sin imagen muestra el mensaje con «hace» y el botón «Probar de todos modos», que sí los intenta', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [
+      { url: 'https://falla/x.m3u8', vivo: true, latenciaMs: 100, webOk: true, sinImagen: true, ultimoFalloHaceS: 3 * 3600 },
+    ]
+    const fuente = { mirrors: vi.fn(async () => mirrors), proxyDisponible: vi.fn(async () => false) }
+    const desenlaces: DesenlaceReproduccion[] = []
+    const intentadas: string[] = []
+    render(Reproductor, { canal, fuente: fuente as any, alIntentar: (u: string) => intentadas.push(u), alDesenlace: (d: DesenlaceReproduccion) => desenlaces.push(d) })
+
+    const esperado = t('reproductor.error.sinImagen', { hace: t('tiempo.haceH', { n: 3 }) })
+    await vi.waitFor(() => expect(screen.queryAllByText(esperado).length).toBeGreaterThan(0))
+    expect(intentadas).toEqual([])
+    expect(desenlaces).toEqual([{ canalId: 'c1', resultado: 'fallo', motivo: 'sinImagen', motor: 'hlsjs', via: 'ninguna', mirrorIndex: 0, url: '', oculto: false, motorForzado: false }])
+    expect(screen.queryByText(t('reproductor.error.reintentar'))).toBeNull()
+
+    await fireEvent.click(screen.getByText(t('reproductor.error.probarIgual')))
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    expect(intentadas).toEqual(['https://falla/x.m3u8'])
+  })
+
+  it('«Probar de todos modos» ignora sinImagen pero NO los saltos por códec', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [
+      { url: 'https://mpeg2/x.m3u8', vivo: true, latenciaMs: 50, webOk: true, codecOk: false, codecs: 'mpeg2video' },
+      { url: 'https://falla/x.m3u8', vivo: true, latenciaMs: 100, webOk: true, sinImagen: true, ultimoFalloHaceS: 60 },
+    ]
+    const fuente = { mirrors: vi.fn(async () => mirrors), proxyDisponible: vi.fn(async () => false) }
+    const intentadas: string[] = []
+    render(Reproductor, { canal, fuente: fuente as any, alIntentar: (u: string) => intentadas.push(u) })
+    await vi.waitFor(() => expect(screen.queryByText(t('reproductor.error.probarIgual'))).not.toBeNull())
+    await fireEvent.click(screen.getByText(t('reproductor.error.probarIgual')))
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    expect(intentadas).toEqual(['https://falla/x.m3u8'])
+  })
+
+  it('el desenlace de cada intento lleva la url del mirror', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [{ url: 'https://uno/x.m3u8', vivo: true, latenciaMs: 100, webOk: true }]
+    const fuente = { mirrors: vi.fn(async () => mirrors), proxyDisponible: vi.fn(async () => false) }
+    const desenlaces: DesenlaceReproduccion[] = []
+    render(Reproductor, { canal, fuente: fuente as any, alDesenlace: (d: DesenlaceReproduccion) => desenlaces.push(d) })
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    hlsState.instancias[0].fallar('manifestLoadError')
+    await vi.waitFor(() => expect(desenlaces).toHaveLength(1))
+    expect(desenlaces[0].url).toBe('https://uno/x.m3u8')
+    expect(desenlaces[0].oculto).toBe(false)
+    expect(desenlaces[0].motorForzado).toBe(false)
+  })
+
+  it('reproduciendo un mirror sin audio se muestra «Sin audio en este origen»', async () => {
+    hlsState.instancias.length = 0
+    const mirrors: Mirror[] = [{ url: 'https://mudo/x.m3u8', vivo: true, latenciaMs: 100, webOk: true, audioOk: false }]
+    const fuente = { mirrors: vi.fn(async () => mirrors), proxyDisponible: vi.fn(async () => false) }
+    const { container } = render(Reproductor, { canal, fuente: fuente as any })
+    await vi.waitFor(() => expect(hlsState.instancias).toHaveLength(1))
+    // Confirmar reproducción como hacen los tests existentes del guard:
+    // dos timeupdate con posición distinta sobre el <video>.
+    const video = container.querySelector('video')!
+    Object.defineProperty(video, 'currentTime', { value: 1, configurable: true, writable: true })
+    video.dispatchEvent(new Event('timeupdate'))
+    ;(video as any).currentTime = 2
+    video.dispatchEvent(new Event('timeupdate'))
+    await vi.waitFor(() => expect(screen.queryAllByText(t('reproductor.sinAudio')).length).toBeGreaterThan(0))
   })
 })
 

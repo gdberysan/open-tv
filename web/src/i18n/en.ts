@@ -76,9 +76,12 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.error.caducado': "The channel's address expired.",
   'reproductor.error.codec': "This channel's video comes as {codecs}, a format no browser can decode. Only a desktop player (VLC or the installed app) can show it.",
   'reproductor.error.codecGenerico': "This channel's video comes in a format no browser can decode. Only a desktop player (VLC or the installed app) can show it.",
+  'reproductor.error.sinImagen': "None of this channel's origins delivers a picture from here (last tried {hace} ago).",
+  'reproductor.error.probarIgual': 'Try anyway',
 
   'reproductor.error.mirrorsProbados': 'Tried {n} mirrors, none of them played.',
   'reproductor.error.reintentar': 'Retry',
+  'reproductor.sinAudio': 'No audio on this origin',
 
   'reproductor.airplay': 'AirPlay',
   'reproductor.cast.emitiendo': 'Casting to AirPlay — {canal}',
@@ -86,6 +89,10 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.cast.fallo': "This channel can't cast over AirPlay. Still playing here.",
   'reproductor.cast.noDisponible': "This channel couldn't cast over AirPlay before. Still playing here.",
   'reproductor.cast.terminada': 'AirPlay casting ended.',
+
+  // Tarea 6: parity of KEYS, not of where "ago" lives — see es.ts.
+  'tiempo.haceMin': '{n} min',
+  'tiempo.haceH': '{n} h',
 
   'estado.sincronizando': 'Syncing the catalogue…',
   'estado.sincronizandoDetalle': 'The first run takes a few seconds: about 13,000 channels are downloaded.',
