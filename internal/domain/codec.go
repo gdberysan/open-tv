@@ -36,6 +36,31 @@ const (
 	tsVideoVC1   byte = 0xea
 )
 
+// AudioSupport dice si la PMT trae alguna pista de audio. AudioNo no es un
+// defecto de códec: es un origen que emite vídeo mudo (AMC mirror 2). El
+// cliente lo relega y lo etiqueta («Sin audio en este origen»), no lo salta.
+type AudioSupport int
+
+const (
+	AudioUnknown AudioSupport = iota
+	AudioNo
+	AudioOK
+)
+
+// ClassifyAudio: basta un stream de audio conocido. Sin streams no se juzga.
+func ClassifyAudio(streams []StreamTS) AudioSupport {
+	if len(streams) == 0 {
+		return AudioUnknown
+	}
+	for _, s := range streams {
+		switch s.Tipo {
+		case tsAudioMPEG1, tsAudioMPEG2, tsAudioAAC, tsAudioLATM, tsAudioAC3, tsAudioEAC3:
+			return AudioOK
+		}
+	}
+	return AudioNo
+}
+
 // ClassifyCodecs aplica una regla centrada en el vídeo: basta un stream
 // H.264 para que sirva; si hay vídeo y ninguno es H.264, no sirve; sin
 // vídeo no se juzga (el solo-audio no es asunto de este veredicto). HEVC

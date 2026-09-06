@@ -66,3 +66,23 @@ func TestCodecsDeVideo(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifyAudio(t *testing.T) {
+	casos := []struct {
+		nombre  string
+		streams []domain.StreamTS
+		quiero  domain.AudioSupport
+	}{
+		{"H.264 + AAC", []domain.StreamTS{{Tipo: 0x1b}, {Tipo: 0x0f}}, domain.AudioOK},
+		{"MPEG-2 + MP2", []domain.StreamTS{{Tipo: 0x02}, {Tipo: 0x03}}, domain.AudioOK},
+		{"H.264 + AC-3", []domain.StreamTS{{Tipo: 0x1b}, {Tipo: 0x81}}, domain.AudioOK},
+		{"H.264 solo (AMC mirror 2)", []domain.StreamTS{{Tipo: 0x1b}}, domain.AudioNo},
+		{"solo audio", []domain.StreamTS{{Tipo: 0x0f}}, domain.AudioOK},
+		{"vacío", nil, domain.AudioUnknown},
+	}
+	for _, c := range casos {
+		if got := domain.ClassifyAudio(c.streams); got != c.quiero {
+			t.Errorf("%s: ClassifyAudio = %v, quiero %v", c.nombre, got, c.quiero)
+		}
+	}
+}
