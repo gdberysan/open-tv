@@ -124,6 +124,11 @@ export const es = {
   'reproductor.error.inestable': 'El canal emite, pero la señal llega rota. Prueba otra vez o elige otro canal.',
   'reproductor.error.formato': 'Tu navegador no puede reproducir este formato. Prueba en Safari o en la app instalada.',
   'reproductor.error.caducado': 'La dirección del canal caducó.',
+  // Sonda de códecs (spec 2026-09-05): el vídeo viene en un formato que
+  // NINGÚN navegador decodifica (MPEG-2, típicamente). Sin consejo de
+  // Safari a propósito: Safari da audio sin imagen.
+  'reproductor.error.codec': 'El vídeo de este canal viene en {codecs}, un formato que ningún navegador decodifica. Solo lo puede ver un reproductor de escritorio (VLC o la app instalada).',
+  'reproductor.error.codecGenerico': 'El vídeo de este canal viene en un formato que ningún navegador decodifica. Solo lo puede ver un reproductor de escritorio (VLC o la app instalada).',
 
   // Tarea 14 (P0.6): CTA del error de reproducción cuando el canal SÍ tenía
   // mirrors (más allá del destino único de compatibilidad) — reanuda el

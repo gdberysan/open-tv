@@ -74,6 +74,8 @@ export const en: Record<ClaveMensaje, string> = {
   'reproductor.error.inestable': 'The channel is broadcasting, but the signal arrives broken. Try again or pick another channel.',
   'reproductor.error.formato': 'Your browser cannot play this format. Try Safari or the installed app.',
   'reproductor.error.caducado': "The channel's address expired.",
+  'reproductor.error.codec': "This channel's video comes as {codecs}, a format no browser can decode. Only a desktop player (VLC or the installed app) can show it.",
+  'reproductor.error.codecGenerico': "This channel's video comes in a format no browser can decode. Only a desktop player (VLC or the installed app) can show it.",
 
   'reproductor.error.mirrorsProbados': 'Tried {n} mirrors, none of them played.',
   'reproductor.error.reintentar': 'Retry',

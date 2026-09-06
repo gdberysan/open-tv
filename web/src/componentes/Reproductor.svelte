@@ -406,6 +406,8 @@
         return 'reproductor.error.inestable'
       case 'caducado':
         return 'reproductor.error.caducado'
+      case 'codec':
+        return 'reproductor.error.codecGenerico'
       default:
         return 'reproductor.error.noArranco'
     }

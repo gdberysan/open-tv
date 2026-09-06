@@ -36,7 +36,9 @@ export interface DesenlaceReproduccion {
   resultado: 'iniciado' | 'fallo' | 'cortado'
   motivo?: string
   motor: 'nativo' | 'hlsjs'
-  via: 'directo' | 'proxy'
+  /** 'ninguna': no se llegó a intentar nada (todos los mirrors con
+   *  codecOk === false). El backend agrupa por cadena libre. */
+  via: 'directo' | 'proxy' | 'ninguna'
   mirrorIndex: number
   msPrimerFrame?: number
 }

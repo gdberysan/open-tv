@@ -74,6 +74,27 @@ describe('clasificarFallo', () => {
   it('403 manda incluso con tipoHls de red presente', () => {
     expect(clasificarFallo({ httpStatus: 403, tipoHls: 'networkError' })).toBe('geo')
   })
+
+  // hls.js solo vio pistas de audio (BUFFER_CODECS sin vídeo): el vídeo va
+  // en un formato que el demuxer tira en silencio (MPEG-2, caso AMC). Tiene
+  // prioridad sobre 'inestable'/'formato': el atasco es CONSECUENCIA.
+  it('sinVideo → codec, aunque el intento muriera por timeout', () => {
+    expect(clasificarFallo({ sinVideo: true })).toBe('codec')
+  })
+
+  it('sinVideo gana a un mediaError de buffer', () => {
+    expect(clasificarFallo({ sinVideo: true, tipoHls: 'mediaError', detallesHls: 'bufferStalledError' })).toBe('codec')
+  })
+
+  // Un status HTTP es más específico que la ausencia de vídeo: si el
+  // manifiesto dio 404, el mirror caducó, hubiera visto lo que hubiera visto.
+  it('404 gana a sinVideo', () => {
+    expect(clasificarFallo({ sinVideo: true, httpStatus: 404 })).toBe('caducado')
+  })
+
+  it('sin la señal, nada cambia', () => {
+    expect(clasificarFallo({ sinVideo: false, tipoHls: 'mediaError', detallesHls: 'bufferStalledError' })).toBe('inestable')
+  })
 })
 
 // Bug real reportado por el dueño (2026-09-04) con AMC (720p): el reproductor
@@ -99,5 +120,9 @@ describe('claseConsensuada', () => {
 
   it('sin intentos, desconocido', () => {
     expect(claseConsensuada([])).toBe('desconocido')
+  })
+
+  it("todos 'codec' → codec", () => {
+    expect(claseConsensuada(['codec', 'codec'])).toBe('codec')
   })
 })

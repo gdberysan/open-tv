@@ -7,7 +7,7 @@
  * Puro y sin dependencias: el Reproductor capta la info del error de cada
  * intento y la pasa aquí; este módulo no toca hls.js, el DOM ni el estado.
  */
-export type ClaseFallo = 'caido' | 'geo' | 'formato' | 'inestable' | 'caducado' | 'desconocido'
+export type ClaseFallo = 'caido' | 'geo' | 'formato' | 'inestable' | 'caducado' | 'codec' | 'desconocido'
 
 export interface InfoFallo {
   /** `data.type` de hls.js (p.ej. "networkError", "mediaError"). */
@@ -18,6 +18,10 @@ export interface InfoFallo {
   httpStatus?: number
   /** `video.error.code` nativo: 1 ABORTED, 2 NETWORK, 3 DECODE, 4 SRC_NOT_SUPPORTED. */
   mediaErrorCode?: number
+  /** hls.js emitió BUFFER_CODECS con pista de audio y SIN pista de vídeo: el
+   *  vídeo viene en un formato que el demuxer tira en silencio (MPEG-2, caso
+   *  AMC 720p). Lo anota el reproductor al fallar el intento. */
+  sinVideo?: boolean
 }
 
 // MediaError.* del <video> nativo (spec HTML, no exportadas como constantes).
@@ -32,6 +36,8 @@ const MEDIA_ERR_SRC_NOT_SUPPORTED = 4
  * 2. httpStatus 404/410 → 'caducado' (el mirror ya no existe).
  * 3. Error de red sin status útil (tipoHls tipo NETWORK_ERROR, o
  *    mediaErrorCode MEDIA_ERR_NETWORK) → 'caido'.
+ * 3b. sinVideo → 'codec' (hls.js solo vio pistas de audio: el vídeo viene en
+ *     un formato que ningún navegador decodifica).
  * 4. Error de media/decodificación (tipoHls MEDIA_ERROR, detallesHls con
  *    BUFFER_APPEND/DECODE, o mediaErrorCode DECODE/SRC_NOT_SUPPORTED) →
  *    'formato'.
@@ -51,6 +57,10 @@ export function clasificarFallo(info: InfoFallo): ClaseFallo {
   const detalles = (detallesHls ?? '').toLowerCase()
 
   if (tipo.includes('networkerror') || mediaErrorCode === MEDIA_ERR_NETWORK) return 'caido'
+
+  // El vídeo no llegó a existir para hls.js: ni 'inestable' ni 'formato'
+  // (que aconseja Safari — y Safari tampoco lo decodifica).
+  if (info.sinVideo) return 'codec'
 
   // 'formato' SOLO con señales de códec de verdad. Antes bastaba con
   // tipo === 'mediaError', y en hls.js TODO problema de la tubería de medios es
