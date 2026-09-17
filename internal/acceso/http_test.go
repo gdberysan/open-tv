@@ -223,3 +223,28 @@ func TestClaveConEspaciosAlrededorEntra(t *testing.T) {
 		t.Fatal("no hay cookie de sesión")
 	}
 }
+
+// TestPaginaDeAccesoMandaElOrigenEnElPOST cubre el login imposible desde una
+// IP de la LAN por http: con Referrer-Policy: no-referrer el POST del
+// formulario salía con Origin: null y sin Sec-Fetch-Site (el navegador solo lo
+// manda a orígenes de confianza), y MismoOrigen lo cortaba con 403.
+func TestPaginaDeAccesoMandaElOrigenEnElPOST(t *testing.T) {
+	h, _ := montar(t)
+	for _, c := range []struct {
+		nombre string
+		req    *http.Request
+	}{
+		{"GET", httptest.NewRequest(http.MethodGet, acceso.RutaAcceso, nil)},
+		{"POST clave mala", func() *http.Request {
+			r := httptest.NewRequest(http.MethodPost, acceso.RutaAcceso, strings.NewReader("clave=mal"))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			return r
+		}()},
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, c.req)
+		if got := rec.Header().Get("Referrer-Policy"); got != "same-origin" {
+			t.Errorf("%s: Referrer-Policy = %q, quiero same-origin", c.nombre, got)
+		}
+	}
+}

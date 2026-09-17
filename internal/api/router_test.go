@@ -356,3 +356,49 @@ func TestStreamsDesenlaceEsMutanteProtegido(t *testing.T) {
 		t.Errorf("sin registrador → %d, quiero 503", rec.Code)
 	}
 }
+
+// TestModoRedLoginDesdeLaLANSinSecFetchSite reproduce el login desde otra
+// máquina por http (http://192.168.1.50:8080): el navegador no manda
+// Sec-Fetch-Site a un origen que no es de confianza, así que MismoOrigen
+// decide por el Origin, que con Referrer-Policy: same-origin es el real.
+func TestModoRedLoginDesdeLaLANSinSecFetchSite(t *testing.T) {
+	r := routerModoRed(t)
+	req := httptest.NewRequest(http.MethodPost, "http://192.168.1.50:8080/acceso", strings.NewReader(url.Values{"clave": {"la-clave"}}.Encode()))
+	req.Host = "192.168.1.50:8080"
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "http://192.168.1.50:8080")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("POST /acceso desde la LAN = %d (%s), quiero 303", rec.Code, strings.TrimSpace(rec.Body.String()))
+	}
+	var conCookie bool
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == acceso.NombreCookie && c.Value != "" {
+			conCookie = true
+		}
+	}
+	if !conCookie {
+		t.Errorf("POST /acceso desde la LAN no fija la cookie %s", acceso.NombreCookie)
+	}
+}
+
+// TestModoRedFallbackSPASinSesion: el fallback SPA también queda detrás de la
+// sesión. Una navegación va a /acceso; un asset (sin Accept html) da 401.
+func TestModoRedFallbackSPASinSesion(t *testing.T) {
+	r := routerModoRed(t)
+	for _, ruta := range []string{"/", "/canal/x"} {
+		req := httptest.NewRequest(http.MethodGet, ruta, nil)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != acceso.RutaAcceso {
+			t.Errorf("%s sin sesión = %d → %q, quiero 303 → %s", ruta, rec.Code, rec.Header().Get("Location"), acceso.RutaAcceso)
+		}
+	}
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/x.js", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("/assets/x.js sin sesión = %d, quiero 401", rec.Code)
+	}
+}

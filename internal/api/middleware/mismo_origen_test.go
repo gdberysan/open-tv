@@ -95,13 +95,12 @@ func TestMismoOrigenSecFetchSiteNoAfectaAGetHead(t *testing.T) {
 	}
 }
 
-// TestMismoOrigenIgnoraOriginNullConSecFetchSiteOK cubre el caso real que
-// rompía el login de /acceso en un navegador de verdad: esa página se sirve
-// con Referrer-Policy: no-referrer, y el Fetch Standard obliga a que un POST
-// de formulario desde ahí lleve Origin: null (para no filtrar más que el
-// Referer) aunque sea una navegación same-origin genuina — Sec-Fetch-Site lo
-// confirma con "same-origin". Si el chequeo de Origin se evaluara igual,
-// ningún navegador que respete la spec podría enviar la clave.
+// TestMismoOrigenIgnoraOriginNullConSecFetchSiteOK: cuando el navegador manda
+// Sec-Fetch-Site, esa cabecera manda. Un POST de formulario puede llegar con
+// Origin: null (una página con Referrer-Policy: no-referrer, por ejemplo)
+// aunque sea una navegación same-origin genuina, y Sec-Fetch-Site lo confirma
+// con "same-origin". Sin Sec-Fetch-Site, Origin: null se corta (ver
+// TestMismoOrigenSinSecFetchSiteMiraElOrigin).
 func TestMismoOrigenIgnoraOriginNullConSecFetchSiteOK(t *testing.T) {
 	h := middleware.MismoOrigen(nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -138,6 +137,34 @@ func TestMismoOrigenCortaOriginAjenoEnMutantes(t *testing.T) {
 		h.ServeHTTP(rec, req)
 		if rec.Code != c.quiero {
 			t.Errorf("Origin %q = %d, quiero %d", c.origin, rec.Code, c.quiero)
+		}
+	}
+}
+
+// TestMismoOrigenSinSecFetchSiteMiraElOrigin: por http desde una IP de la LAN
+// el navegador no manda Sec-Fetch-Site (no es un origen de confianza), así que
+// el Origin es lo único que queda contra CSRF. Origin: null nunca pasa.
+func TestMismoOrigenSinSecFetchSiteMiraElOrigin(t *testing.T) {
+	h := middleware.MismoOrigen(nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	for _, c := range []struct {
+		nombre, origin string
+		quiero         int
+	}{
+		{"null", "null", http.StatusForbidden},
+		{"mismo host, otro puerto", "http://tv.local:9090", http.StatusForbidden},
+		{"mal formado", "http://%zz", http.StatusForbidden},
+		{"sin esquema", "tv.local:8080", http.StatusForbidden},
+		{"coincide", "http://tv.local:8080", http.StatusNoContent},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "http://tv.local:8080/acceso", nil)
+		req.Host = "tv.local:8080"
+		req.Header.Set("Origin", c.origin)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != c.quiero {
+			t.Errorf("%s (Origin %q) = %d, quiero %d", c.nombre, c.origin, rec.Code, c.quiero)
 		}
 	}
 }

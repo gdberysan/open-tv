@@ -93,7 +93,10 @@ func pintar(w http.ResponseWriter, r *http.Request, estado int, conError bool) {
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Content-Security-Policy", cspPagina)
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Referrer-Policy", "no-referrer")
+	// same-origin y no no-referrer: con no-referrer el POST del formulario sale
+	// con Origin: null, y por http desde la LAN (sin Sec-Fetch-Site) MismoOrigen
+	// lo cortaba con 403. Hacia fuera no se filtra nada: la página no enlaza fuera.
+	h.Set("Referrer-Policy", "same-origin")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Cache-Control", "no-store")
 	w.WriteHeader(estado)
