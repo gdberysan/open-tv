@@ -104,3 +104,12 @@ type StreamRepository interface {
 	// registrado. ahora es la referencia de tiempo para domain.SinImagen.
 	ImagenPorCanal(ctx context.Context, ahora time.Time) ([]ImagenCanal, error)
 }
+
+// VerificadorURLs responde si una URL es, exacta, la de un stream del
+// catálogo. Lo usa el proxy HLS para autorizar las URLs de nivel superior,
+// que el cliente construye con la URL cruda del mirror y no llevan firma. Va
+// aparte de StreamRepository para no obligar a todos sus dobles de test a
+// implementarlo.
+type VerificadorURLs interface {
+	ExisteURL(ctx context.Context, url string) (bool, error)
+}

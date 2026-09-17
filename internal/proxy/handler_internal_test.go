@@ -8,6 +8,7 @@ package proxy
 // lógica en sí, sin esa limitación.
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"net/http"
@@ -15,6 +16,15 @@ import (
 	"net/url"
 	"testing"
 )
+
+func firmadorInterno(t *testing.T) *Firmador {
+	t.Helper()
+	f, err := NuevoFirmador(bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		t.Fatalf("NuevoFirmador: %v", err)
+	}
+	return f
+}
 
 func TestCheckRedirectRechazaDestinoPrivado(t *testing.T) {
 	h := guardiaRed{privadasOK: false}
@@ -138,10 +148,12 @@ func TestProxyMandaLasCabecerasDelStream(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := NewHandler("/proxy/hls?u=", true, ConBuscadorCabeceras(
-		func(_ context.Context, _ string) (string, string) {
-			return "https://ref.example/", "UA-Especial/1"
-		}))
+	h := NewHandler("/proxy/hls?u=", firmadorInterno(t), true,
+		ConCatalogo(func(context.Context, string) bool { return true }),
+		ConBuscadorCabeceras(
+			func(_ context.Context, _ string) (string, string) {
+				return "https://ref.example/", "UA-Especial/1"
+			}))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg.ts"), nil)
 	// Cabeceras del CLIENTE: si algo dentro de la rama h.cabeceras != nil las
@@ -177,10 +189,12 @@ func TestProxySinCabecerasUsaElDeSiempre(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := NewHandler("/proxy/hls?u=", true, ConBuscadorCabeceras(
-		func(_ context.Context, _ string) (string, string) {
-			return "", ""
-		}))
+	h := NewHandler("/proxy/hls?u=", firmadorInterno(t), true,
+		ConCatalogo(func(context.Context, string) bool { return true }),
+		ConBuscadorCabeceras(
+			func(_ context.Context, _ string) (string, string) {
+				return "", ""
+			}))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg.ts"), nil)
 	h.ServeHTTP(rec, req)
@@ -204,7 +218,8 @@ func TestProxyBuscadorNil(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := NewHandler("/proxy/hls?u=", true) // sin opciones: como todas las llamadas de siempre
+	h := NewHandler("/proxy/hls?u=", firmadorInterno(t), true,
+		ConCatalogo(func(context.Context, string) bool { return true })) // sin buscador de cabeceras: como todas las llamadas de siempre
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg.ts"), nil)
 	h.ServeHTTP(rec, req)

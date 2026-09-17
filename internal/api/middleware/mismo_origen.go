@@ -1,6 +1,9 @@
 package middleware
 
-import "net/http"
+import (
+	"net/http"
+	"net/url"
+)
 
 // MismoOrigen rechaza peticiones cuyo Host no esté en hostsPermitidos. Cierra
 // el DNS-rebinding: un dominio atacante que resuelve a 127.0.0.1 llega con su
@@ -32,9 +35,27 @@ func MismoOrigen(hostsPermitidos []string) func(http.Handler) http.Handler {
 				}
 			}
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
-				if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
-					http.Error(w, "origen cruzado no permitido", http.StatusForbidden)
-					return
+				if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
+					if site != "same-origin" && site != "none" {
+						http.Error(w, "origen cruzado no permitido", http.StatusForbidden)
+						return
+					}
+				} else if origen := r.Header.Get("Origin"); origen != "" {
+					// Origin cubre a los clientes que no mandan Sec-Fetch-Site: los
+					// navegadores solo la mandan a orígenes de confianza (https,
+					// localhost), así que por http desde una IP de la LAN esta es
+					// la única comprobación contra CSRF (con SameSite=Strict).
+					// Origin: null no pasa nunca; por eso las páginas con
+					// formularios no pueden servirse con Referrer-Policy:
+					// no-referrer, que haría salir el POST con Origin: null (ver
+					// acceso/pagina.go). Solo se mira cuando Sec-Fetch-Site está
+					// ausente: cuando SÍ viene y ya pasó el chequeo de arriba, el
+					// navegador la marca como fuente de verdad.
+					u, err := url.Parse(origen)
+					if err != nil || u.Host != r.Host {
+						http.Error(w, "origen cruzado no permitido", http.StatusForbidden)
+						return
+					}
 				}
 			}
 			next.ServeHTTP(w, r)

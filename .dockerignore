@@ -1,0 +1,10 @@
+.git
+mobile
+docs
+assets/readme
+web/node_modules
+web/tests
+internal/ui/dist
+dist
+open-tv
+**/*_test.go

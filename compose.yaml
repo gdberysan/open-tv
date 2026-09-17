@@ -1,0 +1,17 @@
+# Open TV accesible desde cualquier dispositivo de tu red.
+# La primera vez, la clave de acceso sale en el log:  docker compose logs open-tv
+# O fija la tuya con OPEN_TV_ACCESS_KEY.
+services:
+  open-tv:
+    image: ghcr.io/gdberysan/open-tv:latest
+    container_name: open-tv
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - open-tv-data:/data
+    # environment:
+    #   OPEN_TV_ACCESS_KEY: "pon-aqui-una-clave-larga"
+
+volumes:
+  open-tv-data:

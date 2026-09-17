@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,10 @@ import (
 	"github.com/gdberysan/open-tv/internal/proxy"
 )
 
+// todoEnCatalogo mantiene el significado de los tests anteriores a la firma:
+// prueban el relay, no la autorización.
+func todoEnCatalogo(context.Context, string) bool { return true }
+
 func TestProxyReescribeElManifiestoQueRelaya(t *testing.T) {
 	origen := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Sin ACAO: es justo el caso por el que existe el proxy.
@@ -19,7 +24,7 @@ func TestProxyReescribeElManifiestoQueRelaya(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := proxy.NewHandler("/proxy/hls?u=", true)
+	h := proxy.NewHandler("/proxy/hls?u=", firmadorDePrueba(t), true, proxy.ConCatalogo(todoEnCatalogo))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
 		"/proxy/hls?u="+url.QueryEscape(origen.URL+"/live.m3u8"), nil))
@@ -49,7 +54,7 @@ func TestProxyRelayaSegmentosYReenviaRange(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := proxy.NewHandler("/proxy/hls?u=", true)
+	h := proxy.NewHandler("/proxy/hls?u=", firmadorDePrueba(t), true, proxy.ConCatalogo(todoEnCatalogo))
 	req := httptest.NewRequest(http.MethodGet,
 		"/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg1.ts"), nil)
 	req.Header.Set("Range", "bytes=0-1023")
@@ -73,7 +78,7 @@ func TestProxyRelayaSegmentosYReenviaRange(t *testing.T) {
 // El proxy escucha en loopback, así que solo lo alcanza esta máquina — pero
 // eso no lo convierte en un pasadizo hacia el router de casa.
 func TestProxyRechazaDestinosPrivados(t *testing.T) {
-	h := proxy.NewHandler("/proxy/hls?u=", false)
+	h := proxy.NewHandler("/proxy/hls?u=", firmadorDePrueba(t), false, proxy.ConCatalogo(todoEnCatalogo))
 	for _, destino := range []string{
 		"http://127.0.0.1:8080/health",
 		"http://192.168.1.1/",
@@ -99,7 +104,7 @@ func TestProxyRechazaSecFetchSiteCruzado(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := proxy.NewHandler("/proxy/hls?u=", true)
+	h := proxy.NewHandler("/proxy/hls?u=", firmadorDePrueba(t), true, proxy.ConCatalogo(todoEnCatalogo))
 
 	for _, c := range []struct {
 		site   string
@@ -125,7 +130,7 @@ func TestProxyRechazaSecFetchSiteCruzado(t *testing.T) {
 }
 
 func TestProxySinParametroU(t *testing.T) {
-	h := proxy.NewHandler("/proxy/hls?u=", true)
+	h := proxy.NewHandler("/proxy/hls?u=", firmadorDePrueba(t), true, proxy.ConCatalogo(todoEnCatalogo))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy/hls", nil))
 	if rec.Code != http.StatusBadRequest {
@@ -139,7 +144,7 @@ func TestProxyPropagaElErrorDelOrigen(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := proxy.NewHandler("/proxy/hls?u=", true)
+	h := proxy.NewHandler("/proxy/hls?u=", firmadorDePrueba(t), true, proxy.ConCatalogo(todoEnCatalogo))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
 		"/proxy/hls?u="+url.QueryEscape(origen.URL+"/live.m3u8"), nil))
@@ -162,7 +167,7 @@ func TestProxyCortaSegmentosGigantes(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := proxy.NewHandler("/proxy/hls?u=", true)
+	h := proxy.NewHandler("/proxy/hls?u=", firmadorDePrueba(t), true, proxy.ConCatalogo(todoEnCatalogo))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
 		"/proxy/hls?u="+url.QueryEscape(origen.URL+"/seg.ts"), nil))
@@ -179,7 +184,7 @@ func TestProxyNoAnunciaCORS(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := proxy.NewHandler("/proxy/hls?u=", true)
+	h := proxy.NewHandler("/proxy/hls?u=", firmadorDePrueba(t), true, proxy.ConCatalogo(todoEnCatalogo))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
 		"/proxy/hls?u="+url.QueryEscape(origen.URL+"/live.m3u8"), nil))
@@ -209,7 +214,7 @@ func TestProxyNoSigueRedireccionesHaciaDestinosPrivados(t *testing.T) {
 	}))
 	defer origen.Close()
 
-	h := proxy.NewHandler("/proxy/hls?u=", false)
+	h := proxy.NewHandler("/proxy/hls?u=", firmadorDePrueba(t), false, proxy.ConCatalogo(todoEnCatalogo))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
 		"/proxy/hls?u="+url.QueryEscape(origen.URL+"/live.m3u8"), nil))
@@ -219,5 +224,100 @@ func TestProxyNoSigueRedireccionesHaciaDestinosPrivados(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "SECRETO-INTERNO") {
 		t.Errorf("el cuerpo del servidor interno se filtró: %s", rec.Body.String())
+	}
+}
+
+func origenContado(t *testing.T) (*httptest.Server, *int) {
+	t.Helper()
+	pedidas := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pedidas++
+		if strings.HasSuffix(r.URL.Path, ".m3u8") {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:6.0,\nseg1.ts\n"))
+			return
+		}
+		_, _ = w.Write([]byte("segmento"))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &pedidas
+}
+
+func pedirProxy(h http.Handler, destino, firma string) *httptest.ResponseRecorder {
+	ruta := "/proxy/hls?u=" + url.QueryEscape(destino)
+	if firma != "" {
+		ruta += "&f=" + firma
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, ruta, nil))
+	return rec
+}
+
+func nadaEnCatalogo(context.Context, string) bool { return false }
+
+func TestProxyRechazaURLSinFirmaFueraDelCatalogo(t *testing.T) {
+	origen, pedidas := origenContado(t)
+	h := proxy.NewHandler("/proxy/hls?u=", firmadorDePrueba(t), true, proxy.ConCatalogo(nadaEnCatalogo))
+
+	rec := pedirProxy(h, origen.URL+"/cualquier.ts", "")
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("código %d, quiero 403", rec.Code)
+	}
+	if *pedidas != 0 {
+		t.Errorf("el origen recibió %d peticiones: el proxy relayó antes de autorizar", *pedidas)
+	}
+}
+
+func TestProxyAceptaURLDelCatalogo(t *testing.T) {
+	origen, _ := origenContado(t)
+	manifiesto := origen.URL + "/canal.m3u8"
+	h := proxy.NewHandler("/proxy/hls?u=", firmadorDePrueba(t), true,
+		proxy.ConCatalogo(func(_ context.Context, u string) bool { return u == manifiesto }))
+
+	if rec := pedirProxy(h, manifiesto, ""); rec.Code != http.StatusOK {
+		t.Fatalf("código %d, quiero 200: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProxyAceptaURLFirmadaYRechazaFirmaAjena(t *testing.T) {
+	origen, _ := origenContado(t)
+	f := firmadorDePrueba(t)
+	h := proxy.NewHandler("/proxy/hls?u=", f, true, proxy.ConCatalogo(nadaEnCatalogo))
+	seg := origen.URL + "/seg1.ts"
+
+	if rec := pedirProxy(h, seg, f.Firmar(seg)); rec.Code != http.StatusOK {
+		t.Errorf("firmada: código %d, quiero 200", rec.Code)
+	}
+	if rec := pedirProxy(h, seg, f.Firmar(origen.URL+"/otro.ts")); rec.Code != http.StatusForbidden {
+		t.Errorf("firma de otra URL: código %d, quiero 403", rec.Code)
+	}
+}
+
+// El camino completo: un manifiesto del catálogo sale reescrito con URLs
+// firmadas, y esas URLs, pedidas tal cual, pasan.
+func TestProxyLasURLsDelManifiestoReescritoSonAceptadas(t *testing.T) {
+	origen, _ := origenContado(t)
+	manifiesto := origen.URL + "/canal.m3u8"
+	h := proxy.NewHandler("/proxy/hls?u=", firmadorDePrueba(t), true,
+		proxy.ConCatalogo(func(_ context.Context, u string) bool { return u == manifiesto }))
+
+	rec := pedirProxy(h, manifiesto, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("manifiesto: código %d", rec.Code)
+	}
+	var hija string
+	for _, linea := range strings.Split(rec.Body.String(), "\n") {
+		if strings.HasPrefix(linea, "/proxy/hls?u=") {
+			hija = linea
+		}
+	}
+	if !strings.Contains(hija, "&f=") {
+		t.Fatalf("la URL hija no lleva firma: %q", hija)
+	}
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, hija, nil))
+	if rec2.Code != http.StatusOK {
+		t.Errorf("URL hija: código %d, quiero 200", rec2.Code)
 	}
 }

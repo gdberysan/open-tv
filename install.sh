@@ -50,7 +50,7 @@ case "$so_crudo" in
     Darwin) so="darwin" ;;
     Linux) so="linux" ;;
     *)
-        err "sistema '${so_crudo}' no soportado por este instalador (solo macOS y Linux). En Windows descarga el asset de https://github.com/${repo}/releases/latest a mano, o usa 'go install github.com/${repo}/cmd/open-tv@latest'."
+        err "sistema '${so_crudo}' no soportado por este instalador (solo macOS y Linux). En Windows descarga el asset de https://github.com/${repo}/releases/latest a mano."
         ;;
 esac
 
@@ -59,7 +59,7 @@ case "$arch_crudo" in
     x86_64 | amd64) arch="amd64" ;;
     arm64 | aarch64) arch="arm64" ;;
     *)
-        err "arquitectura '${arch_crudo}' no soportada por este instalador. Prueba 'go install github.com/${repo}/cmd/open-tv@latest' o compílalo desde el código fuente."
+        err "arquitectura '${arch_crudo}' no soportada por este instalador. Compílalo desde el código fuente (ver el README) o usa la imagen de Docker."
         ;;
 esac
 

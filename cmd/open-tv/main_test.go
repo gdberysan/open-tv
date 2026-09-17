@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -267,6 +268,100 @@ func TestArranqueNormalNoSeConfundeConMetaComando(t *testing.T) {
 		var sb strings.Builder
 		if manejado, _ := manejaMetaComando(args, &sb); manejado {
 			t.Errorf("%v no debería tratarse como meta-comando (salida %q)", args, sb.String())
+		}
+	}
+}
+
+// Escuchando fuera de loopback, run() entra en modo red: /health responde sin
+// sesión, la API pide la clave, y con la clave correcta la API abre.
+func TestRunEnModoRedExigeLaClave(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DB_PATH", filepath.Join(dir, "test.db"))
+	t.Setenv("LISTEN_ADDR", "0.0.0.0:18087")
+	t.Setenv("OPEN_TV_ACCESS_KEY", "clave-de-prueba")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() { errc <- run(ctx, slog.New(slog.DiscardHandler), true) }()
+	defer func() {
+		cancel()
+		select {
+		case <-errc:
+		case <-time.After(20 * time.Second):
+			t.Error("run no terminó tras cancelar")
+		}
+	}()
+
+	base := "http://127.0.0.1:18087"
+	var err error
+	for i := 0; i < 60; i++ {
+		var resp *http.Response
+		resp, err = http.Get(base + "/health")
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("/health = %d, quiero 200 sin sesión", resp.StatusCode)
+			}
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("no llegó a escuchar: %v", err)
+	}
+
+	resp, err := http.Get(base + "/sources")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("/sources sin sesión = %d, quiero 401", resp.StatusCode)
+	}
+
+	cliente := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err = cliente.PostForm(base+"/acceso", url.Values{"clave": {"clave-de-prueba"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST /acceso = %d, quiero 303", resp.StatusCode)
+	}
+	req, _ := http.NewRequest(http.MethodGet, base+"/sources", nil)
+	for _, c := range resp.Cookies() {
+		req.AddCookie(c)
+	}
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("/sources con sesión = %d, quiero 200", resp.StatusCode)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "access-key")); !os.IsNotExist(err) {
+		t.Error("con OPEN_TV_ACCESS_KEY no debe escribirse fichero de clave")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "proxy-key")); err != nil {
+		t.Errorf("la clave de firma del proxy no quedó guardada junto a la DB: %v", err)
+	}
+}
+
+func TestClaveDeEntornoCorta(t *testing.T) {
+	for _, c := range []struct {
+		clave  string
+		quiero bool
+	}{
+		{"", false},               // sin variable: la clave generada ya es larga
+		{"   ", false},            // vacía tras recortar = sin variable
+		{"clave-de-prueba", true}, // 15
+		{"clave-de-prueba!", false},
+		{"ñññññññññññññññ", true}, // 15 caracteres, 30 bytes
+	} {
+		if got := claveDeEntornoCorta(c.clave); got != c.quiero {
+			t.Errorf("claveDeEntornoCorta(%q) = %v, quiero %v", c.clave, got, c.quiero)
 		}
 	}
 }

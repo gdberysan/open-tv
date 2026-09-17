@@ -7,14 +7,14 @@
   <a href="https://github.com/gdberysan/open-tv/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/gdberysan/open-tv?style=flat-square&color=FF8A2B&labelColor=171E29"></a>
   <a href="https://github.com/gdberysan/open-tv/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/gdberysan/open-tv/ci.yml?branch=main&style=flat-square&label=CI&labelColor=171E29"></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/github/license/gdberysan/open-tv?style=flat-square&color=97A3B2&labelColor=171E29"></a>
-  <img alt="macOS · Linux · Windows" src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-EFF3F8?style=flat-square&labelColor=171E29">
+  <img alt="macOS · Linux · Windows · Docker" src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20%C2%B7%20Docker-EFF3F8?style=flat-square&labelColor=171E29">
 </p>
 
 **Watch free-to-air TV from your own M3U lists, in your browser, from one binary.**<br>
 No accounts. No telemetry. No cloud. And an honest signal on every channel —
 it tells you what will actually play before you click.
 
-[Install](#install) · [Features](#features) · [How it works](#how-it-works) · [Privacy](#privacy) · [Limitations](#known-limitations) · [FAQ](#faq) · **[Español](README.es.md)**
+[Install](#install) · [Docker](#docker-watch-on-any-device-at-home) · [Features](#features) · [How it works](#how-it-works) · [Privacy](#privacy) · [Limitations](#known-limitations) · [FAQ](#faq) · **[Español](README.es.md)**
 
 <img src="assets/readme/demo.gif" alt="Open TV: picking a channel, switching channels in place, and searching with ⌘K" width="100%">
 
@@ -30,26 +30,50 @@ brew install --cask gdberysan/tap/open-tv
 
 # macOS and Linux (verifies the checksum before installing)
 curl -fsSL https://raw.githubusercontent.com/gdberysan/open-tv/main/install.sh | sh
-
-# Anywhere with Go
-go install github.com/gdberysan/open-tv/cmd/open-tv@latest
 ```
 
 Then run `open-tv`. Your browser opens on the app.
 
-Windows, and anyone who prefers a plain download: grab the archive for your
+On Windows, or if you prefer a plain download, grab the archive for your
 system from [Releases](https://github.com/gdberysan/open-tv/releases/latest)
-and check it against `checksums.txt`.
+and check it against `checksums.txt`. To run it on a home server and watch
+from other devices, use [Docker](#docker-watch-on-any-device-at-home).
 
 > **macOS, downloaded with a browser?** The binary isn't notarized by Apple
 > yet, so Gatekeeper blocks it on first launch. Run
 > `xattr -d com.apple.quarantine ./open-tv` once, or right-click → **Open** →
 > **Open Anyway**. Homebrew and the curl installer handle this for you.
 
+## Docker: watch on any device at home
+
+```bash
+docker run -d --name open-tv -p 8080:8080 -v open-tv-data:/data \
+  --restart unless-stopped ghcr.io/gdberysan/open-tv:latest
+
+docker exec open-tv /open-tv access-key   # prints the access key
+```
+
+Open `http://<server-ip>:8080` on your TV, phone or laptop and paste the key.
+Each device stays signed in for 30 days. To choose the key yourself, start the
+container with `-e OPEN_TV_ACCESS_KEY=<a long key>`. There's a ready-to-use
+[`compose.yaml`](compose.yaml) in the repo.
+
+- **Images:** `linux/amd64` and `linux/arm64` (including a Raspberry Pi with
+  a 64-bit OS).
+- **Data:** everything lives in `/data`. The image runs as a non-root user
+  (UID 65532), so a bind mount such as `-v ./data:/data` must be writable by
+  that UID; a named volume like the one above needs nothing.
+- **Security:** outside `127.0.0.1`, Open TV always asks for the access key.
+  To reach it from outside your home, put it behind a reverse proxy with HTTPS
+  (Caddy, Traefik, nginx) instead of opening the port to the internet. The
+  proxy must forward the original `Host` header (nginx:
+  `proxy_set_header Host $host;`; Caddy and Traefik do it by default) and
+  should send `X-Forwarded-Proto`, so the session cookie is marked `Secure`.
+
 ## Features
 
 - **One binary, zero setup.** A Go server with the web client embedded. No
-  database to install, no Docker, no media center. Download, run, watch.
+  database to install and no media center. Download, run, watch.
 - **Honest signal.** Every stream is health-checked in the background: alive
   or down, latency, resolution, and whether your browser can decode it at
   all. Channels that can't show a picture say so instead of spinning forever.
@@ -60,6 +84,8 @@ and check it against `checksums.txt`.
 - **⌘K command palette** with fuzzy search, favorites, "continue watching",
   and keyboard shortcuts for play, mute, fullscreen and channel surfing.
 - **AirPlay** to an Apple TV, **picture-in-picture** and fullscreen.
+- **Any device at home.** Run it on a server with Docker and open it from any
+  browser on your network, protected by an access key.
 - **EPG guide** per source, when the list provides one.
 - **Bring your own lists.** Paste an M3U URL, upload a file, or add one of
   the suggested public lists from [iptv-org](https://github.com/iptv-org/iptv)
@@ -69,27 +95,29 @@ and check it against `checksums.txt`.
 
 ## How it works
 
-<img src="assets/readme/diagrama-en.svg" alt="How Open TV works: the browser plays video directly from broadcasters; open-tv, listening on 127.0.0.1, syncs the lists and guides you add, health-checks streams, keeps everything in a local SQLite and relays a stream only when the browser cannot fetch it." width="100%">
+<img src="assets/readme/diagrama-en.svg" alt="How Open TV works: the browser plays video directly from broadcasters; open-tv, on 127.0.0.1 by default (or network mode with an access key), syncs the lists and guides you add, health-checks streams, keeps everything in a local SQLite and relays a stream only when the browser cannot fetch it." width="100%">
 
 A clean install starts **empty**: Open TV ships with no channels. You add the
 lists; it keeps them in order and tells you the truth about each stream.
 
 Video goes **straight from the broadcaster to your browser**; it doesn't pass
-through open-tv. The local proxy only steps in when the browser can't fetch a
-stream itself (missing CORS headers, or an `http` stream on an `https` page),
-and it never listens outside your machine. The server does its own traffic in
-the background: syncing your lists and guides, and health-checking streams by
-reading each playlist and the start of its first video segment.
+through open-tv. The built-in proxy only steps in when the browser can't
+fetch a stream itself (missing CORS headers, or an `http` stream on an
+`https` page), and it only relays streams from your catalog. In the
+background, the server syncs your lists and guides and health-checks each
+stream by reading its playlist and the start of its first video segment.
 
 ## Privacy
 
 - No accounts, no sign-up, no cloud.
 - No telemetry: nothing is sent to Korven or anyone else. The only traffic
   goes to the lists, guides and broadcasters you add (see the diagram above).
-- Your sources, the catalog and each stream's health history live in a local
-  SQLite file. Favorites and "continue watching" live in your browser.
-- The server binds to `127.0.0.1`, has no authentication, and isn't meant to
-  be exposed to a network.
+- Your sources, the catalog, each stream's health history and the keys live
+  in the local data directory. Favorites and "continue watching" live in your
+  browser.
+- By default the server binds to `127.0.0.1` and needs no login. Bind it
+  anywhere else (as the Docker image does) and every request needs the
+  access key.
 
 ## What it doesn't do
 
@@ -109,11 +137,11 @@ Open TV is, on purpose, only a free-to-air player:
   playing is almost always the stream, not the app.
 - **Geo-blocking** is enforced by broadcasters and Open TV doesn't work
   around it.
+- **One access key, no user accounts.** Everyone who has the key sees the
+  same catalog and can manage its sources.
 - **Unsigned binaries.** Neither the macOS nor the Windows build is signed
   yet (see the macOS note under [Install](#install)).
 - **No Chromecast yet.** AirPlay works; Chromecast is planned.
-- **No Docker image yet.** The proxy is deliberately locked to loopback, which
-  a container network breaks. A safe design for it is on the roadmap.
 
 ## FAQ
 
@@ -127,11 +155,22 @@ publicly available free-to-air streams.
 
 **Does it collect any data?** No. See [Privacy](#privacy).
 
+**Can I watch it on my TV or phone?** Yes: run it with
+[Docker](#docker-watch-on-any-device-at-home) (or with `LISTEN_ADDR` set to
+your network address) and open it from the device's browser. From Safari on
+a Mac you can also send the picture to an Apple TV with AirPlay.
+
+**I lost the access key.** Run `open-tv access-key`, or
+`docker exec open-tv /open-tv access-key` in Docker. To change it, set
+`OPEN_TV_ACCESS_KEY`, or delete the `access-key` file in the data directory
+and restart; every device will have to sign in again.
+
 **How do I uninstall it?** Remove the binary (or `brew uninstall --cask
 open-tv`). To also delete the catalog, remove the data directory:
 `~/Library/Application Support/Korven Open TV` on macOS,
 `$XDG_DATA_HOME/korven-open-tv` (or `~/.local/share/korven-open-tv`) on
-Linux, `%APPDATA%\Korven Open TV` on Windows.
+Linux, `%APPDATA%\Korven Open TV` on Windows. In Docker:
+`docker rm -f open-tv && docker volume rm open-tv-data`.
 
 ## Commands and variables
 
@@ -139,6 +178,8 @@ Linux, `%APPDATA%\Korven Open TV` on Windows.
 open-tv                # start the server and open the browser
 open-tv --no-browser   # start without opening the browser
 open-tv --version      # print the version
+open-tv access-key     # print the network-mode access key
+open-tv healthcheck    # exit 0 if the local server is healthy (used by Docker)
 ```
 
 Running `open-tv` again while one is already running just opens the browser
@@ -146,14 +187,17 @@ on the existing one. Ctrl-C stops it.
 
 | Variable | Default | What it's for |
 |---|---|---|
-| `LISTEN_ADDR` | `127.0.0.1:8080` | Listen address. **Don't expose it to a network**: the API has no authentication. If the port is taken, the next free one is used. |
-| `DB_PATH` | system data directory | Path to the catalog's SQLite file. |
+| `LISTEN_ADDR` | `127.0.0.1:8080` | Listen address. Anything other than loopback turns on network mode, which requires the access key. If the port is taken, the next free one is used. |
+| `OPEN_TV_ACCESS_KEY` | generated | Access key for network mode. If unset, one is generated on first start and saved next to the database. |
+| `DB_PATH` | system data directory | Path to the catalog's SQLite file. The access key and the proxy's signing key are stored in the same directory. |
 | `SYNC_INTERVAL` | `12h` | How often sources are re-synced. |
 | `HEALTH_INTERVAL` | `60m` | How often streams are health-checked. |
 
 ## Contributing and support
 
 - Bugs and ideas: [GitHub Issues](https://github.com/gdberysan/open-tv/issues).
+  Check the [known limitations issue](https://github.com/gdberysan/open-tv/issues/7)
+  first.
 - Sending code? Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first; it says what
   fits the project and what doesn't.
 - Security issue? Don't open a public issue; see [`SECURITY.md`](SECURITY.md).
@@ -165,10 +209,16 @@ on the existing one. Ctrl-C stops it.
 ```bash
 cd web && npm ci && npm run build   # builds the client into internal/ui/dist
 cd .. && go build -o open-tv ./cmd/open-tv
+
+docker build -t open-tv .           # or build the Docker image
 ```
 
+The web client has to be built first: `go build` embeds it, so a binary
+built without it (including a plain `go install`) serves no interface.
+
 Tests: `go test -race ./...` and `cd web && npm run check && npm test`. CI
-runs the full set, plus security scans, on every push.
+runs the full set, plus the Playwright end-to-end tests, a Docker smoke test
+and security scans, on every push.
 
 The native macOS app in `mobile/` (Flutter) is frozen: it still builds, but
 the web client is the product. `IPTV_ORG_URL` is a development shortcut that

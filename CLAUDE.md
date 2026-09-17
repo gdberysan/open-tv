@@ -20,8 +20,9 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   `cmd/open-tv`. Clean Architecture: `internal/domain` · `internal/ports`
   (interfaces) · `internal/adapters` (db SQLite modernc, providers, epg,
   validator) · `internal/services` (syncer, recorder-futuro) · `internal/api`
-  (chi v5, handlers, middleware) · `internal/proxy` (proxy HLS **solo loopback**
-  con guarda SSRF) · `internal/ui` (`go:embed all:dist`).
+  (chi v5, handlers, middleware) · `internal/proxy` (proxy HLS que solo relaya
+  URLs del catálogo o firmadas, con guarda SSRF) · `internal/acceso` (modo red:
+  clave, sesiones firmadas, página de acceso) · `internal/ui` (`go:embed all:dist`).
 - Cliente: `web/` — Svelte 5 (runas `$state/$derived/$props/$effect`) + Vite +
   TS + `hls.js` (chunk perezoso). Se construye a `internal/ui/dist`. Stores en
   `web/src/estado/`, datos en `web/src/datos/` (interfaz `CatalogSource`),
@@ -38,7 +39,9 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   donde se descubre el proyecto) y `README.es.md` es su espejo completo en
   español: cualquier cambio en uno se hace en los dos. La cabecera
   (`assets/readme/banner-*.svg`) se regenera con
-  `assets/readme/generar_banner.py`, no se edita a mano.
+  `assets/readme/generar_banner.py`, no se edita a mano. Los metadatos
+  públicos de descubrimiento también van en inglés: la descripción del repo
+  en GitHub y las etiquetas OCI de la imagen en `.goreleaser.yml`.
 - **Identidad de commits:** autor `Gerard <gdberysan@gmail.com>` (verificar
   `git config user.email` antes de commitear). Trailer obligatorio:
   `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>` (o el modelo en uso).
@@ -47,6 +50,14 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   `/dist/` (salida goreleaser), `.superpowers/` (scratch de SDD, gitignored).
 - **NADA a `main` ni push sin autorización explícita del usuario.** El merge,
   los tags y las releases son decisiones suyas.
+- **Flujo de mantenedores (desde v1.1.0).** Todo cambio va en una rama y llega
+  a `main` por PR: CI corre en cada push de rama (Go, cliente web, e2e de
+  Playwright, humo de Docker, mobile y seguridad) y se mergea con CI verde.
+  Una release es: merge del PR, entrada de `CHANGELOG.md` con la versión, tag
+  `vX.Y.Z` empujado por el dueño (el clasificador bloquea que Claude empuje
+  tags) y verificar después la release, el cask y la imagen. Documentación
+  que describe algo que aún no existe (p. ej. una imagen nueva) se mergea
+  junto con el tag que lo publica, no antes.
 - **El repo es PÚBLICO (desde 2026-09-16).** Todo commit empujado es
   permanente: GitHub guarda las refs de PR para siempre y el dueño no puede
   borrarlas. Por eso el lanzamiento se hizo con un repo NUEVO de historia
@@ -75,10 +86,16 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   y endpoints NUEVOS, aditivos; nunca alterar `/channels` ni `/sources`.
 - **Ninguna dependencia Go/JS nueva** sin muy buena razón. **Bundle propio del
   cliente ≤ 80 KB gzip** (hls.js va en chunk perezoso aparte).
-- **Seguridad:** proxy HLS **solo loopback** con guarda SSRF (`controlConexion`
-  + `checkRedirect` + tope de tamaño); middleware `MismoOrigen` (Host +
-  `Sec-Fetch-Site` en métodos mutantes) contra CSRF/DNS-rebinding; CSP estricta
-  (`script-src 'self'`). Reutiliza el cliente HTTP guardado del proxy para
+- **Seguridad:** **sin autenticación solo en loopback**: cualquier listener
+  no-loopback activa el modo red (`internal/acceso`), donde todo salvo
+  `GET /health` y `/acceso` exige sesión firmada con la clave de la instalación.
+  El **proxy HLS solo relaya URLs del catálogo o firmadas con la clave de la
+  instalación** (`internal/proxy/firma.go`, guardada en
+  `<datadir>/proxy-key`), con guarda SSRF (`controlConexion` +
+  `checkRedirect` + tope de tamaño); middleware `MismoOrigen` (Host en
+  loopback + `Sec-Fetch-Site`/`Origin` en métodos mutantes) contra
+  CSRF/DNS-rebinding; CSP estricta (`script-src 'self'`; la página de acceso
+  no lleva scripts). Reutiliza el cliente HTTP guardado del proxy para
   cualquier fetch server-side de streams.
 - **a11y (P0.6/P0.8, rework reproductor-primero):** 2 regiones sr-only
   PERSISTENTES de App como ÚNICOS anunciadores nuevos (NO añadir regiones
@@ -122,6 +139,11 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   Homebrew (`run`, `on_macos`), no Ruby libre, y `{{staged_path}}` va escapado
   por las plantillas de goreleaser. Volver a `hooks.post.install_steps` cuando
   goreleaser lo publique (goreleaser/goreleaser#6873).
+- **Imagen de Docker** en `ghcr.io/gdberysan/open-tv` por goreleaser
+  `dockers_v2` (`goreleaser.Dockerfile`, binarios del release) y un
+  `Dockerfile` desde el código para CI y builds a mano. El paquete de ghcr.io
+  nace privado: tras el primer release con imagen hay que hacerlo público a
+  mano.
 
 ## Flujo de trabajo
 
@@ -171,7 +193,15 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
 
 ## Estado y hoja de ruta
 
-Ver `MEMORY.md` (personal, se carga por sesión). **Korven Open TV v1.0.0
+Ver `MEMORY.md` (personal, se carga por sesión). **v1.1.0 (2026-09-17): modo
+red con clave de acceso + imagen de Docker**, hecha por SDD (spec
+`docs/superpowers/specs/2026-09-17-imagen-docker-design.md`, plan
+`docs/superpowers/plans/2026-09-17-modo-red-docker.md`), PR #8. Lección que
+costó un bug real: los navegadores no mandan `Sec-Fetch-Site` a orígenes no
+confiables (http + IP de LAN), así que **todo lo de red se prueba desde una
+dirección no-loopback**; el e2e de modo red entra por la IP de la LAN. El
+paquete de ghcr.io nace privado: hacerlo público a mano tras la primera
+release con imagen. **Korven Open TV v1.0.0
 está PUBLICADA (2026-09-17)** en `gdberysan/open-tv`, público y con licencia
 MIT (el aviso de marca vive en `NOTICE`): binarios para macOS, Linux y
 Windows, cask en `gdberysan/homebrew-tap` e `install.sh`. La historia se

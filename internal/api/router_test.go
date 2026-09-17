@@ -7,11 +7,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gdberysan/open-tv/internal/acceso"
 	"github.com/gdberysan/open-tv/internal/adapters/db"
 	"github.com/gdberysan/open-tv/internal/adapters/providers/iptvorg"
 	"github.com/gdberysan/open-tv/internal/api"
@@ -184,8 +186,13 @@ func TestRouterNoAnunciaCORS(t *testing.T) {
 	}
 }
 
-// La regla estructural: sin loopback no hay proxy. Si alguien la relaja, este
-// test es el que lo dice.
+// ProxyActivo es hoy una opción del router que solo usan los tests: montan el
+// router con el proxy apagado para probar el 404 explícito. `cmd/open-tv`
+// SIEMPRE lo monta (ProxyActivo: true) — el proxy ya no depende de estar en
+// loopback, así que apagarlo en producción no tendría sentido. Lo que
+// protege es la autorización del catálogo/firma (solo relaya URLs del
+// catálogo o firmadas por el proceso) y, fuera de loopback, la sesión del
+// modo red.
 //
 // El caso proxyActivo=false exige un 404 EXPLÍCITO de /proxy/hls, no el que
 // caiga en el fallback SPA del cliente web (Tarea 9). Antes de la Tarea 17
@@ -207,6 +214,52 @@ func TestProxySoloExisteEnLoopback(t *testing.T) {
 		if rec.Code != c.quiero {
 			t.Errorf("proxyActivo=%v → %d, quiero %d", c.activo, rec.Code, c.quiero)
 		}
+	}
+}
+
+type catalogoFijo map[string]bool
+
+func (c catalogoFijo) ExisteURL(_ context.Context, u string) (bool, error) { return c[u], nil }
+
+// Una URL que no es del catálogo ni lleva firma no se relaya: el proxy ya no
+// es un relé abierto. Se comprueba por el código, sin red: el 403 llega antes
+// de resolver nada.
+func TestProxyNoRelayaURLsAjenasAlCatalogo(t *testing.T) {
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), nil,
+		api.Options{ProxyActivo: true, Catalogo: catalogoFijo{"https://origen.example/canal.m3u8": true}})
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape("https://atacante.example/x"), nil))
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("URL ajena = %d, quiero 403", rec.Code)
+	}
+}
+
+// Una URL del catálogo SÍ se relaya, y el manifiesto que devuelve el origen
+// sale con sus URLs hijas firmadas: prueba de extremo a extremo de que
+// api.Options.Catalogo llega de verdad hasta el proxy montado por el router,
+// no solo que rechaza lo ajeno (ver TestProxyNoRelayaURLsAjenasAlCatalogo).
+func TestProxyRelayaURLsDelCatalogo(t *testing.T) {
+	origen := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:6.0,\nseg1.ts\n"))
+	}))
+	defer origen.Close()
+
+	canalURL := origen.URL + "/canal.m3u8"
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), nil,
+		// httptest.NewServer escucha en 127.0.0.1: hay que permitir destinos
+		// privados para que este test ejercite el relay real, no solo el 403
+		// de SSRF.
+		api.Options{ProxyActivo: true, PermitirDestinosPrivados: true, Catalogo: catalogoFijo{canalURL: true}})
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape(canalURL), nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("código %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "&f=") {
+		t.Errorf("el segmento hijo no salió firmado:\n%s", rec.Body.String())
 	}
 }
 
@@ -240,6 +293,46 @@ func TestProxyApagadoNoRompeFallbackSPA(t *testing.T) {
 	}
 }
 
+func routerModoRed(t *testing.T) http.Handler {
+	t.Helper()
+	return api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), nil,
+		api.Options{ProxyActivo: true, Sesiones: acceso.NuevasSesiones("la-clave", nil)})
+}
+
+func TestModoRedExigeSesionEnAPIYProxy(t *testing.T) {
+	r := routerModoRed(t)
+	for _, c := range []struct {
+		ruta   string
+		quiero int
+	}{
+		{"/channels", http.StatusUnauthorized},
+		{"/sources", http.StatusUnauthorized},
+		{"/proxy/hls?u=x", http.StatusUnauthorized},
+		{"/acceso", http.StatusOK},
+		// Encoded-path bypass (ruling de la Tarea 4): chi enruta por
+		// r.URL.RawPath cuando está fijado, así que "/acces%6F" no coincide
+		// con la ruta /acceso y cae al fallback SPA — a menos que exenta()
+		// también exija RawPath == "". Sin ese fix, esto daría 200/404 en vez
+		// de 401.
+		{"/acces%6F", http.StatusUnauthorized},
+	} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, c.ruta, nil))
+		if rec.Code != c.quiero {
+			t.Errorf("%s = %d, quiero %d", c.ruta, rec.Code, c.quiero)
+		}
+	}
+}
+
+func TestLoopbackNoMontaAcceso(t *testing.T) {
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), nil, api.Options{})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sources", nil))
+	if rec.Code == http.StatusUnauthorized {
+		t.Error("sin Sesiones el router exige acceso: el modo loopback cambió")
+	}
+}
+
 // POST /streams/desenlace es mutante: MismoOrigen (global) lo corta en
 // cross-site antes de llegar al handler; en mismo origen, sin registrador (el
 // caso de este test, api.Options{} sin Desenlaces) responde 503, nunca panic.
@@ -261,5 +354,51 @@ func TestStreamsDesenlaceEsMutanteProtegido(t *testing.T) {
 	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("sin registrador → %d, quiero 503", rec.Code)
+	}
+}
+
+// TestModoRedLoginDesdeLaLANSinSecFetchSite reproduce el login desde otra
+// máquina por http (http://192.168.1.50:8080): el navegador no manda
+// Sec-Fetch-Site a un origen que no es de confianza, así que MismoOrigen
+// decide por el Origin, que con Referrer-Policy: same-origin es el real.
+func TestModoRedLoginDesdeLaLANSinSecFetchSite(t *testing.T) {
+	r := routerModoRed(t)
+	req := httptest.NewRequest(http.MethodPost, "http://192.168.1.50:8080/acceso", strings.NewReader(url.Values{"clave": {"la-clave"}}.Encode()))
+	req.Host = "192.168.1.50:8080"
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "http://192.168.1.50:8080")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("POST /acceso desde la LAN = %d (%s), quiero 303", rec.Code, strings.TrimSpace(rec.Body.String()))
+	}
+	var conCookie bool
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == acceso.NombreCookie && c.Value != "" {
+			conCookie = true
+		}
+	}
+	if !conCookie {
+		t.Errorf("POST /acceso desde la LAN no fija la cookie %s", acceso.NombreCookie)
+	}
+}
+
+// TestModoRedFallbackSPASinSesion: el fallback SPA también queda detrás de la
+// sesión. Una navegación va a /acceso; un asset (sin Accept html) da 401.
+func TestModoRedFallbackSPASinSesion(t *testing.T) {
+	r := routerModoRed(t)
+	for _, ruta := range []string{"/", "/canal/x"} {
+		req := httptest.NewRequest(http.MethodGet, ruta, nil)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != acceso.RutaAcceso {
+			t.Errorf("%s sin sesión = %d → %q, quiero 303 → %s", ruta, rec.Code, rec.Header().Get("Location"), acceso.RutaAcceso)
+		}
+	}
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/x.js", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("/assets/x.js sin sesión = %d, quiero 401", rec.Code)
 	}
 }

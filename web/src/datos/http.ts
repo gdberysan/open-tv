@@ -128,6 +128,13 @@ async function pedir(url: string, init?: RequestInit): Promise<Response> {
       { cause: e },
     )
   }
+  // Modo red (el servidor escucha fuera de loopback y exige clave): un 401 es
+  // una sesión caducada o revocada. La página de acceso es HTML del servidor,
+  // fuera de la SPA, así que se navega a ella.
+  if (resp.status === 401) {
+    location.assign('/acceso')
+    throw new Error('sesión caducada')
+  }
   if (!resp.ok) throw new Error(`respuesta ${resp.status}`)
   return resp
 }

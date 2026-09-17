@@ -65,6 +65,37 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# Imagen multi-arquitectura en ghcr.io con los mismos binarios del release.
+# El paquete de ghcr.io nace PRIVADO: tras el primer release hay que hacerlo
+# público a mano (GitHub → Packages → open-tv → Package settings).
+dockers_v2:
+  - id: open-tv
+    ids:
+      - open-tv
+    dockerfile: goreleaser.Dockerfile
+    images:
+      - "ghcr.io/gdberysan/open-tv"
+    # Una prerelease (v1.1.0-rc.1) solo publica su propia versión: las
+    # etiquetas móviles quedan vacías y dockers_v2 ignora las vacías («Empty
+    # tags are ignored», docs de dockers_v2), así que `latest` nunca apunta a
+    # una rc.
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}{{ .Major }}.{{ .Minor }}{{ end }}"
+      - "{{ if not .Prerelease }}{{ .Major }}{{ end }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    extra_files:
+      - assets/docker/data-vacio
+    labels:
+      org.opencontainers.image.title: "Korven Open TV"
+      org.opencontainers.image.description: "Free-to-air TV from your own M3U lists"
+      org.opencontainers.image.source: "https://github.com/gdberysan/open-tv"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.licenses: "MIT"
+
 # Las notas de cada release se generan a partir del historial de commits
 # (ya en español, con el prefijo Conventional Commits del repo) en vez de
 # duplicar contenido con CHANGELOG.md; los grupos de abajo solo traducen las

@@ -15,9 +15,14 @@ const FIXTURES = resolve(AQUI, '../fixtures')
 const DIST_UI = resolve(RAIZ, 'internal/ui/dist')
 const PUERTO_FIXTURES = 8099
 export const PUERTO_APP = 8090
+/** Segunda instancia del MISMO binario, escuchando en 0.0.0.0: modo red con
+ *  clave. Comparte el servidor de fixtures, con su propia base de datos. */
+export const PUERTO_RED = 8091
+export const CLAVE_E2E = 'clave-e2e-no-secreta'
 
 let servidor: Server | undefined
 let binario: ChildProcess | undefined
+let binarioRed: ChildProcess | undefined
 
 /** Genera un HLS real de 10 s con ffmpeg. H.264 + AAC: lo que decodifica
  *  cualquier navegador. Se cachea entre ejecuciones. */
@@ -109,6 +114,24 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   })
 
   await esperarSync(`http://127.0.0.1:${PUERTO_APP}`)
+
+  const datosRed = mkdtempSync(join(tmpdir(), 'opentv-e2e-red-'))
+  binarioRed = spawn(join(RAIZ, 'open-tv'), ['serve', '--no-browser'], {
+    cwd: RAIZ,
+    env: {
+      ...process.env,
+      DB_PATH: join(datosRed, 'e2e.db'),
+      LISTEN_ADDR: `0.0.0.0:${PUERTO_RED}`,
+      OPEN_TV_ACCESS_KEY: CLAVE_E2E,
+      IPTV_ORG_URL: `http://127.0.0.1:${PUERTO_FIXTURES}/cors/catalogo.m3u`,
+      HEALTH_INTERVAL: '10s',
+      OPEN_TV_PERMITIR_DESTINOS_PRIVADOS: '1',
+    },
+    stdio: 'inherit',
+  })
+  // /health no exige sesión, así que esperarSync funciona igual en modo red.
+  await esperarSync(`http://127.0.0.1:${PUERTO_RED}`)
+
   // Un margen para que la primera pasada de salud clasifique web_ok: sin ella
   // los dos canales salen con veredicto null y el caso del proxy no se prueba.
   // El health-worker arranca en cuanto el sync termina y su primera pasada es
@@ -121,6 +144,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   // al mismo fichero (eso re-ejecutaría este setup en vez de cerrar nada).
   return async () => {
     binario?.kill('SIGTERM')
+    binarioRed?.kill('SIGTERM')
     servidor?.close()
   }
 }

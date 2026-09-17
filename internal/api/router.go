@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/gdberysan/open-tv/internal/acceso"
 	"github.com/gdberysan/open-tv/internal/api/handlers"
 	"github.com/gdberysan/open-tv/internal/api/middleware"
 	"github.com/gdberysan/open-tv/internal/ports"
@@ -57,6 +58,18 @@ type Options struct {
 	// de todos los tests de router existentes, que no lo necesitan) hace que
 	// el handler responda 503 en vez de panicar.
 	Desenlaces ports.RegistradorDesenlaces
+	// Catalogo autoriza en el proxy las URLs de nivel superior. nil (tests que
+	// no lo necesitan) deja pasar solo URLs firmadas, que es el caso seguro.
+	Catalogo ports.VerificadorURLs
+	// Firmador firma las URLs hijas del proxy. nil: el router crea uno
+	// aleatorio. cmd/open-tv lo crea él para poder fallar al arrancar si no hay
+	// aleatoriedad, en vez de degradar en silencio.
+	Firmador *proxy.Firmador
+	// Sesiones activa el modo red: todo salvo /health y /acceso exige sesión.
+	// nil es el modo loopback de siempre, sin autenticación.
+	Sesiones *acceso.Sesiones
+	// Limitador de intentos de /acceso. nil con Sesiones: 5 por minuto por IP.
+	Limitador *acceso.Limitador
 }
 
 // Syncer es lo que el router necesita del *services.Syncer para cablear tanto
@@ -75,14 +88,34 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	// Primero: si el Host no es el loopback enlazado, se corta antes de que
 	// nada más (logger, rate limiter, handlers) toque la petición.
 	r.Use(middleware.MismoOrigen(opts.HostsPermitidos))
+	// Modo red: la sesión va antes que el logger y el limitador de
+	// concurrencia, para que una avalancha sin sesión no ocupe huecos.
+	if opts.Sesiones != nil {
+		r.Use(acceso.Exigir(opts.Sesiones))
+	}
 	r.Use(chimiddleware.RequestID)
-	// Sin RealIP a propósito: este gateway nunca vive detrás de un proxy
-	// inverso de confianza (solo loopback, consumido por la app local), así
-	// que fiarse de X-Forwarded-For/X-Real-IP/True-Client-IP solo abriría la
-	// puerta a que cualquiera falsifique el remote_addr que ve el logger.
+	// Sin RealIP a propósito: no hay lista de proxies inversos de confianza, y
+	// en modo red cualquiera de la LAN puede mandar X-Forwarded-For/X-Real-IP/
+	// True-Client-IP. Fiarse de ellas permitiría falsificar el remote_addr que
+	// ven el logger y el limitador de /acceso.
 	r.Use(middleware.Logger(logger))
 	r.Use(middleware.Recover(logger))
 	r.Use(middleware.RateLimiter(100))
+
+	// La página de acceso se monta aparte del bloque de middlewares de
+	// arriba: chi exige que todos los Use() precedan a cualquier ruta, así
+	// que aunque acceso.Exigir se registra junto al resto de middlewares, las
+	// rutas GET/POST /acceso (que ese mismo middleware deja pasar vía
+	// exenta()) van aquí, una vez cerrado el stack.
+	if opts.Sesiones != nil {
+		limitador := opts.Limitador
+		if limitador == nil {
+			limitador = acceso.NuevoLimitador(5, time.Minute, nil)
+		}
+		pagina := acceso.Pagina(opts.Sesiones, limitador)
+		r.Get(acceso.RutaAcceso, pagina.ServeHTTP)
+		r.Post(acceso.RutaAcceso, pagina.ServeHTTP)
+	}
 
 	// TTL de 12 h: los códecs de un canal no cambian en una tarde, y la caché
 	// se pierde igualmente al reiniciar el gateway. permitirDestinosPrivados
@@ -153,22 +186,49 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 		r.Get("/{id}/epg", eh.GetEPGCanal) // ?limit=<n>
 	})
 
-	// El proxy HLS solo existe cuando escuchamos en loopback. No hay flag para
-	// forzarlo: un proxy abierto a la red es un relay de vídeo de terceros con
-	// la IP de quien lo levante, y eso no se ofrece ni por accidente. Los
-	// builds del snapshot tampoco lo incluyen porque nunca son loopback.
+	// El proxy HLS solo relaya URLs del catálogo o firmadas por esta instalación
+	// (internal/proxy/firma.go), así que no es un relé abierto. En modo red,
+	// además, todo lo que hay detrás del middleware de acceso exige sesión.
+	// ProxyActivo sigue existiendo para los tests que prueban el router sin él.
 	if opts.ProxyActivo {
-		ph := proxy.NewHandler(RutaProxy, opts.PermitirDestinosPrivados,
-			proxy.ConBuscadorCabeceras(func(ctx context.Context, u string) (string, string) {
-				ref, ua, err := streams.CabecerasPorURL(ctx, u)
-				if err != nil {
-					// Un fallo de lectura no puede tumbar la reproducción:
-					// se cae a las cabeceras de siempre.
-					return "", ""
-				}
-				return ref, ua
-			}))
-		r.Get("/proxy/hls", ph.ServeHTTP)
+		firmador := opts.Firmador
+		if firmador == nil {
+			var err error
+			firmador, err = proxy.NuevoFirmadorAleatorio()
+			if err != nil {
+				// crypto/rand no falla en ningún sistema soportado; si lo
+				// hiciera, mejor sin proxy que con uno sin firma.
+				logger.Error("proxy desactivado: sin fuente de aleatoriedad", slog.Any("error", err))
+			}
+		}
+		if firmador == nil {
+			r.Get("/proxy/hls", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+		} else {
+			opciones := []proxy.Option{
+				proxy.ConBuscadorCabeceras(func(ctx context.Context, u string) (string, string) {
+					ref, ua, err := streams.CabecerasPorURL(ctx, u)
+					if err != nil {
+						// Un fallo de lectura no puede tumbar la reproducción:
+						// se cae a las cabeceras de siempre.
+						return "", ""
+					}
+					return ref, ua
+				}),
+			}
+			if opts.Catalogo != nil {
+				catalogo := opts.Catalogo
+				opciones = append(opciones, proxy.ConCatalogo(func(ctx context.Context, u string) bool {
+					ok, err := catalogo.ExisteURL(ctx, u)
+					if err != nil {
+						logger.Warn("proxy: no se pudo consultar el catálogo", slog.Any("error", err))
+						return false
+					}
+					return ok
+				}))
+			}
+			ph := proxy.NewHandler(RutaProxy, firmador, opts.PermitirDestinosPrivados, opciones...)
+			r.Get("/proxy/hls", ph.ServeHTTP)
+		}
 	} else {
 		// Sin proxy, /proxy/hls tiene que devolver un 404 explícito y no
 		// caer en el fallback SPA de más abajo: una URL de proxy que
