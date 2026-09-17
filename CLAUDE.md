@@ -20,8 +20,9 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   `cmd/open-tv`. Clean Architecture: `internal/domain` · `internal/ports`
   (interfaces) · `internal/adapters` (db SQLite modernc, providers, epg,
   validator) · `internal/services` (syncer, recorder-futuro) · `internal/api`
-  (chi v5, handlers, middleware) · `internal/proxy` (proxy HLS **solo loopback**
-  con guarda SSRF) · `internal/ui` (`go:embed all:dist`).
+  (chi v5, handlers, middleware) · `internal/proxy` (proxy HLS que solo relaya
+  URLs del catálogo o firmadas, con guarda SSRF) · `internal/acceso` (modo red:
+  clave, sesiones firmadas, página de acceso) · `internal/ui` (`go:embed all:dist`).
 - Cliente: `web/` — Svelte 5 (runas `$state/$derived/$props/$effect`) + Vite +
   TS + `hls.js` (chunk perezoso). Se construye a `internal/ui/dist`. Stores en
   `web/src/estado/`, datos en `web/src/datos/` (interfaz `CatalogSource`),
@@ -49,6 +50,14 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   `/dist/` (salida goreleaser), `.superpowers/` (scratch de SDD, gitignored).
 - **NADA a `main` ni push sin autorización explícita del usuario.** El merge,
   los tags y las releases son decisiones suyas.
+- **Flujo de mantenedores (desde v1.1.0).** Todo cambio va en una rama y llega
+  a `main` por PR: CI corre en cada push de rama (Go, cliente web, e2e de
+  Playwright, humo de Docker, mobile y seguridad) y se mergea con CI verde.
+  Una release es: merge del PR, entrada de `CHANGELOG.md` con la versión, tag
+  `vX.Y.Z` empujado por el dueño (el clasificador bloquea que Claude empuje
+  tags) y verificar después la release, el cask y la imagen. Documentación
+  que describe algo que aún no existe (p. ej. una imagen nueva) se mergea
+  junto con el tag que lo publica, no antes.
 - **El repo es PÚBLICO (desde 2026-09-16).** Todo commit empujado es
   permanente: GitHub guarda las refs de PR para siempre y el dueño no puede
   borrarlas. Por eso el lanzamiento se hizo con un repo NUEVO de historia
@@ -184,7 +193,15 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
 
 ## Estado y hoja de ruta
 
-Ver `MEMORY.md` (personal, se carga por sesión). **Korven Open TV v1.0.0
+Ver `MEMORY.md` (personal, se carga por sesión). **v1.1.0 (2026-09-17): modo
+red con clave de acceso + imagen de Docker**, hecha por SDD (spec
+`docs/superpowers/specs/2026-09-17-imagen-docker-design.md`, plan
+`docs/superpowers/plans/2026-09-17-modo-red-docker.md`), PR #8. Lección que
+costó un bug real: los navegadores no mandan `Sec-Fetch-Site` a orígenes no
+confiables (http + IP de LAN), así que **todo lo de red se prueba desde una
+dirección no-loopback**; el e2e de modo red entra por la IP de la LAN. El
+paquete de ghcr.io nace privado: hacerlo público a mano tras la primera
+release con imagen. **Korven Open TV v1.0.0
 está PUBLICADA (2026-09-17)** en `gdberysan/open-tv`, público y con licencia
 MIT (el aviso de marca vive en `NOTICE`): binarios para macOS, Linux y
 Windows, cask en `gdberysan/homebrew-tap` e `install.sh`. La historia se

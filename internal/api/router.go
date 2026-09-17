@@ -94,10 +94,10 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 		r.Use(acceso.Exigir(opts.Sesiones))
 	}
 	r.Use(chimiddleware.RequestID)
-	// Sin RealIP a propósito: este gateway nunca vive detrás de un proxy
-	// inverso de confianza (solo loopback, consumido por la app local), así
-	// que fiarse de X-Forwarded-For/X-Real-IP/True-Client-IP solo abriría la
-	// puerta a que cualquiera falsifique el remote_addr que ve el logger.
+	// Sin RealIP a propósito: no hay lista de proxies inversos de confianza, y
+	// en modo red cualquiera de la LAN puede mandar X-Forwarded-For/X-Real-IP/
+	// True-Client-IP. Fiarse de ellas permitiría falsificar el remote_addr que
+	// ven el logger y el limitador de /acceso.
 	r.Use(middleware.Logger(logger))
 	r.Use(middleware.Recover(logger))
 	r.Use(middleware.RateLimiter(100))
