@@ -89,7 +89,8 @@ The **latest release**. Earlier versions don't get backported patches.
 
 Open TV is **a single binary running on the user's own machine**. No accounts,
 no telemetry, no server of ours in between: the user supplies the catalogue and
-streams go from their browser straight to each broadcaster. In scope:
+streams go from their browser straight to each broadcaster. The attack
+surface is small and concrete:
 
 - The local HTTP server and its embedded web client.
 - The **HLS proxy**, which only relays catalog URLs or URLs signed by the
@@ -103,6 +104,19 @@ streams go from their browser straight to each broadcaster. In scope:
 - The client's strict CSP (`script-src 'self'`).
 - Parsing of **M3U** playlists and **EPG/XMLTV** guides — untrusted input by
   definition, since the user supplies it.
+
+## In scope
+
+- Escaping the proxy toward addresses it shouldn't reach (SSRF), by redirect
+  or by DNS resolution.
+- Something reachable from another tab or from the local network reaching
+  the local API.
+- Bypassing the access key or the network mode's session signature, or using
+  the proxy to relay URLs that aren't in the catalogue.
+- Code execution or writing files outside the data directory from a crafted
+  M3U playlist or EPG guide.
+- XSS in the embedded client, or any way of bypassing the CSP.
+- Data leaving the machine: the program shouldn't send anything out.
 
 ## Out of scope
 
