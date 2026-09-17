@@ -48,6 +48,10 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   reescrita en vez de hacer público el viejo (hoy `gdberysan/open-tv-private`,
   privado, remoto local `privado`). `scrubcheck` antes de CADA push, no solo
   antes de un release.
+- **Rulesets activos en GitHub:** `main` no admite force-push ni borrado, y los
+  tags `v*` no se pueden borrar ni mover. Si una release sale rota, se publica
+  `v1.0.1`; no se re-etiqueta. Para saltárselo hay que desactivar el ruleset a
+  mano, a propósito.
 
 ## Gates (verdes al final de CADA tarea)
 
