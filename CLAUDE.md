@@ -40,8 +40,14 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
 - **NUNCA `git add -A`.** Añade por ruta explícita. Untracked ajenos que NO se
   commitean: `docs/prompts/`, `open-tv-interface-design/`, el binario `open-tv`,
   `/dist/` (salida goreleaser), `.superpowers/` (scratch de SDD, gitignored).
-- **NADA a `main` ni push sin autorización explícita del usuario.** El merge y
-  el flip público son decisiones suyas.
+- **NADA a `main` ni push sin autorización explícita del usuario.** El merge,
+  los tags y las releases son decisiones suyas.
+- **El repo es PÚBLICO (desde 2026-09-16).** Todo commit empujado es
+  permanente: GitHub guarda las refs de PR para siempre y el dueño no puede
+  borrarlas. Por eso el lanzamiento se hizo con un repo NUEVO de historia
+  reescrita en vez de hacer público el viejo (hoy `gdberysan/open-tv-private`,
+  privado, remoto local `privado`). `scrubcheck` antes de CADA push, no solo
+  antes de un release.
 
 ## Gates (verdes al final de CADA tarea)
 
@@ -97,6 +103,16 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   ya publicada.
 - Rotar la clave: `gh repo deploy-key add … --allow-write` sobre
   `gdberysan/homebrew-tap` + `gh secret set`. `gh` con scope `repo` basta.
+- **El build del cliente borra `internal/ui/dist/.gitkeep`** (Vite,
+  `emptyOutDir`), y goreleaser aborta con «git is in a dirty state». Costó el
+  primer intento de v1.0.0. `release.yml` y `before.hooks` lo restauran; no
+  quites ninguno de los dos.
+- **El hook de cuarentena va en `custom_block` con `postflight_steps`**, no en
+  `hooks.post.install`: ese genera `postflight`, que Homebrew deprecó y hace
+  que cada `brew install` avise. `postflight_steps` usa el DSL de pasos de
+  Homebrew (`run`, `on_macos`), no Ruby libre, y `{{staged_path}}` va escapado
+  por las plantillas de goreleaser. Volver a `hooks.post.install_steps` cuando
+  goreleaser lo publique (goreleaser/goreleaser#6873).
 
 ## Flujo de trabajo
 
@@ -146,19 +162,18 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
 
 ## Estado y hoja de ruta
 
-Ver `MEMORY.md` (personal, se carga por sesión). **Al 2026-08-28: los cinco
-bloqueadores de lanzamiento están CERRADOS y pusheados** (cask válido,
-`--version`, `SECURITY.md`, tap creado, credencial puesta), y el repo tiene ya
-`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` y plantillas de issue/PR. Quedan solo
-los dos pasos irreversibles —tag `v1.0.0` y el flip— que son del usuario.
-Resumen previo: **P0–P2 mergeadas y
-pusheadas al remoto PRIVADO** (cliente web embebido, fiabilidad/failover, sala
-de control UX, fuentes bring-your-own, estado del arte, guía EPG por fuente).
-**Reproductor-primero (layout 1b) HECHO, mergeado y PUSHEADO:** escenario con
-vídeo persistente + catálogo lateral, cambio de canal en el sitio, modo «ver
-todo» conservando la rejilla P0.6, entrada muted con CTA de sonido. El flip
-público está **desbloqueado por el abogado**; el tap y su credencial ya están
-puestos, así que solo faltan los dos pasos irreversibles (tag y flip).
+Ver `MEMORY.md` (personal, se carga por sesión). **Korven Open TV v1.0.0
+está PUBLICADA (2026-09-17)** en `gdberysan/open-tv`, público y con licencia
+MIT (el aviso de marca vive en `NOTICE`): binarios para macOS, Linux y
+Windows, cask en `gdberysan/homebrew-tap` e `install.sh`. La historia se
+reescribió antes de publicar para quitar PII, así que **los hashes de commit
+anteriores a 2026-09-16 que aparezcan en la memoria o en los ledgers son de la
+historia vieja** y no existen en este repo. Hecho antes del lanzamiento:
+P0–P2 (cliente web embebido, fiabilidad/failover, sala de control UX, fuentes
+bring-your-own, estado del arte, guía EPG por fuente), reproductor-primero
+(layout 1b: vídeo persistente + catálogo lateral, «ver todo», entrada muted
+con CTA de sonido), mirrors de iptv-org, salud por segmento y tiempo hasta la
+imagen.
 
 **Pasada de Safari REAL hecha** (por `safaridriver`/WebDriver, no el WebKit de
 Playwright): reproducción, ⌘K con trap/`inert`/Esc y landmarks, todo limpio.
@@ -171,7 +186,7 @@ hay que usar **clic real de WebDriver**: un `click()` inyectado por JS no es
 gesto de usuario y Safari bloquea el autoplay.
 
 **AirPlay en el cliente web: HECHO y verificado contra un Apple TV real
-(2026-09-04, `11f096b`, mergeado en main local, NO pusheado).** El botón 📺
+(2026-09-04, publicado en v1.0.0).** El botón 📺
 del reproductor ya emite vídeo y audio de verdad. Causa raíz: AirPlay no
 reproduce fuentes MSE/`blob:` (lo que da hls.js) — el motor se fuerza a
 nativo (`<video src>`) SOLO durante una sesión de cast, en
