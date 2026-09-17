@@ -107,6 +107,18 @@ describe('HttpCatalog', () => {
     await expect(crearHttpCatalog('').canales({})).rejects.toThrow(/red|gateway/i)
   })
 
+  // Modo red: si la sesión caduca con la app abierta, la API responde 401 y
+  // lo correcto es volver a la página de acceso, no pintar "gateway caído".
+  it('un 401 lleva a la página de acceso', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"acceso requerido"}', { status: 401 })))
+    const assign = vi.fn()
+    vi.stubGlobal('location', { assign, protocol: 'http:' })
+
+    const c = crearHttpCatalog('')
+    await expect(c.fuentes()).rejects.toThrow('sesión caducada')
+    expect(assign).toHaveBeenCalledWith('/acceso')
+  })
+
   // El endpoint emite ports.Faceta de Go SIN json tags: en el cable es
   // {Valor, Count} con V mayúscula, no {valor,total}. calidades() debe
   // adaptar la forma igual que paises()/categorias().
