@@ -13,8 +13,9 @@ el televisor, el móvil, la tablet. Hoy ninguna de las dos cosas es posible.
 
 - `LISTEN_ADDR` por defecto `127.0.0.1:8080`. Si se cambia a `0.0.0.0`:
   - `esLoopback(ln)` da `false` y **el proxy HLS se apaga** (`main.go`). Los
-    canales que dependen de él dejan de verse: en Chrome/Firefox es el ~33 %
-    del catálogo según el censo de `plan.ts`.
+    canales que dependen de él dejan de verse: según el censo citado en
+    `plan.ts`, Chrome/Firefox reproducen directo el 67 % del catálogo, así que
+    el proxy es el único camino para parte del 33 % restante.
   - `hostsPermitidos(ln)` solo acepta `127.0.0.1`, `localhost` y `[::1]` como
     `Host`, así que **otro dispositivo recibe 403** al entrar por la IP de la
     LAN. Exponerlo hoy no funciona, ni siquiera a medias.
