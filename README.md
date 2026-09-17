@@ -1,22 +1,20 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <div align="center">
 
-```
-   ▄▄▄▄    ▄▄▄▄   ▄▄▄▄▄   ▄▄   ▄▄        ▄▄▄▄▄▄  ▄▄   ▄▄
-  ██  ██  ██  ██  ██  ██  ███ ███         ██    ██   ██
-  ██  ██  ██████  █████   ██ █ ██         ██    ██   ██
-  ██  ██  ██  ██  ██      ██   ██         ██    ██   ██
-   ▀▀▀▀   ▀▀  ▀▀  ▀▀      ▀▀   ▀▀         ▀▀     ▀▀▀▀▀
-             K  O  R  V  E  N   ·   O P E N   T V
-```
+<img src="assets/readme/banner-es.svg" alt="Korven Open TV — televisión abierta, sin cuentas ni nube, en tu máquina" width="100%">
 
-### La televisión abierta, sin cuentas ni nube — corriendo en tu máquina
+<p>
+  <a href="https://github.com/gdberysan/open-tv/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/gdberysan/open-tv?style=flat-square&color=FF8A2B&labelColor=171E29"></a>
+  <a href="https://github.com/gdberysan/open-tv/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/gdberysan/open-tv/ci.yml?branch=main&style=flat-square&label=CI&labelColor=171E29"></a>
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/github/license/gdberysan/open-tv?style=flat-square&color=97A3B2&labelColor=171E29"></a>
+  <img alt="macOS · Linux · Windows" src="https://img.shields.io/badge/plataformas-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-EFF3F8?style=flat-square&labelColor=171E29">
+</p>
 
 Un solo binario Go sirve la API **y** un cliente web embebido (Svelte). No trae
 canales de fábrica: **tú** añades tus fuentes M3U. Sin cuentas, sin telemetría,
 sin relay — todo se sirve desde tu propio equipo.
 
-`● señal honesta`  ·  `⌘K búsqueda difusa`  ·  `guía EPG por fuente`  ·  `MIT + marca Korven`  ·  `macOS · Linux · Windows`
+`● señal honesta`  ·  `⌘K búsqueda difusa`  ·  `guía EPG por fuente`  ·  `MIT + marca Korven`
 
 Una obra de **[Korven](https://korven.dev)** — *del núcleo a la obra*
 
@@ -256,6 +254,8 @@ CI corre lo mismo en cada push (`.github/workflows/ci.yml`).
 <a id="english"></a>
 
 # Korven Open TV (English)
+
+<img src="assets/readme/banner-en.svg" alt="Korven Open TV — free-to-air television, no accounts, no cloud, on your machine" width="100%">
 
 A free-to-air (FTA) television player for your own M3U lists. A single Go
 binary serves the API and an embedded web client (Svelte); it ships with no
