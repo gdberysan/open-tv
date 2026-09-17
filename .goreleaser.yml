@@ -144,11 +144,17 @@ homebrew_casks:
       email: gdberysan@gmail.com
     commit_msg_template: "chore(tap): actualiza open-tv a {{ .Tag }}"
     # El binario no va firmado ni notarizado, así que sin esto Gatekeeper lo
-    # pone en cuarentena y no arranca. Es el hook que la propia documentación
-    # de goreleaser recomienda para este caso.
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/open-tv"]
-          end
+    # pone en cuarentena y no arranca. Va en `custom_block` y no en
+    # `hooks.post.install` porque ese hook genera `postflight`, que Homebrew
+    # deprecó: cada `brew install` avisaba y pedía reportarlo al tap. La
+    # sustituta, `postflight_steps`, no admite Ruby libre sino su DSL de pasos
+    # (`run`, `on_macos`…). Cuando goreleaser publique
+    # `hooks.post.install_steps` (goreleaser/goreleaser#6873) se puede volver
+    # a un hook. `{{staged_path}}` es token de Homebrew y choca con las
+    # plantillas de goreleaser: de ahí el escape.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/open-tv"]
+        end
+      end
