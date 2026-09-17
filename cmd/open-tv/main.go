@@ -17,6 +17,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gdberysan/open-tv/internal/acceso"
 	"github.com/gdberysan/open-tv/internal/adapters/db"
@@ -213,6 +214,11 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 			return fmt.Errorf("preparando la clave de acceso: %w", err)
 		}
 		sesiones = acceso.NuevasSesiones(clave, nil)
+		if claveDeEntornoCorta(os.Getenv("OPEN_TV_ACCESS_KEY")) {
+			// Solo aviso: el e2e y el CI usan una clave corta a propósito.
+			logger.Warn("Modo red: OPEN_TV_ACCESS_KEY es corta; usa al menos 16 caracteres",
+				slog.Int("caracteres", utf8.RuneCountInString(clave)))
+		}
 		if generada {
 			// Única vez que la clave sale por el log: nadie más la conoce.
 			logger.Warn("Modo red: abre Open TV desde cualquier dispositivo con esta clave de acceso",
@@ -398,6 +404,17 @@ func esLoopback(ln net.Listener) bool {
 		return false
 	}
 	return addr.IP.IsLoopback()
+}
+
+// minimoClaveDeEntorno: por debajo, una clave elegida a mano se adivina con
+// demasiada facilidad pese al límite de intentos. La generada tiene 43.
+const minimoClaveDeEntorno = 16
+
+// claveDeEntornoCorta dice si OPEN_TV_ACCESS_KEY trae una clave demasiado
+// corta. Sin variable no hay nada que avisar: la clave se genera.
+func claveDeEntornoCorta(deEntorno string) bool {
+	c := strings.TrimSpace(deEntorno)
+	return c != "" && utf8.RuneCountInString(c) < minimoClaveDeEntorno
 }
 
 // permitirDestinosPrivados decide si el proxy HLS puede relayar loopback/red

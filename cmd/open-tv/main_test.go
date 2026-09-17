@@ -344,4 +344,24 @@ func TestRunEnModoRedExigeLaClave(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "access-key")); !os.IsNotExist(err) {
 		t.Error("con OPEN_TV_ACCESS_KEY no debe escribirse fichero de clave")
 	}
+	if _, err := os.Stat(filepath.Join(dir, "proxy-key")); err != nil {
+		t.Errorf("la clave de firma del proxy no quedó guardada junto a la DB: %v", err)
+	}
+}
+
+func TestClaveDeEntornoCorta(t *testing.T) {
+	for _, c := range []struct {
+		clave  string
+		quiero bool
+	}{
+		{"", false},               // sin variable: la clave generada ya es larga
+		{"   ", false},            // vacía tras recortar = sin variable
+		{"clave-de-prueba", true}, // 15
+		{"clave-de-prueba!", false},
+		{"ñññññññññññññññ", true}, // 15 caracteres, 30 bytes
+	} {
+		if got := claveDeEntornoCorta(c.clave); got != c.quiero {
+			t.Errorf("claveDeEntornoCorta(%q) = %v, quiero %v", c.clave, got, c.quiero)
+		}
+	}
 }
