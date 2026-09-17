@@ -75,11 +75,15 @@ dockers_v2:
     dockerfile: goreleaser.Dockerfile
     images:
       - "ghcr.io/gdberysan/open-tv"
+    # Una prerelease (v1.1.0-rc.1) solo publica su propia versión: las
+    # etiquetas móviles quedan vacías y dockers_v2 ignora las vacías («Empty
+    # tags are ignored», docs de dockers_v2), así que `latest` nunca apunta a
+    # una rc.
     tags:
       - "{{ .Version }}"
-      - "{{ .Major }}.{{ .Minor }}"
-      - "{{ .Major }}"
-      - "latest"
+      - "{{ if not .Prerelease }}{{ .Major }}.{{ .Minor }}{{ end }}"
+      - "{{ if not .Prerelease }}{{ .Major }}{{ end }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
     platforms:
       - linux/amd64
       - linux/arm64

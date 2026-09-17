@@ -58,7 +58,9 @@ Open `http://<server-ip>:8080` on your TV, phone or laptop and paste the key.
 Set your own with `-e OPEN_TV_ACCESS_KEY=…`, or show it again with
 `docker exec open-tv /open-tv access-key`. A ready-to-use
 [`compose.yaml`](compose.yaml) is in the repo. Images are built for
-`linux/amd64` and `linux/arm64` (Raspberry Pi 4/5).
+`linux/amd64` and `linux/arm64` (Raspberry Pi 4/5). The image runs as a
+non-root user (UID 65532): a bind mount such as `-v ./data:/data` must be
+writable by that UID, while a named volume like the one above needs nothing.
 
 Outside `127.0.0.1`, Open TV always asks for the access key. To reach it from
 outside your home, put it behind a reverse proxy with HTTPS (Caddy, Traefik,

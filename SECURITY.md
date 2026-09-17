@@ -33,8 +33,8 @@ pequeña y muy concreta:
   verificación en cada redirección y tope de tamaño).
 - El **modo red**: fuera de loopback, todo salvo `/health` y `/acceso` exige
   una sesión firmada que se obtiene con la clave de acceso de la instalación.
-- El middleware de mismo origen (Host + `Sec-Fetch-Site` en métodos mutantes),
-  contra CSRF y DNS-rebinding.
+- El middleware de mismo origen (Host, y en métodos mutantes `Sec-Fetch-Site`,
+  u `Origin` cuando el navegador no la manda), contra CSRF y DNS-rebinding.
 - La CSP estricta del cliente (`script-src 'self'`).
 - El parseo de listas **M3U** y de guías **EPG/XMLTV**, que es entrada no
   confiable por definición: la aporta quien usa el programa.
@@ -99,8 +99,9 @@ surface is small and concrete:
 - **Network mode**: outside loopback, everything except `/health` and
   `/acceso` requires a signed session obtained with the installation's access
   key.
-- The same-origin middleware (Host + `Sec-Fetch-Site` on mutating methods),
-  against CSRF and DNS rebinding.
+- The same-origin middleware (Host, and on mutating methods `Sec-Fetch-Site`,
+  or `Origin` when the browser doesn't send it), against CSRF and DNS
+  rebinding.
 - The client's strict CSP (`script-src 'self'`).
 - Parsing of **M3U** playlists and **EPG/XMLTV** guides — untrusted input by
   definition, since the user supplies it.
