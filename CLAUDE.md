@@ -34,6 +34,11 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
 
 - **Idioma:** artefactos del repo (código, commits, UI, docs) en **español**;
   UI también en inglés con paridad. El chat con el usuario, en inglés.
+  **Excepción: el README.** `README.md` va en inglés (es la portada pública y
+  donde se descubre el proyecto) y `README.es.md` es su espejo completo en
+  español: cualquier cambio en uno se hace en los dos. La cabecera
+  (`assets/readme/banner-*.svg`) se regenera con
+  `assets/readme/generar_banner.py`, no se edita a mano.
 - **Identidad de commits:** autor `Gerard <gdberysan@gmail.com>` (verificar
   `git config user.email` antes de commitear). Trailer obligatorio:
   `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>` (o el modelo en uso).
