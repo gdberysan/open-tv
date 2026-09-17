@@ -160,6 +160,24 @@ jobs:
           path: web/playwright-report/
           retention-days: 7
 
+  docker:
+    name: Imagen de Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: build
+        run: docker build -t open-tv:ci .
+      - name: humo
+        run: |
+          docker run -d --name humo -p 18090:8080 -e OPEN_TV_ACCESS_KEY=humo open-tv:ci
+          for i in $(seq 1 30); do curl -fsS 127.0.0.1:18090/health && break; sleep 1; done
+          test "$(curl -s -o /dev/null -w '%{http_code}' 127.0.0.1:18090/sources)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -d clave=humo 127.0.0.1:18090/acceso)" = 303
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -d clave=mala 127.0.0.1:18090/acceso)" = 401
+      - name: logs si falla
+        if: failure()
+        run: docker logs humo
+
   seguridad:
     name: Seguridad
     uses: gdberysan/.github/.github/workflows/security.yml@v1

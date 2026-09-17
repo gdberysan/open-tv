@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -62,6 +63,16 @@ jobs:
           install -m 700 -d "$RUNNER_TEMP/tap"
           printf '%s\n' "${{ secrets.HOMEBREW_TAP_SSH_KEY }}" > "$RUNNER_TEMP/tap/id_ed25519"
           chmod 600 "$RUNNER_TEMP/tap/id_ed25519"
+
+      # dockers_v2 construye multi-arquitectura con buildx; QEMU emula arm64
+      # en el runner amd64.
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: goreleaser/goreleaser-action@v7
         with:
