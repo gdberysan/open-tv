@@ -1,4 +1,5 @@
-"""Genera assets/readme/banner-{es,en}.svg, las cabeceras del README.
+"""Genera las imágenes del README: assets/readme/banner-{es,en}.svg (cabecera)
+y diagrama-{es,en}.svg (cómo funciona).
 
 El texto se convierte a trazos con las fuentes de la marca (web/public/fonts),
 así que el SVG no depende de fuentes instaladas y se ve igual en GitHub. La
@@ -187,8 +188,139 @@ def build(lang):
     return "\n".join(out)
 
 
+DIAGRAMA = {
+    "en": {
+        "label": "How Open TV works: the browser plays video directly from broadcasters; open-tv, on 127.0.0.1, syncs the lists and guides you add by URL, health-checks streams, stores everything in a local SQLite and relays a stream only when the browser can't fetch it.",
+        "local": "YOUR MACHINE", "net": "INTERNET",
+        "browser": ("Your browser", "Open TV web app"),
+        "app": ("open-tv", "listens on 127.0.0.1 only"),
+        "db": ("SQLite", "sources · catalog · stream health"),
+        "streams": ("Broadcasters", "video streams · channel logos"),
+        "lists": ("M3U lists by URL", "and their EPG guides"),
+        "api": ("iptv-org API", "extra mirrors · iptv-org lists only"),
+        "video": "video, directly", "ui": "UI · catalog · playback results",
+        "proxy": "fallback proxy", "checks": "health checks · relays when needed",
+        "sync": "syncs", "mirrors": "mirrors",
+    },
+    "es": {
+        "label": "Cómo funciona Open TV: el navegador reproduce el vídeo directo de las emisoras; open-tv, en 127.0.0.1, sincroniza tus listas y guías, comprueba los streams, lo guarda todo en un SQLite local y solo retransmite un stream cuando el navegador no puede pedirlo.",
+        "local": "TU MÁQUINA", "net": "INTERNET",
+        "browser": ("Tu navegador", "app web de Open TV"),
+        "app": ("open-tv", "escucha solo en 127.0.0.1"),
+        "db": ("SQLite", "fuentes · catálogo · salud"),
+        "streams": ("Emisoras", "streams de vídeo · logos"),
+        "lists": ("Listas M3U por URL", "y sus guías EPG"),
+        "api": ("API de iptv-org", "mirrors extra · solo sus listas"),
+        "video": "vídeo, directo", "ui": "interfaz · catálogo · resultados",
+        "proxy": "proxy de reserva", "checks": "comprobaciones · retransmite si hace falta",
+        "sync": "sincroniza", "mirrors": "mirrors",
+    },
+}
+
+
+def diagrama(lang):
+    c = DIAGRAMA[lang]
+    W, H = 1280, 600
+    out = []
+    a = out.append
+    a(f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-label="{c["label"]}">')
+    a(f"<title>{c['label']}</title>")
+    a("""<style>
+.flow{stroke-dasharray:10 8;animation:flow 1.2s linear infinite}
+.flow-slow{stroke-dasharray:4 7;animation:flow 2.4s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-36}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>""")
+    a(f"""<defs>
+<marker id="pa" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="{AMBAR}"/></marker>
+<marker id="ps" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="{ACERO}"/></marker>
+<clipPath id="card"><rect width="{W}" height="{H}" rx="24"/></clipPath>
+<pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="{LINEA}"/></pattern>
+</defs>""")
+    a('<g clip-path="url(#card)">')
+    a(f'<rect width="{W}" height="{H}" fill="{GRAFITO}"/>')
+    a(f'<rect width="{W}" height="{H}" fill="url(#dots)" opacity=".5"/>')
+
+    def panel(x, y, w, h, titulo):
+        a(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="18" fill="{CARBON}" fill-opacity=".55" stroke="{LINEA}" stroke-width="2"/>')
+        d, _ = text(titulo, x + 24, y + 34, 14, MONO, 600, tracking=0.2)
+        a(f'<path d="{d}" fill="{ACERO}"/>')
+
+    def caja(cx, cy, w, h, t1, t2, destacada=False, cilindro=False):
+        x, y = cx - w / 2, cy - h / 2
+        borde = AMBAR if destacada else ACERO
+        if cilindro:
+            a(f'<path d="M{x} {y + 12} v{h - 24} a{w / 2} 12 0 0 0 {w} 0 v{-(h - 24)}" fill="{GRAFITO}" stroke="{borde}" stroke-width="2"/>')
+            a(f'<ellipse cx="{cx}" cy="{y + 12}" rx="{w / 2}" ry="12" fill="{CARBON}" stroke="{borde}" stroke-width="2"/>')
+            ty = cy + 8
+        else:
+            a(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="14" fill="{GRAFITO}" stroke="{borde}" stroke-width="{2.5 if destacada else 1.5}"/>')
+            ty = cy
+        w1 = width(t1, 21, SG, 600)
+        d, _ = text(t1, cx - w1 / 2, ty - 2, 21, SG, 600)
+        a(f'<path d="{d}" fill="{HUESO}"/>')
+        w2 = width(t2, 13.5, MONO, 400)
+        d, _ = text(t2, cx - w2 / 2, ty + 22, 13.5, MONO, 400)
+        a(f'<path d="{d}" fill="{ACERO}"/>')
+
+    def etiqueta(s, cx, cy, color=HUESO):
+        w = width(s, 13.5, MONO, 500)
+        a(f'<rect x="{cx - w / 2 - 10:.1f}" y="{cy - 14}" width="{w + 20:.1f}" height="26" rx="13" fill="{GRAFITO}" stroke="{LINEA}"/>')
+        d, _ = text(s, cx - w / 2, cy + 4, 13.5, MONO, 500)
+        a(f'<path d="{d}" fill="{color}"/>')
+
+    # paneles
+    panel(40, 40, 520, 520, c["local"])
+    panel(720, 40, 520, 520, c["net"])
+
+    # cajas: máquina
+    BX, BY = 300, 150   # navegador
+    OX, OY = 300, 340   # open-tv
+    DX, DY = 300, 485   # sqlite
+    # internet
+    SX, SY = 980, 150   # emisoras
+    MX, MY = 980, 340   # listas
+    IX, IY = 980, 485   # iptv-org
+
+    # flechas (debajo de las cajas)
+    # vídeo directo, grueso y animado
+    a(f'<path class="flow" d="M{BX + 150} {BY} H{SX - 160}" stroke="{AMBAR}" stroke-width="4" fill="none" marker-end="url(#pa)"/>')
+    # navegador <-> open-tv
+    a(f'<path d="M{BX - 40} {BY + 45} V{OY - 45}" stroke="{ACERO}" stroke-width="2" fill="none" marker-start="url(#ps)" marker-end="url(#ps)"/>')
+    a(f'<path class="flow-slow" d="M{BX + 40} {BY + 45} V{OY - 45}" stroke="{AMBAR}" stroke-opacity=".8" stroke-width="2" fill="none" marker-end="url(#pa)"/>')
+    # open-tv -> sqlite
+    a(f'<path d="M{OX} {OY + 45} V{DY - 42}" stroke="{ACERO}" stroke-width="2" fill="none" marker-start="url(#ps)" marker-end="url(#ps)"/>')
+    # open-tv -> emisoras (diagonal: comprobaciones y relevo)
+    a(f'<path class="flow-slow" d="M{OX + 150} {OY - 20} C {OX + 330} {OY - 20}, {SX - 330} {SY + 40}, {SX - 160} {SY + 40}" stroke="{ACERO}" stroke-width="2" fill="none" marker-end="url(#ps)"/>')
+    # open-tv -> listas
+    a(f'<path d="M{OX + 150} {OY + 10} H{MX - 160}" stroke="{ACERO}" stroke-width="2" fill="none" marker-end="url(#ps)"/>')
+    # open-tv -> iptv-org
+    a(f'<path class="flow-slow" d="M{OX + 150} {OY + 35} C {OX + 330} {OY + 35}, {IX - 330} {IY}, {IX - 160} {IY}" stroke="{ACERO}" stroke-width="2" fill="none" marker-end="url(#ps)"/>')
+
+    caja(BX, BY, 300, 90, *c["browser"])
+    caja(OX, OY, 300, 90, *c["app"], destacada=True)
+    caja(DX, DY, 300, 84, *c["db"], cilindro=True)
+    caja(SX, SY, 320, 90, *c["streams"])
+    caja(MX, MY, 320, 90, *c["lists"])
+    caja(IX, IY, 320, 84, *c["api"])
+
+    etiqueta(c["video"], (BX + SX) / 2, BY - 26, AMBAR)
+    etiqueta(c["ui"], BX - 100, (BY + OY) / 2 - 16)
+    etiqueta(c["proxy"], BX + 130, (BY + OY) / 2 + 22, AMBAR)
+    etiqueta(c["checks"], (OX + SX) / 2, (OY + SY) / 2 - 6)
+    etiqueta(c["sync"], (OX + MX) / 2, OY + 10)
+    etiqueta(c["mirrors"], (OX + IX) / 2, (OY + IY) / 2 + 30)
+
+    a("</g>")
+    a(f'<rect x="1" y="1" width="{W - 2}" height="{H - 2}" rx="23" fill="none" stroke="{LINEA}" stroke-width="2"/>')
+    a("</svg>")
+    return "\n".join(out)
+
+
 if __name__ == "__main__":
     dest = os.path.join(RAIZ, "assets", "readme")
     for lang in ("es", "en"):
         with open(f"{dest}/banner-{lang}.svg", "w") as fh:
             fh.write(build(lang) + "\n")
+        with open(f"{dest}/diagrama-{lang}.svg", "w") as fh:
+            fh.write(diagrama(lang) + "\n")

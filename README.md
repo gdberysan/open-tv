@@ -69,32 +69,23 @@ and check it against `checksums.txt`.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    L["Your M3U lists"] --> O(["open-tv<br/>on your machine"]) --> B["Your browser"]
-    O -.- S["Syncs the catalog<br/>into local SQLite"]
-    O -.- H["Health-checks every stream<br/>alive · latency · codecs"]
-    O -.- P["Proxies a stream only when<br/>the browser can’t play it"]
-    O -.- N["Listens on 127.0.0.1 only"]
-    classDef app fill:#171E29,stroke:#FF8A2B,stroke-width:2px,color:#EFF3F8
-    classDef ends fill:#0E131B,stroke:#97A3B2,color:#EFF3F8
-    classDef note fill:#0E131B,stroke:#283142,color:#97A3B2
-    class O app
-    class L,B ends
-    class S,H,P,N note
-```
+<img src="assets/readme/diagrama-en.svg" alt="How Open TV works: the browser plays video directly from broadcasters; open-tv, listening on 127.0.0.1, syncs the lists and guides you add, health-checks streams, keeps everything in a local SQLite and relays a stream only when the browser cannot fetch it." width="100%">
 
 A clean install starts **empty**: Open TV ships with no channels. You add the
 lists; it keeps them in order and tells you the truth about each stream.
 
-The player points straight at each broadcaster's own stream. The local proxy
-only steps in when a browser can't play a stream directly (missing CORS
-headers, for example), and it never listens outside your machine.
+Video goes **straight from the broadcaster to your browser**; it doesn't pass
+through open-tv. The local proxy only steps in when the browser can't fetch a
+stream itself (missing CORS headers, or an `http` stream on an `https` page),
+and it never listens outside your machine. The server does its own traffic in
+the background: syncing your lists and guides, and health-checking streams by
+reading each playlist and the start of its first video segment.
 
 ## Privacy
 
 - No accounts, no sign-up, no cloud.
-- No telemetry: nothing leaves your machine toward Korven or anyone else.
+- No telemetry: nothing is sent to Korven or anyone else. The only traffic
+  goes to the lists, guides and broadcasters you add (see the diagram above).
 - Your sources, the catalog and each stream's health history live in a local
   SQLite file. Favorites and "continue watching" live in your browser.
 - The server binds to `127.0.0.1`, has no authentication, and isn't meant to

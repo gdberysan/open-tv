@@ -71,32 +71,23 @@ compruébalo con `checksums.txt`.
 
 ## Cómo funciona
 
-```mermaid
-flowchart LR
-    L["Tus listas M3U"] --> O(["open-tv<br/>en tu máquina"]) --> B["Tu navegador"]
-    O -.- S["Sincroniza el catálogo<br/>en un SQLite local"]
-    O -.- H["Comprueba cada stream<br/>vivo · latencia · códecs"]
-    O -.- P["Hace de proxy solo si<br/>el navegador no puede"]
-    O -.- N["Escucha solo en 127.0.0.1"]
-    classDef app fill:#171E29,stroke:#FF8A2B,stroke-width:2px,color:#EFF3F8
-    classDef ends fill:#0E131B,stroke:#97A3B2,color:#EFF3F8
-    classDef note fill:#0E131B,stroke:#283142,color:#97A3B2
-    class O app
-    class L,B ends
-    class S,H,P,N note
-```
+<img src="assets/readme/diagrama-es.svg" alt="Cómo funciona Open TV: el navegador reproduce el vídeo directo de las emisoras; open-tv, escuchando en 127.0.0.1, sincroniza las listas y guías que añades, comprueba los streams, lo guarda todo en un SQLite local y solo retransmite un stream cuando el navegador no puede pedirlo." width="100%">
 
 Una instalación limpia arranca **vacía**: Open TV no trae canales. Las listas
 las pones tú; la app las ordena y te dice la verdad sobre cada stream.
 
-El reproductor apunta directo al stream de cada emisora. El proxy local solo
-entra cuando el navegador no puede reproducir un stream por sí mismo (por
-ejemplo, si faltan cabeceras CORS), y nunca escucha fuera de tu máquina.
+El vídeo va **directo de la emisora a tu navegador**; no pasa por open-tv. El
+proxy local solo entra cuando el navegador no puede pedir un stream por sí
+mismo (si faltan cabeceras CORS, o es un stream `http` en una página `https`),
+y nunca escucha fuera de tu máquina. El servidor tiene su propio tráfico en
+segundo plano: sincroniza tus listas y guías, y comprueba cada stream leyendo
+su playlist y el principio de su primer segmento de vídeo.
 
 ## Privacidad
 
 - Sin cuentas, sin registro, sin nube.
-- Sin telemetría: nada sale de tu máquina hacia Korven ni hacia nadie.
+- Sin telemetría: no se envía nada a Korven ni a nadie. El único tráfico va a
+  las listas, guías y emisoras que añades (ver el diagrama de arriba).
 - Tus fuentes, el catálogo y el historial de salud de cada stream viven en un
   SQLite local. Los favoritos y «Continuar viendo» viven en tu navegador.
 - El servidor escucha en `127.0.0.1`, no tiene autenticación y no está pensado
