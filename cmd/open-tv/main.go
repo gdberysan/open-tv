@@ -74,7 +74,8 @@ func main() {
 }
 
 // manejaMetaComando atiende lo que se responde sin levantar nada: hoy, la
-// versión. Devuelve si consumió los argumentos y con qué código salir.
+// versión, la clave de acceso del modo red y el healthcheck de Docker.
+// Devuelve si consumió los argumentos y con qué código salir.
 //
 // Vive aparte de `serve` a propósito: el FlagSet de serve usa ExitOnError, así
 // que una bandera que no conoce mata el proceso con código 2 —que es
@@ -88,6 +89,10 @@ func manejaMetaComando(args []string, w io.Writer) (bool, int) {
 	case "--version", "-version", "-v", "version":
 		fmt.Fprintf(w, "open-tv %s\n", version)
 		return true, 0
+	case "access-key":
+		return true, mostrarClave(w)
+	case "healthcheck":
+		return true, healthcheck(context.Background(), os.Getenv("LISTEN_ADDR"))
 	}
 	return false, 0
 }
