@@ -29,7 +29,7 @@ func TestReescribeVariantesRelativasYAbsolutas(t *testing.T) {
 		"",
 	}, "\n")
 
-	got := proxy.ReescribirManifiesto(base(t), entrada, prefijo)
+	got := proxy.ReescribirManifiesto(base(t), entrada, prefijo, nil)
 
 	if !strings.Contains(got, prefijo+url.QueryEscape("https://cdn.example/live/720/chunk.m3u8")) {
 		t.Errorf("la variante relativa no se resolvió contra la base:\n%s", got)
@@ -55,7 +55,7 @@ func TestReescribeAtributosURI(t *testing.T) {
 		"",
 	}, "\n")
 
-	got := proxy.ReescribirManifiesto(base(t), entrada, prefijo)
+	got := proxy.ReescribirManifiesto(base(t), entrada, prefijo, nil)
 
 	for _, quiero := range []string{
 		"https://cdn.example/live/clave.key",
@@ -89,7 +89,7 @@ func TestNoTocaByterangeNiComentarios(t *testing.T) {
 		"",
 	}, "\n")
 
-	got := proxy.ReescribirManifiesto(base(t), entrada, prefijo)
+	got := proxy.ReescribirManifiesto(base(t), entrada, prefijo, nil)
 
 	for _, intacta := range []string{"#EXT-X-TARGETDURATION:6", "#EXTINF:6.0,", "#EXT-X-BYTERANGE:75232@0", "#EXT-X-ENDLIST"} {
 		if !strings.Contains(got, intacta) {
@@ -106,7 +106,7 @@ func TestNoTocaByterangeNiComentarios(t *testing.T) {
 // línea, no.
 func TestURIIlegibleSeDejaIntacta(t *testing.T) {
 	entrada := "#EXTM3U\n://esto no es una URL\n"
-	got := proxy.ReescribirManifiesto(base(t), entrada, prefijo)
+	got := proxy.ReescribirManifiesto(base(t), entrada, prefijo, nil)
 	if !strings.Contains(got, "://esto no es una URL") {
 		t.Errorf("se perdió la línea ilegible:\n%s", got)
 	}
@@ -114,8 +114,26 @@ func TestURIIlegibleSeDejaIntacta(t *testing.T) {
 
 func TestConservaElNumeroDeLineas(t *testing.T) {
 	entrada := "#EXTM3U\n\nseg1.ts\nseg2.ts\n"
-	got := proxy.ReescribirManifiesto(base(t), entrada, prefijo)
+	got := proxy.ReescribirManifiesto(base(t), entrada, prefijo, nil)
 	if a, b := strings.Count(entrada, "\n"), strings.Count(got, "\n"); a != b {
 		t.Errorf("líneas: entrada %d, salida %d", a, b)
+	}
+}
+
+func TestReescribirManifiestoFirmaCadaURL(t *testing.T) {
+	f := firmadorDePrueba(t)
+	entrada := "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"clave.bin\"\n#EXTINF:6.0,\nseg1.ts\n"
+
+	got := proxy.ReescribirManifiesto(base(t), entrada, prefijo, f.Firmar)
+
+	for _, rel := range []string{"clave.bin", "seg1.ts"} {
+		abs, err := base(t).Parse(rel)
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		quiero := prefijo + url.QueryEscape(abs.String()) + "&f=" + f.Firmar(abs.String())
+		if !strings.Contains(got, quiero) {
+			t.Errorf("falta %q en:\n%s", quiero, got)
+		}
 	}
 }

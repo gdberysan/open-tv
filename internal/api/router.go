@@ -158,17 +158,25 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	// la IP de quien lo levante, y eso no se ofrece ni por accidente. Los
 	// builds del snapshot tampoco lo incluyen porque nunca son loopback.
 	if opts.ProxyActivo {
-		ph := proxy.NewHandler(RutaProxy, opts.PermitirDestinosPrivados,
-			proxy.ConBuscadorCabeceras(func(ctx context.Context, u string) (string, string) {
-				ref, ua, err := streams.CabecerasPorURL(ctx, u)
-				if err != nil {
-					// Un fallo de lectura no puede tumbar la reproducción:
-					// se cae a las cabeceras de siempre.
-					return "", ""
-				}
-				return ref, ua
-			}))
-		r.Get("/proxy/hls", ph.ServeHTTP)
+		firmador, err := proxy.NuevoFirmadorAleatorio()
+		if err != nil {
+			// crypto/rand no falla en ningún sistema soportado; si lo hiciera,
+			// mejor sin proxy que con uno sin firma.
+			logger.Error("proxy desactivado: sin fuente de aleatoriedad", slog.Any("error", err))
+			r.Get("/proxy/hls", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+		} else {
+			ph := proxy.NewHandler(RutaProxy, firmador, opts.PermitirDestinosPrivados,
+				proxy.ConBuscadorCabeceras(func(ctx context.Context, u string) (string, string) {
+					ref, ua, err := streams.CabecerasPorURL(ctx, u)
+					if err != nil {
+						// Un fallo de lectura no puede tumbar la reproducción:
+						// se cae a las cabeceras de siempre.
+						return "", ""
+					}
+					return ref, ua
+				}))
+			r.Get("/proxy/hls", ph.ServeHTTP)
+		}
 	} else {
 		// Sin proxy, /proxy/hls tiene que devolver un 404 explícito y no
 		// caer en el fallback SPA de más abajo: una URL de proxy que

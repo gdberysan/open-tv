@@ -65,6 +65,12 @@ func ConBuscadorCabeceras(b BuscadorCabeceras) Option {
 	return func(h *Handler) { h.cabeceras = b }
 }
 
+// ConCatalogo conecta la consulta "¿esta URL es un stream del catálogo?". Sin
+// ella, solo pasan las URLs firmadas: el zero value es el seguro.
+func ConCatalogo(enCatalogo func(ctx context.Context, url string) bool) Option {
+	return func(h *Handler) { h.enCatalogo = enCatalogo }
+}
+
 // Handler relaya HLS al navegador de la misma máquina.
 type Handler struct {
 	client     *http.Client
@@ -74,18 +80,26 @@ type Handler struct {
 	// catálogo lo sabe. nil (el zero value, o cualquier caso donde devuelva
 	// cadenas vacías) cae al User-Agent fijo de siempre.
 	cabeceras BuscadorCabeceras
+	// firmador firma las URLs hijas al reescribir y valida las que vuelven.
+	firmador *Firmador
+	// enCatalogo autoriza las URLs de nivel superior, que el cliente construye
+	// con la URL cruda del mirror y por eso nunca llevan firma.
+	enCatalogo func(ctx context.Context, url string) bool
 }
 
 // NewHandler construye el proxy. prefijo es la ruta con la que se reescriben
-// las URIs del manifiesto, normalmente "/proxy/hls?u=".
+// las URIs del manifiesto, normalmente "/proxy/hls?u=". firmador firma las
+// URLs hijas; con él nil, las hijas no llevarían firma y solo pasaría lo que
+// esté en el catálogo.
 //
 // permitirDestinosPrivados solo es true en tests: los servidores de httptest
 // viven en 127.0.0.1, que en producción es exactamente lo que hay que
 // bloquear. En el router se monta siempre con false.
-func NewHandler(prefijo string, permitirDestinosPrivados bool, opts ...Option) *Handler {
+func NewHandler(prefijo string, firmador *Firmador, permitirDestinosPrivados bool, opts ...Option) *Handler {
 	h := &Handler{
 		prefijo:    prefijo,
 		privadasOK: permitirDestinosPrivados,
+		firmador:   firmador,
 	}
 
 	h.client = NuevoClienteGuardado(permitirDestinosPrivados)
@@ -119,6 +133,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// MismoOrigen (ese filtro no ve de qué origen viene el fetch).
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
 		http.Error(w, "origen cruzado no permitido", http.StatusForbidden)
+		return
+	}
+
+	// Autorización antes de tocar la red: ni una resolución DNS para una URL
+	// que el proxy no tiene por qué relayar.
+	if !h.autorizado(r.Context(), crudo, r.URL.Query().Get("f")) {
+		http.Error(w, "destino no autorizado", http.StatusForbidden)
 		return
 	}
 
@@ -182,6 +203,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.relayarBytes(w, resp, urlFinal)
 }
 
+// autorizado: la firma se comprueba primero porque es gratis; el catálogo
+// cuesta una consulta a SQLite y solo lo necesitan las URLs de nivel superior.
+func (h *Handler) autorizado(ctx context.Context, crudo, firma string) bool {
+	if h.firmador.Valida(crudo, firma) {
+		return true
+	}
+	return h.enCatalogo != nil && h.enCatalogo(ctx, crudo)
+}
+
 func (h *Handler) relayarManifiesto(w http.ResponseWriter, resp *http.Response, base *url.URL) {
 	cuerpo, err := io.ReadAll(io.LimitReader(resp.Body, maxManifiestoBytes))
 	if err != nil {
@@ -192,7 +222,11 @@ func (h *Handler) relayarManifiesto(w http.ResponseWriter, resp *http.Response, 
 		slog.Warn("proxy: manifiesto truncado al alcanzar el tope",
 			"url", base.String(), "tope_bytes", maxManifiestoBytes)
 	}
-	salida := ReescribirManifiesto(base, string(cuerpo), h.prefijo)
+	var firmar func(string) string
+	if h.firmador != nil {
+		firmar = h.firmador.Firmar
+	}
+	salida := ReescribirManifiesto(base, string(cuerpo), h.prefijo, firmar)
 
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-store")
