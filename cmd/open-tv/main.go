@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gdberysan/open-tv/internal/acceso"
 	"github.com/gdberysan/open-tv/internal/adapters/db"
 	"github.com/gdberysan/open-tv/internal/adapters/epg"
 	"github.com/gdberysan/open-tv/internal/adapters/providers/opensource"
@@ -26,6 +27,7 @@ import (
 	"github.com/gdberysan/open-tv/internal/datadir"
 	"github.com/gdberysan/open-tv/internal/netx"
 	"github.com/gdberysan/open-tv/internal/ports"
+	"github.com/gdberysan/open-tv/internal/proxy"
 	"github.com/gdberysan/open-tv/internal/services"
 	"github.com/gdberysan/open-tv/internal/stats"
 )
@@ -106,7 +108,7 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 	// Loopback por defecto: la API no tiene auth y solo la consume la app
 	// local. El gateway nunca proxya video (solo devuelve JSON con la URL),
 	// así que un WriteTimeout corto es seguro (se fija más abajo, con el
-	// router).
+	// router). Fuera de loopback entra el modo red (paso 3b), que exige clave.
 	listenAddr := os.Getenv("LISTEN_ADDR")
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:8080"
@@ -194,6 +196,34 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 		return fmt.Errorf("creando el directorio de fuentes: %w", err)
 	}
 
+	// 3b. Modo red. Lo decide la IP real del listener, no LISTEN_ADDR (ver
+	// esLoopback). Fuera de loopback la API y el proxy quedan al alcance de la
+	// red, así que se exige clave; la clave vive junto a la base de datos.
+	var sesiones *acceso.Sesiones
+	enRed := modoRed(ln)
+	if enRed {
+		clave, generada, err := acceso.CargarOGenerar(filepath.Dir(dbPath), os.Getenv("OPEN_TV_ACCESS_KEY"))
+		if err != nil {
+			_ = ln.Close()
+			return fmt.Errorf("preparando la clave de acceso: %w", err)
+		}
+		sesiones = acceso.NuevasSesiones(clave, nil)
+		if generada {
+			// Única vez que la clave sale por el log: nadie más la conoce.
+			logger.Warn("Modo red: abre Open TV desde cualquier dispositivo con esta clave de acceso",
+				slog.String("clave", clave),
+				slog.String("guardada_en", filepath.Join(filepath.Dir(dbPath), acceso.FicheroClave)))
+		} else {
+			logger.Info("Modo red: se exige la clave de acceso (open-tv access-key la muestra)")
+		}
+	}
+
+	firmador, err := proxy.NuevoFirmadorAleatorio()
+	if err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("preparando la firma del proxy: %w", err)
+	}
+
 	// IPTV_ORG_URL es un atajo de dev, opt-in: solo si está fijada se da de
 	// alta esa fuente antes de arrancar (mismo INSERT ... ON CONFLICT DO
 	// NOTHING del viejo seed, ahora vía SourceRepository.Add). Sin la
@@ -266,7 +296,11 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 	url := "http://" + ln.Addr().String()
 	srv := &http.Server{
 		Handler: api.NewRouter(logger, channelRepoRO, providerFallback, streamRepoRO, lecturaDB, syncer, sourceRepo, fuentesDir, epgRepo, api.Options{
-			ProxyActivo:              esLoopback(ln),
+			// El proxy se monta siempre: solo relaya URLs del catálogo o
+			// firmadas, y en modo red además exige sesión.
+			ProxyActivo:              true,
+			Firmador:                 firmador,
+			Sesiones:                 sesiones,
 			Version:                  version,
 			HostsPermitidos:          hostsPermitidos(ln),
 			Agregador:                agregador,
@@ -291,7 +325,7 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 		}
 	}()
 
-	if !sinNavegador {
+	if !sinNavegador && !enRed {
 		if err := AbrirNavegador(url); err != nil {
 			logger.Warn("No se pudo abrir el navegador; abre la URL a mano",
 				slog.String("url", url), slog.Any("error", err))
@@ -346,9 +380,10 @@ func (w slogWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// esLoopback decide si el proxy HLS puede montarse. Se pregunta al listener
-// real y no a la cadena de configuración: LISTEN_ADDR puede decir "localhost",
-// un nombre puede resolver a otra cosa, y lo que importa es la IP que quedó.
+// esLoopback decide el modo: loopback (sin autenticación) o red (con clave).
+// Se pregunta al listener real y no a la cadena de configuración: LISTEN_ADDR
+// puede decir "localhost", un nombre puede resolver a otra cosa, y lo que
+// importa es la IP que quedó.
 func esLoopback(ln net.Listener) bool {
 	addr, ok := ln.Addr().(*net.TCPAddr)
 	if !ok {
@@ -369,13 +404,27 @@ func permitirDestinosPrivados() bool {
 	return os.Getenv("OPEN_TV_PERMITIR_DESTINOS_PRIVADOS") == "1"
 }
 
+// modoRed: cualquier listener que no sea loopback (0.0.0.0, una IP de la LAN)
+// deja la API al alcance de otras máquinas.
+func modoRed(ln net.Listener) bool {
+	return !esLoopback(ln)
+}
+
 // hostsPermitidos construye la lista blanca de Host para el middleware
 // anti-rebinding (Ruling R13) a partir del puerto REAL con el que se acabó
 // enlazando (no LISTEN_ADDR: pudo haber saltado a un puerto de fallback). Los
 // tres literales de loopback son los que un navegador puede usar para llegar
 // aquí; un dominio atacante que resuelve a 127.0.0.1 llega con su propio
 // Host y no está en esta lista.
+//
+// En modo red no hay lista: el Host es cualquiera con el que se llegue a la
+// máquina (IP de la LAN, nombre local, dominio del reverse proxy), y el
+// control de acceso lo hace la sesión. El DNS-rebinding no sirve contra ella:
+// el dominio atacante no tiene la cookie.
 func hostsPermitidos(ln net.Listener) []string {
+	if modoRed(ln) {
+		return nil
+	}
 	addr, ok := ln.Addr().(*net.TCPAddr)
 	if !ok {
 		return nil

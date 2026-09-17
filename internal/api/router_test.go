@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gdberysan/open-tv/internal/acceso"
 	"github.com/gdberysan/open-tv/internal/adapters/db"
 	"github.com/gdberysan/open-tv/internal/adapters/providers/iptvorg"
 	"github.com/gdberysan/open-tv/internal/api"
@@ -284,6 +285,46 @@ func TestProxyApagadoNoRompeFallbackSPA(t *testing.T) {
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/canal/x", nil))
 	if rec.Code != http.StatusOK {
 		t.Errorf("/canal/x (ruta del cliente, no de la API) = %d, quiero %d (fallback SPA)", rec.Code, http.StatusOK)
+	}
+}
+
+func routerModoRed(t *testing.T) http.Handler {
+	t.Helper()
+	return api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), nil,
+		api.Options{ProxyActivo: true, Sesiones: acceso.NuevasSesiones("la-clave", nil)})
+}
+
+func TestModoRedExigeSesionEnAPIYProxy(t *testing.T) {
+	r := routerModoRed(t)
+	for _, c := range []struct {
+		ruta   string
+		quiero int
+	}{
+		{"/channels", http.StatusUnauthorized},
+		{"/sources", http.StatusUnauthorized},
+		{"/proxy/hls?u=x", http.StatusUnauthorized},
+		{"/acceso", http.StatusOK},
+		// Encoded-path bypass (ruling de la Tarea 4): chi enruta por
+		// r.URL.RawPath cuando está fijado, así que "/acces%6F" no coincide
+		// con la ruta /acceso y cae al fallback SPA — a menos que exenta()
+		// también exija RawPath == "". Sin ese fix, esto daría 200/404 en vez
+		// de 401.
+		{"/acces%6F", http.StatusUnauthorized},
+	} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, c.ruta, nil))
+		if rec.Code != c.quiero {
+			t.Errorf("%s = %d, quiero %d", c.ruta, rec.Code, c.quiero)
+		}
+	}
+}
+
+func TestLoopbackNoMontaAcceso(t *testing.T) {
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), nil, api.Options{})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sources", nil))
+	if rec.Code == http.StatusUnauthorized {
+		t.Error("sin Sesiones el router exige acceso: el modo loopback cambió")
 	}
 }
 

@@ -1,6 +1,9 @@
 package middleware
 
-import "net/http"
+import (
+	"net/http"
+	"net/url"
+)
 
 // MismoOrigen rechaza peticiones cuyo Host no esté en hostsPermitidos. Cierra
 // el DNS-rebinding: un dominio atacante que resuelve a 127.0.0.1 llega con su
@@ -35,6 +38,16 @@ func MismoOrigen(hostsPermitidos []string) func(http.Handler) http.Handler {
 				if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
 					http.Error(w, "origen cruzado no permitido", http.StatusForbidden)
 					return
+				}
+				// Origin cubre a los clientes que no mandan Sec-Fetch-Site. En
+				// modo red la lista de Host está vacía, así que esta es la
+				// comprobación que queda contra CSRF (con SameSite=Strict).
+				if origen := r.Header.Get("Origin"); origen != "" {
+					u, err := url.Parse(origen)
+					if err != nil || u.Host != r.Host {
+						http.Error(w, "origen cruzado no permitido", http.StatusForbidden)
+						return
+					}
 				}
 			}
 			next.ServeHTTP(w, r)

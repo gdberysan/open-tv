@@ -94,3 +94,29 @@ func TestMismoOrigenSecFetchSiteNoAfectaAGetHead(t *testing.T) {
 		}
 	}
 }
+
+// Sin Sec-Fetch-Site (navegadores viejos, o un cliente que no lo manda), un
+// Origin de otro sitio en un método mutante también se corta.
+func TestMismoOrigenCortaOriginAjenoEnMutantes(t *testing.T) {
+	h := middleware.MismoOrigen(nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	for _, c := range []struct {
+		origin string
+		quiero int
+	}{
+		{"http://atacante.example", http.StatusForbidden},
+		{"http://tv.local:8080", http.StatusNoContent},
+		{"", http.StatusNoContent},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "http://tv.local:8080/sources", nil)
+		if c.origin != "" {
+			req.Header.Set("Origin", c.origin)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != c.quiero {
+			t.Errorf("Origin %q = %d, quiero %d", c.origin, rec.Code, c.quiero)
+		}
+	}
+}

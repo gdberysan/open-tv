@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/gdberysan/open-tv/internal/acceso"
 	"github.com/gdberysan/open-tv/internal/api/handlers"
 	"github.com/gdberysan/open-tv/internal/api/middleware"
 	"github.com/gdberysan/open-tv/internal/ports"
@@ -64,6 +65,11 @@ type Options struct {
 	// aleatorio. cmd/open-tv lo crea él para poder fallar al arrancar si no hay
 	// aleatoriedad, en vez de degradar en silencio.
 	Firmador *proxy.Firmador
+	// Sesiones activa el modo red: todo salvo /health y /acceso exige sesión.
+	// nil es el modo loopback de siempre, sin autenticación.
+	Sesiones *acceso.Sesiones
+	// Limitador de intentos de /acceso. nil con Sesiones: 5 por minuto por IP.
+	Limitador *acceso.Limitador
 }
 
 // Syncer es lo que el router necesita del *services.Syncer para cablear tanto
@@ -82,6 +88,11 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	// Primero: si el Host no es el loopback enlazado, se corta antes de que
 	// nada más (logger, rate limiter, handlers) toque la petición.
 	r.Use(middleware.MismoOrigen(opts.HostsPermitidos))
+	// Modo red: la sesión va antes que el logger y el limitador de
+	// concurrencia, para que una avalancha sin sesión no ocupe huecos.
+	if opts.Sesiones != nil {
+		r.Use(acceso.Exigir(opts.Sesiones))
+	}
 	r.Use(chimiddleware.RequestID)
 	// Sin RealIP a propósito: este gateway nunca vive detrás de un proxy
 	// inverso de confianza (solo loopback, consumido por la app local), así
@@ -90,6 +101,21 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 	r.Use(middleware.Logger(logger))
 	r.Use(middleware.Recover(logger))
 	r.Use(middleware.RateLimiter(100))
+
+	// La página de acceso se monta aparte del bloque de middlewares de
+	// arriba: chi exige que todos los Use() precedan a cualquier ruta, así
+	// que aunque acceso.Exigir se registra junto al resto de middlewares, las
+	// rutas GET/POST /acceso (que ese mismo middleware deja pasar vía
+	// exenta()) van aquí, una vez cerrado el stack.
+	if opts.Sesiones != nil {
+		limitador := opts.Limitador
+		if limitador == nil {
+			limitador = acceso.NuevoLimitador(5, time.Minute, nil)
+		}
+		pagina := acceso.Pagina(opts.Sesiones, limitador)
+		r.Get(acceso.RutaAcceso, pagina.ServeHTTP)
+		r.Post(acceso.RutaAcceso, pagina.ServeHTTP)
+	}
 
 	// TTL de 12 h: los códecs de un canal no cambian en una tarde, y la caché
 	// se pierde igualmente al reiniciar el gateway. permitirDestinosPrivados
