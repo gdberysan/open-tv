@@ -95,6 +95,27 @@ func TestMismoOrigenSecFetchSiteNoAfectaAGetHead(t *testing.T) {
 	}
 }
 
+// TestMismoOrigenIgnoraOriginNullConSecFetchSiteOK cubre el caso real que
+// rompía el login de /acceso en un navegador de verdad: esa página se sirve
+// con Referrer-Policy: no-referrer, y el Fetch Standard obliga a que un POST
+// de formulario desde ahí lleve Origin: null (para no filtrar más que el
+// Referer) aunque sea una navegación same-origin genuina — Sec-Fetch-Site lo
+// confirma con "same-origin". Si el chequeo de Origin se evaluara igual,
+// ningún navegador que respete la spec podría enviar la clave.
+func TestMismoOrigenIgnoraOriginNullConSecFetchSiteOK(t *testing.T) {
+	h := middleware.MismoOrigen(nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "http://tv.local:8080/acceso", nil)
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("Origin", "null")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("Sec-Fetch-Site same-origin con Origin null → %d, quiero %d", rec.Code, http.StatusNoContent)
+	}
+}
+
 // Sin Sec-Fetch-Site (navegadores viejos, o un cliente que no lo manda), un
 // Origin de otro sitio en un método mutante también se corta.
 func TestMismoOrigenCortaOriginAjenoEnMutantes(t *testing.T) {

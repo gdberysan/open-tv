@@ -35,14 +35,23 @@ func MismoOrigen(hostsPermitidos []string) func(http.Handler) http.Handler {
 				}
 			}
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
-				if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
-					http.Error(w, "origen cruzado no permitido", http.StatusForbidden)
-					return
-				}
-				// Origin cubre a los clientes que no mandan Sec-Fetch-Site. En
-				// modo red la lista de Host está vacía, así que esta es la
-				// comprobación que queda contra CSRF (con SameSite=Strict).
-				if origen := r.Header.Get("Origin"); origen != "" {
+				if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
+					if site != "same-origin" && site != "none" {
+						http.Error(w, "origen cruzado no permitido", http.StatusForbidden)
+						return
+					}
+				} else if origen := r.Header.Get("Origin"); origen != "" {
+					// Origin cubre a los clientes que no mandan Sec-Fetch-Site. En
+					// modo red la lista de Host está vacía, así que esta es la
+					// comprobación que queda contra CSRF (con SameSite=Strict).
+					// Solo se mira cuando Sec-Fetch-Site está ausente: cuando SÍ
+					// viene y ya pasó el chequeo de arriba, el navegador la marca
+					// como fuente de verdad — un envío del formulario de /acceso
+					// (Referrer-Policy: no-referrer) llega con Sec-Fetch-Site:
+					// same-origin pero Origin: null (así lo exige el propio Fetch
+					// Standard para no filtrar más que el Referer), y bloquearlo
+					// aquí también habría dejado el login sin poder entrar en
+					// cualquier navegador que respete la spec.
 					u, err := url.Parse(origen)
 					if err != nil || u.Host != r.Host {
 						http.Error(w, "origen cruzado no permitido", http.StatusForbidden)
