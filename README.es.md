@@ -46,10 +46,33 @@ compruébalo con `checksums.txt`.
 > `xattr -d com.apple.quarantine ./open-tv`, o clic derecho → **Abrir** →
 > **Abrir de todas formas**. Homebrew y el instalador por curl ya lo resuelven.
 
+## Docker: verlo desde cualquier dispositivo de tu red
+
+```bash
+docker run -d --name open-tv -p 8080:8080 -v open-tv-data:/data \
+  --restart unless-stopped ghcr.io/gdberysan/open-tv:latest
+docker logs open-tv   # la clave de acceso sale en el primer arranque
+```
+
+Abre `http://<ip-del-servidor>:8080` en la tele, el móvil o el portátil y pega
+la clave. Fija la tuya con `-e OPEN_TV_ACCESS_KEY=…`, o vuelve a verla con
+`docker exec open-tv /open-tv access-key`. En el repo hay un
+[`compose.yaml`](compose.yaml) listo. Las imágenes son para `linux/amd64` y
+`linux/arm64` (Raspberry Pi 4/5).
+
+Fuera de `127.0.0.1`, Open TV siempre pide la clave de acceso. Para llegar a
+él desde fuera de casa, ponlo detrás de un reverse proxy con HTTPS (Caddy,
+Traefik, nginx) en vez de abrir el puerto a Internet.
+
+Un reverse proxy debe reenviar la cabecera `Host` original (nginx:
+`proxy_set_header Host $host;` — Caddy y Traefik ya lo hacen por defecto) y
+debería mandar `X-Forwarded-Proto` para que la cookie de sesión salga marcada
+`Secure` detrás de HTTPS.
+
 ## Funciones
 
 - **Un binario, cero configuración.** Un servidor Go con el cliente web
-  embebido. Sin base de datos que instalar, sin Docker, sin media center.
+  embebido. Sin base de datos que instalar, Docker opcional, sin media center.
   Descargas, ejecutas y ves.
 - **Señal honesta.** Cada stream se comprueba en segundo plano: vivo o caído,
   latencia, resolución y si tu navegador puede decodificarlo. Los canales que
@@ -71,7 +94,7 @@ compruébalo con `checksums.txt`.
 
 ## Cómo funciona
 
-<img src="assets/readme/diagrama-es.svg" alt="Cómo funciona Open TV: el navegador reproduce el vídeo directo de las emisoras; open-tv, escuchando en 127.0.0.1, sincroniza las listas y guías que añades, comprueba los streams, lo guarda todo en un SQLite local y solo retransmite un stream cuando el navegador no puede pedirlo." width="100%">
+<img src="assets/readme/diagrama-es.svg" alt="Cómo funciona Open TV: el navegador reproduce el vídeo directo de las emisoras; open-tv, en 127.0.0.1 por defecto (o modo red con clave de acceso), sincroniza las listas y guías que añades, comprueba los streams, lo guarda todo en un SQLite local y solo retransmite un stream cuando el navegador no puede pedirlo." width="100%">
 
 Una instalación limpia arranca **vacía**: Open TV no trae canales. Las listas
 las pones tú; la app las ordena y te dice la verdad sobre cada stream.
@@ -79,9 +102,9 @@ las pones tú; la app las ordena y te dice la verdad sobre cada stream.
 El vídeo va **directo de la emisora a tu navegador**; no pasa por open-tv. El
 proxy local solo entra cuando el navegador no puede pedir un stream por sí
 mismo (si faltan cabeceras CORS, o es un stream `http` en una página `https`),
-y nunca escucha fuera de tu máquina. El servidor tiene su propio tráfico en
-segundo plano: sincroniza tus listas y guías, y comprueba cada stream leyendo
-su playlist y el principio de su primer segmento de vídeo.
+y solo retransmite streams de tu catálogo. El servidor tiene su propio tráfico
+en segundo plano: sincroniza tus listas y guías, y comprueba cada stream
+leyendo su playlist y el principio de su primer segmento de vídeo.
 
 ## Privacidad
 
@@ -90,8 +113,9 @@ su playlist y el principio de su primer segmento de vídeo.
   las listas, guías y emisoras que añades (ver el diagrama de arriba).
 - Tus fuentes, el catálogo y el historial de salud de cada stream viven en un
   SQLite local. Los favoritos y «Continuar viendo» viven en tu navegador.
-- El servidor escucha en `127.0.0.1`, no tiene autenticación y no está pensado
-  para exponerse a una red.
+- Por defecto el servidor escucha en `127.0.0.1` y no pide acceso. Si escucha
+  en cualquier otra dirección (como en la imagen de Docker), cada petición
+  exige la clave de acceso.
 
 ## Lo que no hace
 
@@ -113,9 +137,6 @@ Open TV es, a propósito, solo un reproductor de televisión abierta:
 - **Binarios sin firmar.** Ni el de macOS ni el de Windows están firmados
   todavía (ver la nota de macOS en [Instalar](#instalar)).
 - **Sin Chromecast todavía.** AirPlay funciona; Chromecast está planeado.
-- **Sin imagen de Docker todavía.** El proxy está limitado a propósito a
-  loopback, y la red de un contenedor lo rompe. Un diseño seguro está en la
-  hoja de ruta.
 
 ## Preguntas frecuentes
 
@@ -141,6 +162,8 @@ open-tv`). Para borrar también el catálogo, elimina el directorio de datos:
 open-tv                # arranca el servidor y abre el navegador
 open-tv --no-browser   # arranca sin abrir el navegador
 open-tv --version      # muestra la versión
+open-tv access-key     # muestra la clave de acceso del modo red
+open-tv healthcheck    # sale con 0 si el servidor local está sano (lo usa Docker)
 ```
 
 Si ya hay un `open-tv` corriendo, lanzarlo otra vez solo abre el navegador en
@@ -148,7 +171,8 @@ el que ya está vivo. Ctrl-C lo detiene.
 
 | Variable | Default | Para qué sirve |
 |---|---|---|
-| `LISTEN_ADDR` | `127.0.0.1:8080` | Dirección de escucha. **No la expongas a una red**: la API no tiene autenticación. Si el puerto está ocupado, usa el siguiente libre. |
+| `LISTEN_ADDR` | `127.0.0.1:8080` | Dirección de escucha. Cualquier cosa que no sea loopback activa el modo red, que exige la clave de acceso. Si el puerto está ocupado, usa el siguiente libre. |
+| `OPEN_TV_ACCESS_KEY` | generada | Clave de acceso del modo red. Si no se fija, se genera en el primer arranque, se guarda junto a la base de datos y sale una vez en el log. |
 | `DB_PATH` | directorio de datos del sistema | Ruta del SQLite del catálogo. |
 | `SYNC_INTERVAL` | `12h` | Cada cuánto se re-sincronizan las fuentes. |
 | `HEALTH_INTERVAL` | `60m` | Cada cuánto se comprueban los streams. |

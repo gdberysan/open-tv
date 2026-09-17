@@ -1,7 +1,9 @@
-# Docker y acceso desde la red — diseño (pendiente de aprobación)
+# Docker y acceso desde la red — diseño
 
-**Estado:** propuesta, NO aprobada. Objetivo fijado por el dueño el
-2026-09-17: **máxima adopción y robustez.**
+**Estado:** aprobada por el dueño el 2026-09-17; implementada en la rama
+feat/modo-red-docker (plan
+`docs/superpowers/plans/2026-09-17-modo-red-docker.md`). Objetivo fijado por
+el dueño el 2026-09-17: **máxima adopción y robustez.**
 
 ## Por qué
 
@@ -80,6 +82,11 @@ cambia a URLs firmadas:
   separada por comas). Si está vacía en modo red, se acepta cualquier `Host`,
   porque la sesión ya es el control de acceso y la cookie `SameSite=Strict`
   cierra el DNS-rebinding (el dominio atacante no tiene la cookie).
+
+  > **Decisión del plan:** sin `OPEN_TV_HOSTS`. En modo red se acepta
+  > cualquier `Host` directamente (no hay lista blanca que rellenar ni
+  > mantener): la sesión ya es el control de acceso, así que la variable no
+  > añadía seguridad, solo fricción de configuración.
 - Se mantiene la comprobación de `Sec-Fetch-Site` en métodos mutantes y se
   añade la de `Origin`.
 
@@ -92,6 +99,13 @@ Quien expone a la red suele poner Caddy/Traefik/nginx con TLS. Implicaciones:
   documenta y se mide.
 - Cookie con `Secure` cuando llega `X-Forwarded-Proto: https` desde un proxy
   de confianza (`OPEN_TV_TRUSTED_PROXIES`).
+
+  > **Decisión del plan:** sin `OPEN_TV_TRUSTED_PROXIES`. Se confía en
+  > `X-Forwarded-Proto` para marcar la cookie `Secure` venga de donde venga:
+  > si alguien lo falsifica sin haber TLS de por medio, el único perjudicado
+  > es quien lo falsifica (la cookie sale marcada `Secure` y su propio
+  > navegador deja de mandarla por `http`), así que la lista de proxies de
+  > confianza no protegía a nadie más y se quitó.
 
 ### 5. La imagen
 
@@ -129,5 +143,7 @@ Es una feature mediana: middleware y sesión, firma del proxy, pantalla de
 acceso, imagen y publicación, pruebas y revisión. Se hace por el flujo
 habitual: esta spec aprobada → plan → SDD → review final → v1.1.0.
 
-Mientras tanto, el README dice la verdad: sin imagen de Docker todavía, con
-el motivo, e issue #7 para agrupar el interés.
+**Hecho.** Implementada de punta a punta en la rama `feat/modo-red-docker`
+(10 tareas de SDD); los dos README ya documentan Docker y el modo red. Queda
+la review final de rama, los gates completos y la decisión del dueño de
+mergear, etiquetar `v1.1.0` y hacer público el paquete de ghcr.io.

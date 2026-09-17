@@ -186,8 +186,13 @@ func TestRouterNoAnunciaCORS(t *testing.T) {
 	}
 }
 
-// La regla estructural: sin loopback no hay proxy. Si alguien la relaja, este
-// test es el que lo dice.
+// ProxyActivo es hoy una opción del router que solo usan los tests: montan el
+// router con el proxy apagado para probar el 404 explícito. `cmd/open-tv`
+// SIEMPRE lo monta (ProxyActivo: true) — el proxy ya no depende de estar en
+// loopback, así que apagarlo en producción no tendría sentido. Lo que
+// protege es la autorización del catálogo/firma (solo relaya URLs del
+// catálogo o firmadas por el proceso) y, fuera de loopback, la sesión del
+// modo red.
 //
 // El caso proxyActivo=false exige un 404 EXPLÍCITO de /proxy/hls, no el que
 // caiga en el fallback SPA del cliente web (Tarea 9). Antes de la Tarea 17

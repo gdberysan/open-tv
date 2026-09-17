@@ -5,6 +5,23 @@ Todos los cambios notables de este proyecto se documentan aquí.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el proyecto se adhiere a [Versionado Semántico](https://semver.org/lang/es/).
 
+## [Sin publicar]
+
+### Añadido
+
+- **Modo red con clave de acceso**: fuera de `127.0.0.1`, Open TV exige una
+  clave (generada en el primer arranque o fijada con `OPEN_TV_ACCESS_KEY`) y
+  una sesión firmada. Página de acceso sin JavaScript, en español e inglés.
+- **Imagen de Docker** multi-arquitectura (`linux/amd64`, `linux/arm64`) en
+  `ghcr.io/gdberysan/open-tv`, con `compose.yaml` de ejemplo.
+- Subcomandos `open-tv access-key` y `open-tv healthcheck`.
+
+### Seguridad
+
+- El proxy HLS deja de relayar URLs arbitrarias: solo las del catálogo o las
+  que firma al reescribir un manifiesto.
+- `MismoOrigen` comprueba también `Origin` en métodos mutantes.
+
 ## [1.0.0] - 2026-09-16
 
 Primera versión pública. Open TV pasó de un stack de
@@ -60,4 +77,5 @@ cliente web embebido; la app de macOS queda congelada y compatible.
 - Rejilla virtualizada con tabindex por flechas, regiones aria-live
   persistentes, paleta ⌘K con focus-trap e `inert`, y verificación de contraste.
 
+[Sin publicar]: https://github.com/gdberysan/open-tv/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/gdberysan/open-tv/releases/tag/v1.0.0

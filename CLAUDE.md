@@ -38,7 +38,9 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   donde se descubre el proyecto) y `README.es.md` es su espejo completo en
   español: cualquier cambio en uno se hace en los dos. La cabecera
   (`assets/readme/banner-*.svg`) se regenera con
-  `assets/readme/generar_banner.py`, no se edita a mano.
+  `assets/readme/generar_banner.py`, no se edita a mano. Los metadatos
+  públicos de descubrimiento también van en inglés: la descripción del repo
+  en GitHub y las etiquetas OCI de la imagen en `.goreleaser.yml`.
 - **Identidad de commits:** autor `Gerard <gdberysan@gmail.com>` (verificar
   `git config user.email` antes de commitear). Trailer obligatorio:
   `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>` (o el modelo en uso).
@@ -75,10 +77,15 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   y endpoints NUEVOS, aditivos; nunca alterar `/channels` ni `/sources`.
 - **Ninguna dependencia Go/JS nueva** sin muy buena razón. **Bundle propio del
   cliente ≤ 80 KB gzip** (hls.js va en chunk perezoso aparte).
-- **Seguridad:** proxy HLS **solo loopback** con guarda SSRF (`controlConexion`
-  + `checkRedirect` + tope de tamaño); middleware `MismoOrigen` (Host +
-  `Sec-Fetch-Site` en métodos mutantes) contra CSRF/DNS-rebinding; CSP estricta
-  (`script-src 'self'`). Reutiliza el cliente HTTP guardado del proxy para
+- **Seguridad:** **sin autenticación solo en loopback**: cualquier listener
+  no-loopback activa el modo red (`internal/acceso`), donde todo salvo
+  `GET /health` y `/acceso` exige sesión firmada con la clave de la instalación.
+  El **proxy HLS solo relaya URLs del catálogo o firmadas por el proceso**
+  (`internal/proxy/firma.go`), con guarda SSRF (`controlConexion` +
+  `checkRedirect` + tope de tamaño); middleware `MismoOrigen` (Host en
+  loopback + `Sec-Fetch-Site`/`Origin` en métodos mutantes) contra
+  CSRF/DNS-rebinding; CSP estricta (`script-src 'self'`; la página de acceso
+  no lleva scripts). Reutiliza el cliente HTTP guardado del proxy para
   cualquier fetch server-side de streams.
 - **a11y (P0.6/P0.8, rework reproductor-primero):** 2 regiones sr-only
   PERSISTENTES de App como ÚNICOS anunciadores nuevos (NO añadir regiones
@@ -122,6 +129,11 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
   Homebrew (`run`, `on_macos`), no Ruby libre, y `{{staged_path}}` va escapado
   por las plantillas de goreleaser. Volver a `hooks.post.install_steps` cuando
   goreleaser lo publique (goreleaser/goreleaser#6873).
+- **Imagen de Docker** en `ghcr.io/gdberysan/open-tv` por goreleaser
+  `dockers_v2` (`goreleaser.Dockerfile`, binarios del release) y un
+  `Dockerfile` desde el código para CI y builds a mano. El paquete de ghcr.io
+  nace privado: tras el primer release con imagen hay que hacerlo público a
+  mano.
 
 ## Flujo de trabajo
 

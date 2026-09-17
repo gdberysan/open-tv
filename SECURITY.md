@@ -28,8 +28,11 @@ persona y los flujos van del navegador a cada emisora. Eso deja una superficie
 pequeña y muy concreta:
 
 - El servidor HTTP local y su interfaz web embebida.
-- El **proxy HLS**, que escucha **solo en loopback** y lleva guarda anti-SSRF
-  (control de conexión, verificación en cada redirección y tope de tamaño).
+- El **proxy HLS**, que solo relaya URLs del catálogo o firmadas por el propio
+  proceso (HMAC), con guarda anti-SSRF (control de conexión, verificación en
+  cada redirección y tope de tamaño).
+- El **modo red**: fuera de loopback, todo salvo `/health` y `/acceso` exige
+  una sesión firmada que se obtiene con la clave de acceso de la instalación.
 - El middleware de mismo origen (Host + `Sec-Fetch-Site` en métodos mutantes),
   contra CSRF y DNS-rebinding.
 - La CSP estricta del cliente (`script-src 'self'`).
@@ -42,6 +45,8 @@ pequeña y muy concreta:
   redirección o por resolución DNS.
 - Que algo accesible desde otra pestaña o desde la red local llegue a la API
   local.
+- Saltarse la clave de acceso o la firma de sesión del modo red, o usar el
+  proxy para relayar URLs que no están en el catálogo.
 - Ejecución de código o escritura de ficheros fuera del directorio de datos a
   partir de una lista M3U o una guía EPG manipuladas.
 - XSS en el cliente embebido, o cualquier forma de saltarse la CSP.
@@ -87,8 +92,12 @@ no telemetry, no server of ours in between: the user supplies the catalogue and
 streams go from their browser straight to each broadcaster. In scope:
 
 - The local HTTP server and its embedded web client.
-- The **HLS proxy**, which listens on **loopback only** and carries SSRF guards
-  (connection control, per-redirect checks, size cap).
+- The **HLS proxy**, which only relays catalog URLs or URLs signed by the
+  process itself (HMAC), with SSRF guards (connection control, per-redirect
+  checks, size cap).
+- **Network mode**: outside loopback, everything except `/health` and
+  `/acceso` requires a signed session obtained with the installation's access
+  key.
 - The same-origin middleware (Host + `Sec-Fetch-Site` on mutating methods),
   against CSRF and DNS rebinding.
 - The client's strict CSP (`script-src 'self'`).

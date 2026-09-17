@@ -190,10 +190,10 @@ def build(lang):
 
 DIAGRAMA = {
     "en": {
-        "label": "How Open TV works: the browser plays video directly from broadcasters; open-tv, on 127.0.0.1, syncs the lists and guides you add by URL, health-checks streams, stores everything in a local SQLite and relays a stream only when the browser can't fetch it.",
+        "label": "How Open TV works: the browser plays video directly from broadcasters; open-tv, on 127.0.0.1 by default, syncs the lists and guides you add by URL, health-checks streams, stores everything in a local SQLite and relays a stream only when the browser can't fetch it.",
         "local": "YOUR MACHINE", "net": "INTERNET",
         "browser": ("Your browser", "Open TV web app"),
-        "app": ("open-tv", "listens on 127.0.0.1 only"),
+        "app": ("open-tv", "127.0.0.1 · or network + key"),
         "db": ("SQLite", "sources · catalog · stream health"),
         "streams": ("Broadcasters", "video streams · channel logos"),
         "lists": ("M3U lists by URL", "and their EPG guides"),
@@ -203,10 +203,10 @@ DIAGRAMA = {
         "sync": "syncs", "mirrors": "mirrors",
     },
     "es": {
-        "label": "Cómo funciona Open TV: el navegador reproduce el vídeo directo de las emisoras; open-tv, en 127.0.0.1, sincroniza tus listas y guías, comprueba los streams, lo guarda todo en un SQLite local y solo retransmite un stream cuando el navegador no puede pedirlo.",
+        "label": "Cómo funciona Open TV: el navegador reproduce el vídeo directo de las emisoras; open-tv, en 127.0.0.1 por defecto, sincroniza tus listas y guías, comprueba los streams, lo guarda todo en un SQLite local y solo retransmite un stream cuando el navegador no puede pedirlo.",
         "local": "TU MÁQUINA", "net": "INTERNET",
         "browser": ("Tu navegador", "app web de Open TV"),
-        "app": ("open-tv", "escucha solo en 127.0.0.1"),
+        "app": ("open-tv", "127.0.0.1 · o red + clave"),
         "db": ("SQLite", "fuentes · catálogo · salud"),
         "streams": ("Emisoras", "streams de vídeo · logos"),
         "lists": ("Listas M3U por URL", "y sus guías EPG"),

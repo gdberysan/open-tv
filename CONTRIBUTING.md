@@ -21,10 +21,11 @@ Vale la pena ser explícito para no hacerte perder el tiempo:
 
 - **Catálogos de canales de fábrica.** Una instalación limpia arranca vacía a
   propósito: quien usa el programa decide qué añade. No es una carencia.
-- **Cuentas, registro o telemetría**, ni "anónima". Nada sale de la máquina.
+- **Cuentas, registro o telemetría**, ni "anónima". Nada sale de la máquina
+  (el modo red usa una única clave de acceso por instalación, no cuentas).
 - **Servicios en la nube** de por medio. El reproductor habla directo con cada
   emisora; el proxy local existe solo para los casos en que el navegador no
-  puede con el flujo, y **escucha únicamente en loopback**.
+  puede con el flujo, y **solo relaya URLs del catálogo**.
 - **Saltarse protecciones**: DRM, cabeceras falsificadas, flujos cifrados o
   cualquier cosa que sirva para acceder a lo que no está en abierto.
 - **Cambios en `mobile/`.** La app de Flutter está congelada y su contrato JSON
@@ -96,10 +97,11 @@ Obvious fixes — a typo, a clear bug, an edge case — can come straight as a P
 ## What this project will NOT take
 
 - **Bundled channel catalogues.** A clean install starts empty on purpose.
-- **Accounts, sign-up or telemetry**, not even "anonymous" kinds.
+- **Accounts, sign-up or telemetry**, not even "anonymous" kinds (network mode
+  uses a single access key per installation, not accounts).
 - **Cloud services** in the path. The player talks straight to each broadcaster;
   the local proxy exists only for streams the browser can't handle on its own,
-  and it **listens on loopback only**.
+  and it **only relays catalog URLs**.
 - **Circumvention**: DRM, spoofed headers, encrypted streams, or anything meant
   to reach what isn't broadcast in the open.
 - **Changes under `mobile/`.** The Flutter app is frozen, and so is its JSON
