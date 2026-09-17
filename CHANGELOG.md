@@ -5,9 +5,9 @@ Todos los cambios notables de este proyecto se documentan aquí.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el proyecto se adhiere a [Versionado Semántico](https://semver.org/lang/es/).
 
-## [No publicado]
+## [1.0.0] - 2026-09-16
 
-Trabajo hacia la primera versión pública `1.0.0`. Open TV pasó de un stack de
+Primera versión pública. Open TV pasó de un stack de
 dos procesos (gateway Go + app Flutter) a un **binario único** que sirve un
 cliente web embebido; la app de macOS queda congelada y compatible.
 
@@ -34,6 +34,19 @@ cliente web embebido; la app de macOS queda congelada y compatible.
   Picture-in-Picture, **paleta de comandos ⌘K** con búsqueda difusa, densidad
   de rejilla configurable, vista de ajustes con «Acerca de» y aviso legal,
   micro-interacciones que respetan `prefers-reduced-motion`.
+- **Reproductor primero**: el vídeo vive en un panel persistente junto al
+  catálogo lateral; cambiar de canal no lo desmonta, y «Ver todo» conserva la
+  rejilla completa. Arranca en silencio con un botón para activar el sonido.
+- **AirPlay**: el botón de emitir manda vídeo y audio a un Apple TV (el motor
+  pasa a reproducción nativa solo mientras dura la emisión).
+- **Mirrors de iptv-org**: cada canal suma las alternativas que publica la API
+  de iptv-org, con las cabeceras (referrer y user-agent) que exige cada origen.
+- **Salud por segmento**: el chequeo lee el primer segmento y detecta los
+  códecs que ningún navegador decodifica; el reproductor los salta y lo dice.
+- **Tiempo hasta la imagen**: cada intento real anota si llegó a dar imagen y
+  cuánto tardó; los mirrors sin imagen se saltan, con «Probar de todos modos».
+- **Distribución**: `brew install --cask`, instalador `install.sh` con
+  verificación de checksum para macOS y Linux, y `open-tv --version`.
 
 ### Seguridad
 
@@ -45,6 +58,6 @@ cliente web embebido; la app de macOS queda congelada y compatible.
 ### Accesibilidad
 
 - Rejilla virtualizada con tabindex por flechas, regiones aria-live
-  persistentes, modales con focus-trap e `inert`, y verificación de contraste.
+  persistentes, paleta ⌘K con focus-trap e `inert`, y verificación de contraste.
 
-[No publicado]: https://github.com/gdberysan/open-tv/commits/main
+[1.0.0]: https://github.com/gdberysan/open-tv/releases/tag/v1.0.0
