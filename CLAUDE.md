@@ -80,8 +80,9 @@ corre en la máquina del usuario. Instalación limpia arranca VACÍA
 - **Seguridad:** **sin autenticación solo en loopback**: cualquier listener
   no-loopback activa el modo red (`internal/acceso`), donde todo salvo
   `GET /health` y `/acceso` exige sesión firmada con la clave de la instalación.
-  El **proxy HLS solo relaya URLs del catálogo o firmadas por el proceso**
-  (`internal/proxy/firma.go`), con guarda SSRF (`controlConexion` +
+  El **proxy HLS solo relaya URLs del catálogo o firmadas con la clave de la
+  instalación** (`internal/proxy/firma.go`, guardada en
+  `<datadir>/proxy-key`), con guarda SSRF (`controlConexion` +
   `checkRedirect` + tope de tamaño); middleware `MismoOrigen` (Host en
   loopback + `Sec-Fetch-Site`/`Origin` en métodos mutantes) contra
   CSRF/DNS-rebinding; CSP estricta (`script-src 'self'`; la página de acceso

@@ -186,7 +186,7 @@ func NewRouter(logger *slog.Logger, repo ports.ChannelRepository, provider ports
 		r.Get("/{id}/epg", eh.GetEPGCanal) // ?limit=<n>
 	})
 
-	// El proxy HLS solo relaya URLs del catálogo o firmadas por este proceso
+	// El proxy HLS solo relaya URLs del catálogo o firmadas por esta instalación
 	// (internal/proxy/firma.go), así que no es un relé abierto. En modo red,
 	// además, todo lo que hay detrás del middleware de acceso exige sesión.
 	// ProxyActivo sigue existiendo para los tests que prueban el router sin él.

@@ -73,6 +73,9 @@ cambia a URLs firmadas:
   (`/proxy/hls?u=…&f=<firma>`) para streams que existen en el catálogo.
 - Al reescribir un manifiesto, firma cada URL hija (variantes, segmentos,
   claves). Una URL sin firma válida recibe 403.
+- La clave de firma se guarda en `<datadir>/proxy-key` (permisos 600): hls.js
+  reintenta las URLs hijas que ya tiene sin volver a pedir el manifiesto, así
+  que con una clave por proceso un reinicio dejaba la reproducción en 403.
 - Mejora también el modo local: una web maliciosa ya no puede usar el proxy
   del usuario aunque encontrara la forma de llegar a él.
 

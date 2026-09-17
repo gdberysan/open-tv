@@ -3,8 +3,8 @@
 // Existe porque Chrome y Firefox necesitan CORS y el 32 % de los streams vivos
 // del catálogo no lo mandan (censo 2026-08-22). Revierte, de forma deliberada
 // y acotada, la regla "el gateway nunca proxya vídeo": es el precio de esos
-// dos navegadores. Solo relaya URLs del catálogo o firmadas por el propio
-// proceso (ver firma.go), y en modo red además exige sesión.
+// dos navegadores. Solo relaya URLs del catálogo o firmadas con la clave de
+// esta instalación (ver firma.go), y en modo red además exige sesión.
 package proxy
 
 import (

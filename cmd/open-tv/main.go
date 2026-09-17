@@ -223,7 +223,10 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 		}
 	}
 
-	firmador, err := proxy.NuevoFirmadorAleatorio()
+	// La clave de firma del proxy se guarda junto a la base de datos: las URLs
+	// hijas que ya tiene el reproductor tienen que seguir valiendo tras un
+	// reinicio.
+	firmador, err := proxy.NuevoFirmadorPersistente(filepath.Join(filepath.Dir(dbPath), proxy.FicheroClaveProxy))
 	if err != nil {
 		_ = ln.Close()
 		return fmt.Errorf("preparando la firma del proxy: %w", err)

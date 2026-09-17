@@ -28,9 +28,9 @@ persona y los flujos van del navegador a cada emisora. Eso deja una superficie
 pequeña y muy concreta:
 
 - El servidor HTTP local y su interfaz web embebida.
-- El **proxy HLS**, que solo relaya URLs del catálogo o firmadas por el propio
-  proceso (HMAC), con guarda anti-SSRF (control de conexión, verificación en
-  cada redirección y tope de tamaño).
+- El **proxy HLS**, que solo relaya URLs del catálogo o firmadas con la clave
+  de la instalación (HMAC), con guarda anti-SSRF (control de conexión,
+  verificación en cada redirección y tope de tamaño).
 - El **modo red**: fuera de loopback, todo salvo `/health` y `/acceso` exige
   una sesión firmada que se obtiene con la clave de acceso de la instalación.
 - El middleware de mismo origen (Host + `Sec-Fetch-Site` en métodos mutantes),
@@ -93,8 +93,8 @@ streams go from their browser straight to each broadcaster. The attack
 surface is small and concrete:
 
 - The local HTTP server and its embedded web client.
-- The **HLS proxy**, which only relays catalog URLs or URLs signed by the
-  process itself (HMAC), with SSRF guards (connection control, per-redirect
+- The **HLS proxy**, which only relays catalog URLs or URLs signed with the
+  installation's key (HMAC), with SSRF guards (connection control, per-redirect
   checks, size cap).
 - **Network mode**: outside loopback, everything except `/health` and
   `/acceso` requires a signed session obtained with the installation's access
