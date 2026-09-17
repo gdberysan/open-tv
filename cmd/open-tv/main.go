@@ -275,6 +275,7 @@ func run(ctx context.Context, logger *slog.Logger, sinNavegador bool) error {
 			// muta streams.imagen_ms/fallos_reales, y streamRepoRO está
 			// abierto en modo read-only.
 			Desenlaces: streamRepo,
+			Catalogo:   streamRepoRO,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,

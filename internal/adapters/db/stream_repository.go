@@ -14,6 +14,7 @@ import (
 
 var _ ports.StreamRepository = (*SQLiteStreamRepository)(nil)
 var _ ports.RegistradorDesenlaces = (*SQLiteStreamRepository)(nil)
+var _ ports.VerificadorURLs = (*SQLiteStreamRepository)(nil)
 
 // SQLiteStreamRepository implementa ports.StreamRepository sobre SQLite.
 // Persiste las URLs de stream que antes solo vivían en el caché en memoria
@@ -494,6 +495,24 @@ func (r *SQLiteStreamRepository) CabecerasPorURL(ctx context.Context, urlCruda s
 		return "", "", fmt.Errorf("db.Stream.CabecerasPorURL (fallback por origen): %w", err)
 	}
 	return referrer, userAgent, nil
+}
+
+// ExisteURL usa el mismo índice idx_streams_url que CabecerasPorURL. Solo la
+// URL exacta cuenta: los segmentos y claves de un manifiesto nunca son filas
+// propias, y esos los autoriza la firma del proxy, no el catálogo.
+func (r *SQLiteStreamRepository) ExisteURL(ctx context.Context, urlCruda string) (bool, error) {
+	if urlCruda == "" {
+		return false, nil
+	}
+	var uno int
+	err := r.db.QueryRowContext(ctx, "SELECT 1 FROM streams WHERE url = ? LIMIT 1", urlCruda).Scan(&uno)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("db.Stream.ExisteURL: %w", err)
+	}
+	return true, nil
 }
 
 // ImagenPorCanal resume el tiempo hasta la imagen por canal (spec

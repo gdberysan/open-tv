@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -207,6 +208,52 @@ func TestProxySoloExisteEnLoopback(t *testing.T) {
 		if rec.Code != c.quiero {
 			t.Errorf("proxyActivo=%v → %d, quiero %d", c.activo, rec.Code, c.quiero)
 		}
+	}
+}
+
+type catalogoFijo map[string]bool
+
+func (c catalogoFijo) ExisteURL(_ context.Context, u string) (bool, error) { return c[u], nil }
+
+// Una URL que no es del catálogo ni lleva firma no se relaya: el proxy ya no
+// es un relé abierto. Se comprueba por el código, sin red: el 403 llega antes
+// de resolver nada.
+func TestProxyNoRelayaURLsAjenasAlCatalogo(t *testing.T) {
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), nil,
+		api.Options{ProxyActivo: true, Catalogo: catalogoFijo{"https://origen.example/canal.m3u8": true}})
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape("https://atacante.example/x"), nil))
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("URL ajena = %d, quiero 403", rec.Code)
+	}
+}
+
+// Una URL del catálogo SÍ se relaya, y el manifiesto que devuelve el origen
+// sale con sus URLs hijas firmadas: prueba de extremo a extremo de que
+// api.Options.Catalogo llega de verdad hasta el proxy montado por el router,
+// no solo que rechaza lo ajeno (ver TestProxyNoRelayaURLsAjenasAlCatalogo).
+func TestProxyRelayaURLsDelCatalogo(t *testing.T) {
+	origen := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:6.0,\nseg1.ts\n"))
+	}))
+	defer origen.Close()
+
+	canalURL := origen.URL + "/canal.m3u8"
+	r := api.NewRouter(slog.New(slog.DiscardHandler), repoVacio{}, provVacio{}, streamsVacio{}, nil, syncVacio{}, sourcesVacio{}, t.TempDir(), nil,
+		// httptest.NewServer escucha en 127.0.0.1: hay que permitir destinos
+		// privados para que este test ejercite el relay real, no solo el 403
+		// de SSRF.
+		api.Options{ProxyActivo: true, PermitirDestinosPrivados: true, Catalogo: catalogoFijo{canalURL: true}})
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy/hls?u="+url.QueryEscape(canalURL), nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("código %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "&f=") {
+		t.Errorf("el segmento hijo no salió firmado:\n%s", rec.Body.String())
 	}
 }
 

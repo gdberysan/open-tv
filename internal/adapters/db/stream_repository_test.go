@@ -838,6 +838,42 @@ func TestStreamCabecerasPorURL(t *testing.T) {
 	}
 }
 
+func TestStreamExisteURL(t *testing.T) {
+	ctx := context.Background()
+	base := nuevaDBDePrueba(t)
+	canales := db.NewChannelRepository(base)
+	streams := db.NewStreamRepository(base)
+
+	if err := canales.SaveBatch(ctx, []domain.Channel{
+		{ID: "p1-c1", Name: "C1", ProviderID: "p1", ProviderType: domain.ProviderOpenSource},
+	}); err != nil {
+		t.Fatalf("SaveBatch canales: %v", err)
+	}
+	if err := streams.SaveBatch(ctx, []domain.Stream{
+		{ID: "st-1", ChannelID: "p1-c1", URL: "https://origen/canal.m3u8", Protocol: domain.ProtocolHLS},
+	}); err != nil {
+		t.Fatalf("SaveBatch: %v", err)
+	}
+
+	for _, c := range []struct {
+		url    string
+		quiero bool
+	}{
+		{"https://origen/canal.m3u8", true},
+		{"https://origen/canal.m3u8?x=1", false},
+		{"https://origen/seg1.ts", false},
+		{"", false},
+	} {
+		got, err := streams.ExisteURL(ctx, c.url)
+		if err != nil {
+			t.Fatalf("ExisteURL(%q): %v", c.url, err)
+		}
+		if got != c.quiero {
+			t.Errorf("ExisteURL(%q) = %v, quiero %v", c.url, got, c.quiero)
+		}
+	}
+}
+
 // Los segmentos y claves (EXT-X-KEY/EXT-X-MAP) que ReescribirManifiesto
 // reescribe NUNCA son una fila propia de streams: solo el manifiesto de
 // nivel superior lo es. Sin esta caída al origen, el proxy pediría las
