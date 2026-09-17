@@ -37,7 +37,15 @@ func Exigir(s *Sesiones) func(http.Handler) http.Handler {
 	}
 }
 
+// exenta compara Path, pero chi enruta por RawPath cuando está fijado (una
+// petición con % escapes en la ruta, tipo "/acces%6F"): con solo el chequeo
+// de Path, Exigir la daba por exenta y chi no la encontraba como ruta propia,
+// así que caía sin sesión al fallback SPA. Exigir RawPath == "" cierra ese
+// hueco: una ruta exenta de verdad nunca llega con % escapes de por medio.
 func exenta(r *http.Request) bool {
+	if r.URL.RawPath != "" {
+		return false
+	}
 	if r.URL.Path == RutaAcceso {
 		return true
 	}

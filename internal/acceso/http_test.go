@@ -52,6 +52,28 @@ func TestHealthYAccesoNoExigenSesion(t *testing.T) {
 	}
 }
 
+// TestRutaCodificadaNoSeSaltaLaSesion cubre el bypass de ruta codificada: chi
+// enruta por r.URL.RawPath cuando está fijado, así que "/acces%6F" no coincide
+// con la ruta registrada /acceso y (en el router real) cae al fallback SPA. Si
+// exenta() solo mirase Path (que sale decodificado a "/acceso"/"/health"), la
+// daría por exenta y el mux de este test (que no tiene fallback SPA) la
+// resolvería como 404 — de un modo u otro, sin pasar por conSesion(). Aquí se
+// comprueba directamente el código 401 contra Exigir/montar().
+func TestRutaCodificadaNoSeSaltaLaSesion(t *testing.T) {
+	h, _ := montar(t)
+	for _, ruta := range []string{"/acces%6F", "/healt%68"} {
+		req := httptest.NewRequest(http.MethodGet, ruta, nil)
+		if req.URL.RawPath == "" {
+			t.Fatalf("%s: RawPath vacío, el test no prueba nada", ruta)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s sin sesión = %d, quiero 401", ruta, rec.Code)
+		}
+	}
+}
+
 func postClave(h http.Handler, clave, ip string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, acceso.RutaAcceso, strings.NewReader(url.Values{"clave": {clave}}.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -100,10 +122,17 @@ func TestClaveBuenaDetrasDeHTTPSMarcaLaCookieSecure(t *testing.T) {
 	req.Header.Set("X-Forwarded-Proto", "https")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
+	var cookie *http.Cookie
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == acceso.NombreCookie && !c.Secure {
-			t.Error("detrás de HTTPS la cookie no lleva Secure")
+		if c.Name == acceso.NombreCookie {
+			cookie = c
 		}
+	}
+	if cookie == nil {
+		t.Fatal("no hay cookie de sesión: el test no prueba nada sin ella")
+	}
+	if !cookie.Secure {
+		t.Error("detrás de HTTPS la cookie no lleva Secure")
 	}
 }
 
