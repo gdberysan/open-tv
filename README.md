@@ -186,7 +186,7 @@ open-tv --version      # qué versión tienes, sin arrancar nada
 
 ## Licencia y marca
 
-Código bajo licencia **MIT** — ver [`LICENSE`](LICENSE).
+Código bajo licencia **MIT** — ver [`LICENSE`](LICENSE) y [`NOTICE`](NOTICE).
 
 El nombre «Korven» y «Korven Open TV», el wordmark, el emblema y el icono de
 la aplicación **no** están cubiertos por esa licencia — ver
@@ -416,7 +416,7 @@ open-tv --version      # which version you have, without starting anything
 
 ## License and brand
 
-Code under the **MIT** license — see [`LICENSE`](LICENSE).
+Code under the **MIT** license — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
 
 The "Korven" and "Korven Open TV" names, the wordmark, the emblem and the
 application icon are **not** covered by that license — see
