@@ -1,483 +1,195 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <div align="center">
 
-<img src="assets/readme/banner-es.svg" alt="Korven Open TV — televisión abierta, sin cuentas ni nube, en tu máquina" width="100%">
+<img src="assets/readme/banner-en.svg" alt="Korven Open TV — free-to-air television, no accounts, no cloud, on your machine" width="100%">
 
 <p>
   <a href="https://github.com/gdberysan/open-tv/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/gdberysan/open-tv?style=flat-square&color=FF8A2B&labelColor=171E29"></a>
   <a href="https://github.com/gdberysan/open-tv/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/gdberysan/open-tv/ci.yml?branch=main&style=flat-square&label=CI&labelColor=171E29"></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/github/license/gdberysan/open-tv?style=flat-square&color=97A3B2&labelColor=171E29"></a>
-  <img alt="macOS · Linux · Windows" src="https://img.shields.io/badge/plataformas-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-EFF3F8?style=flat-square&labelColor=171E29">
+  <img alt="macOS · Linux · Windows" src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-EFF3F8?style=flat-square&labelColor=171E29">
 </p>
 
-Un solo binario Go sirve la API **y** un cliente web embebido (Svelte). No trae
-canales de fábrica: **tú** añades tus fuentes M3U. Sin cuentas, sin telemetría,
-sin relay — todo se sirve desde tu propio equipo.
+**Watch free-to-air TV from your own M3U lists, in your browser, from one binary.**<br>
+No accounts. No telemetry. No cloud. And an honest signal on every channel —
+it tells you what will actually play before you click.
 
-`● señal honesta`  ·  `⌘K búsqueda difusa`  ·  `guía EPG por fuente`  ·  `MIT + marca Korven`
+[Install](#install) · [Features](#features) · [How it works](#how-it-works) · [Privacy](#privacy) · [Limitations](#known-limitations) · [FAQ](#faq) · **[Español](README.es.md)**
 
-Una obra de **[Korven](https://korven.dev)** — *del núcleo a la obra*
-
-**Español**  ·  **[English ↓](#korven-open-tv-english)**
-
-[Qué es](#qué-es) · [Instalar](#instalar) · [Primer arranque](#primer-arranque) · [Privacidad](#privacidad) · [Lo que no hace](#lo-que-no-hace) · [FAQ](#preguntas-frecuentes) · [Para desarrolladores](#para-desarrolladores)
+<img src="assets/readme/demo.gif" alt="Open TV: picking a channel, switching channels in place, and searching with ⌘K" width="100%">
 
 </div>
 
 ---
 
-## Qué es
-
-Open TV agrega y reproduce canales de televisión abierta a partir de listas
-M3U que tú mismo das de alta: la tuya propia, un fichero que subas, o
-cualquiera de las seis fuentes públicas sugeridas de
-[iptv-org](https://github.com/iptv-org/iptv) (global y por país/categoría),
-con un clic. El gateway sincroniza el catálogo, comprueba la salud de cada
-stream (vivo/caído, latencia, si se ve en el navegador) y el cliente web te
-deja buscar, filtrar y reproducir — todo sirviéndose desde tu propia máquina.
-
-No es un servicio: no hay cuentas, no hay nube, no hay canales premium. Es
-software libre que reproduce enlaces que ya tienes.
-
-## Dónde verlo
-
-- **Instalado en tu máquina** (macOS, Linux, Windows): la forma recomendada.
-  Ver [Instalar](#instalar) abajo.
-- **Versión web hospedada** en `opentv.korven.dev`: próximamente. Será el
-  mismo cliente sirviendo un catálogo público de solo lectura, sin nada que
-  instalar.
-- **Código fuente**:
-  [github.com/gdberysan/open-tv](https://github.com/gdberysan/open-tv).
-
-## Instalar
-
-**Homebrew** (solo macOS: la fórmula es un *cask*, y Homebrew no los sirve en
-Linux):
-
-```bash
-brew install gdberysan/tap/open-tv
-```
-
-**Instalador por curl** (macOS y Linux, sin marca de cuarentena). En Linux
-esta es la vía, no Homebrew:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/gdberysan/open-tv/main/install.sh | sh
-```
-
-**Con Go instalado**:
-
-```bash
-go install github.com/gdberysan/open-tv/cmd/open-tv@latest
-```
-
-**Binario suelto**: en la pestaña
-[Releases](https://github.com/gdberysan/open-tv/releases) del repo hay un
-asset para cada combinación de sistema y arquitectura (macOS arm64/amd64,
-Linux amd64/arm64, Windows amd64) con su `checksums.txt`. Descarga el que
-corresponda al tuyo. *(Todavía no existe una release publicada — este README
-documenta el flujo tal como quedará en cuanto se etiquete la primera.)*
-
-### macOS: binario descargado con el navegador
-
-Si lo bajas directamente desde Releases con Safari o Chrome, macOS lo marca
-en cuarentena y Gatekeeper se queja al primer arranque. No hay notarización
-de Apple todavía, así que hace falta uno de estos dos pasos:
-
-```bash
-xattr -d com.apple.quarantine /ruta/a/open-tv
-```
-
-o bien clic derecho → **Abrir** → **Abrir de todas formas** en el diálogo de
-Gatekeeper. Homebrew y el instalador por curl no pasan por cuarentena: son el
-camino limpio.
-
-## Primer arranque
-
-```bash
-open-tv
-```
-
-Crea el directorio de datos si no existe, escucha en el primer puerto libre
-(`127.0.0.1:8080` y, si está ocupado, el siguiente) y abre el navegador. Como
-la instalación no trae canales, la primera pantalla pide una fuente: tu
-propia URL M3U, un fichero, o una de las seis sugeridas de iptv-org con un
-clic. En cuanto añades una, la sincronización de esa fuente tarda unos
-segundos y aterrizas en el escenario: el panel de vídeo a la izquierda y el
-catálogo en la barra lateral (buscador, facetas y la lista completa de
-canales con su salud). Cambiar de canal intercambia el vídeo en el sitio, y
-«Ver todo» abre la rejilla completa de tarjetas; en visitas posteriores se
-entra viendo el último canal, en silencio, con un toque para activar el
-sonido. Los veredictos de salud de cada stream (vivo/caído, calidad) van
-llegando en los minutos siguientes.
-
-Ctrl-C detiene el proceso. Si ya hay un `open-tv` corriendo, lanzarlo otra vez
-no arranca una segunda instancia: solo abre el navegador en la que ya está
-viva.
-
-## Privacidad
-
-- Sin cuentas, sin registro, sin nube.
-- Sin telemetría: nada sale de tu máquina hacia Korven ni hacia nadie.
-- Sin relay: el reproductor apunta directo al emisor de cada canal; el
-  gateway local solo actúa de proxy cuando el navegador no puede reproducir
-  el stream él solo, y ese proxy nunca escucha fuera de `localhost`.
-- Los favoritos viven en el `localStorage` de tu navegador. Las estadísticas
-  de reproducción viven solo en memoria del proceso y se pierden al
-  reiniciar — no se escriben a disco ni se envían a ningún sitio.
-- Las fuentes que añadas (URLs, ficheros M3U) se guardan solo en tu SQLite
-  local.
-
-## Lo que no hace
-
-Open TV es, deliberadamente, solo un reproductor de televisión abierta:
-
-- No trae canales premium ni de pago.
-- No incluye DRM ni lo rompe.
-- No hace geo-bypass ni VPN: si un stream lo bloquea tu región, seguirá
-  bloqueado aquí.
-- No pide ni gestiona credenciales de terceros.
-- No aloja ni retransmite contenido: solo reproduce las URLs que tú das de
-  alta. La responsabilidad de esas fuentes es tuya.
-
-## Preguntas frecuentes
-
-**¿Trae canales de fábrica?** No. Una instalación limpia arranca vacía;
-añades tu propia lista M3U o eliges alguna de las seis sugeridas de iptv-org.
-
-**¿Es legal?** Open TV no aloja ni distribuye nada: es un reproductor para
-listas que tú decides añadir. La legalidad de esas listas depende de ti y de
-tu jurisdicción.
-
-**¿Recoge algún dato mío?** No. Ver [Privacidad](#privacidad).
-
-**¿Por qué algunos canales no se reproducen en el navegador?** Algunos
-streams usan códecs o cabeceras CORS que el navegador rechaza aunque el
-canal esté vivo. El binario instalado detecta el caso y usa un proxy local
-(solo loopback) como segundo intento; si aun así falla, el mensaje lo dice
-con claridad en vez de fingir que funciona.
-
-**¿Cómo lo desinstalo?** Borra el binario (o `brew uninstall open-tv`) y,
-si quieres borrar también el catálogo, el directorio de datos:
-`~/Library/Application Support/Korven Open TV` en macOS,
-`$XDG_DATA_HOME/korven-open-tv` (o `~/.local/share/korven-open-tv`) en Linux,
-`%APPDATA%\Korven Open TV` en Windows.
-
-**macOS dice que el binario "no se puede abrir". ¿Qué hago?** Ver la nota de
-cuarentena en [Instalar](#instalar).
-
-## Comandos y variables
-
-```bash
-open-tv               # arranca el gateway (subcomando `serve` implícito)
-open-tv serve          # lo mismo, explícito
-open-tv --no-browser   # no abre el navegador al arrancar
-open-tv --version      # qué versión tienes, sin arrancar nada
-```
-
-| Variable | Default | Para qué sirve |
-|---|---|---|
-| `LISTEN_ADDR` | `127.0.0.1:8080` | Dirección de escucha. **No exponer a la red**: la API no tiene autenticación. |
-| `DB_PATH` | directorio de datos del sistema | Ruta del SQLite del catálogo. Si no se fija, usa el directorio estándar de la plataforma (ver desinstalar arriba). |
-| `SYNC_INTERVAL` | `12h` | Cadencia del re-sync automático de las fuentes activas. |
-| `HEALTH_INTERVAL` | `60m` | Cadencia del health-check de streams. |
-
-## Licencia y marca
-
-Código bajo licencia **MIT** — ver [`LICENSE`](LICENSE) y [`NOTICE`](NOTICE).
-
-El nombre «Korven» y «Korven Open TV», el wordmark, el emblema y el icono de
-la aplicación **no** están cubiertos por esa licencia — ver
-[`assets/brand/LICENSE`](assets/brand/LICENSE). El código es libre; la
-identidad, no: si publicas un fork, usa tu propio nombre y emblema.
-
-## Soporte
-
-[GitHub Issues](https://github.com/gdberysan/open-tv/issues) para errores o
-ideas. No hay soporte por correo personal.
-
-Antes de abrir uno: que **un canal concreto no se vea** casi nunca es un fallo
-del programa. Las listas las aportas tú, y las emisoras cambian sus URLs, se
-caen o geobloquean por región.
-
-- ¿Vas a mandar código? [`CONTRIBUTING.md`](CONTRIBUTING.md) dice qué encaja y
-  qué no, para no hacerte perder la tarde.
-- ¿Un fallo de **seguridad**? No abras un issue público:
-  [`SECURITY.md`](SECURITY.md).
-- Cómo se trata la gente por aquí: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
-
-## Para desarrolladores
-
-La app de macOS nativa (Flutter, libmpv, AirPlay) vive en `mobile/`. Está
-**congelada**: sigue compilando y no forma parte de la v1.0, pero no recibe
-desarrollo activo. Para compilarla y correrla:
-
-```bash
-cd mobile
-flutter run -d macos
-```
-
-Apunta a `http://127.0.0.1:8080` por defecto; para otro gateway:
-
-```bash
-flutter run -d macos --dart-define=GATEWAY_URL=http://192.168.1.50:8080
-```
-
-### Compilar el gateway + cliente web desde el código fuente
-
-```bash
-cd web && npm install && npm run build   # genera internal/ui/dist, embebido con go:embed
-cd .. && go build -o open-tv ./cmd/open-tv
-```
-
-### Tests y gates
-
-```bash
-go test -race ./... && go vet ./... && gofmt -l .
-cd web && npm run check && npm test
-cd mobile && flutter test && flutter analyze
-```
-
-CI corre lo mismo en cada push (`.github/workflows/ci.yml`).
-
-### Notas para quien desarrolla el gateway
-
-- `IPTV_ORG_URL` es un atajo de desarrollo, opt-in: si se fija, da de alta esa
-  URL como fuente al arrancar (para no pasar por el onboarding a mano). No es
-  para uso normal — una instalación real siempre parte de cero fuentes.
-- Para no arrancar el gateway a mano en cada sesión de desarrollo hay una
-  plantilla de LaunchAgent de macOS en `tools/dev.korven.opentv.gateway.plist`
-  (instrucciones en [`tools/README.md`](tools/README.md)).
-
----
-
-<a id="english"></a>
-
-# Korven Open TV (English)
-
-<img src="assets/readme/banner-en.svg" alt="Korven Open TV — free-to-air television, no accounts, no cloud, on your machine" width="100%">
-
-A free-to-air (FTA) television player for your own M3U lists. A single Go
-binary serves the API and an embedded web client (Svelte); it ships with no
-channels — you add your own sources.
-
-A work by [Korven](https://korven.dev) — *from the core to the work*.
-
-[Español](#korven-open-tv) · **English**
-
-## What it is
-
-Open TV aggregates and plays free-to-air channels from M3U lists that you add
-yourself: your own list, a file you upload, or any of the six suggested
-public sources from [iptv-org](https://github.com/iptv-org/iptv) (global and
-by country/category), added with one click. The gateway syncs the catalog,
-checks the health of each stream (alive/down, latency, whether it plays in a
-browser), and the web client lets you search, filter and play — all served
-from your own machine.
-
-It is not a service: no accounts, no cloud, no premium channels. It's free
-software that plays links you already have.
-
-## Where to watch it
-
-- **Installed on your machine** (macOS, Linux, Windows): the recommended way.
-  See [Install](#install) below.
-- **Hosted web version** at `opentv.korven.dev`: coming soon. It will be the
-  same client serving a public, read-only catalog, with nothing to install.
-- **Source code**:
-  [github.com/gdberysan/open-tv](https://github.com/gdberysan/open-tv).
-
 ## Install
 
-**Homebrew** (macOS only: it ships as a *cask*, and Homebrew doesn't serve
-those on Linux):
-
 ```bash
-brew install gdberysan/tap/open-tv
-```
+# macOS (Homebrew)
+brew install --cask gdberysan/tap/open-tv
 
-**curl installer** (macOS and Linux, no quarantine flag). On Linux this is the
-way, not Homebrew:
-
-```bash
+# macOS and Linux (verifies the checksum before installing)
 curl -fsSL https://raw.githubusercontent.com/gdberysan/open-tv/main/install.sh | sh
-```
 
-**With Go installed**:
-
-```bash
+# Anywhere with Go
 go install github.com/gdberysan/open-tv/cmd/open-tv@latest
 ```
 
-**Raw binary**: the
-[Releases](https://github.com/gdberysan/open-tv/releases) tab has an asset
-for every OS/architecture combination (macOS arm64/amd64, Linux amd64/arm64,
-Windows amd64) with a `checksums.txt`. Download the one that matches your
-system. *(No release has been published yet — this README documents the
-flow as it will work once the first tag ships.)*
+Then run `open-tv`. Your browser opens on the app.
 
-### macOS: binary downloaded via a browser
+Windows, and anyone who prefers a plain download: grab the archive for your
+system from [Releases](https://github.com/gdberysan/open-tv/releases/latest)
+and check it against `checksums.txt`.
 
-If you download it straight from Releases with Safari or Chrome, macOS marks
-it quarantined and Gatekeeper complains on first launch. There is no Apple
-notarization yet, so you need one of these two steps:
+> **macOS, downloaded with a browser?** The binary isn't notarized by Apple
+> yet, so Gatekeeper blocks it on first launch. Run
+> `xattr -d com.apple.quarantine ./open-tv` once, or right-click → **Open** →
+> **Open Anyway**. Homebrew and the curl installer handle this for you.
 
-```bash
-xattr -d com.apple.quarantine /path/to/open-tv
+## Features
+
+- **One binary, zero setup.** A Go server with the web client embedded. No
+  database to install, no Docker, no media center. Download, run, watch.
+- **Honest signal.** Every stream is health-checked in the background: alive
+  or down, latency, resolution, and whether your browser can decode it at
+  all. Channels that can't show a picture say so instead of spinning forever.
+- **Failover across mirrors.** A channel with several sources tries them in
+  order of health until one plays.
+- **Player first.** The video stays on screen while you browse the catalog on
+  the side; switching channels swaps it in place.
+- **⌘K command palette** with fuzzy search, favorites, "continue watching",
+  and keyboard shortcuts for play, mute, fullscreen and channel surfing.
+- **AirPlay** to an Apple TV, **picture-in-picture** and fullscreen.
+- **EPG guide** per source, when the list provides one.
+- **Bring your own lists.** Paste an M3U URL, upload a file, or add one of
+  the suggested public lists from [iptv-org](https://github.com/iptv-org/iptv)
+  with one click.
+- **English and Spanish** interface. Keyboard-first and screen-reader
+  friendly.
+
+## How it works
+
+```mermaid
+flowchart LR
+    L["Your M3U lists"] --> O(["open-tv<br/>on your machine"]) --> B["Your browser"]
+    O -.- S["Syncs the catalog<br/>into local SQLite"]
+    O -.- H["Health-checks every stream<br/>alive · latency · codecs"]
+    O -.- P["Proxies a stream only when<br/>the browser can’t play it"]
+    O -.- N["Listens on 127.0.0.1 only"]
+    classDef app fill:#171E29,stroke:#FF8A2B,stroke-width:2px,color:#EFF3F8
+    classDef ends fill:#0E131B,stroke:#97A3B2,color:#EFF3F8
+    classDef note fill:#0E131B,stroke:#283142,color:#97A3B2
+    class O app
+    class L,B ends
+    class S,H,P,N note
 ```
 
-or right-click → **Open** → **Open Anyway** in the Gatekeeper dialog.
-Homebrew and the curl installer skip quarantine entirely — they're the clean
-path.
+A clean install starts **empty**: Open TV ships with no channels. You add the
+lists; it keeps them in order and tells you the truth about each stream.
 
-## First run
-
-```bash
-open-tv
-```
-
-Creates the data directory if it doesn't exist, listens on the first free
-port (`127.0.0.1:8080`, or the next one if taken) and opens your browser.
-Since the install ships with no channels, the first screen asks for a
-source: your own M3U URL, a file, or one of the six suggested iptv-org
-sources with one click. Once you add one, syncing that source takes a few
-seconds and the grid fills in; health verdicts for each stream (alive/down,
-quality) follow over the next few minutes.
-
-Ctrl-C stops the process. If an `open-tv` is already running, launching it
-again doesn't start a second instance — it just opens your browser to the
-one that's already alive.
+The player points straight at each broadcaster's own stream. The local proxy
+only steps in when a browser can't play a stream directly (missing CORS
+headers, for example), and it never listens outside your machine.
 
 ## Privacy
 
 - No accounts, no sign-up, no cloud.
 - No telemetry: nothing leaves your machine toward Korven or anyone else.
-- No relay: the player points straight at each channel's own origin; the
-  local gateway only proxies when the browser can't play the stream on its
-  own, and that proxy never listens outside `localhost`.
-- Favorites live in your browser's `localStorage`. Playback stats live only
-  in the process's memory and are lost on restart — never written to disk
-  or sent anywhere.
-- Sources you add (URLs, M3U files) are stored only in your local SQLite.
+- Your sources, the catalog and each stream's health history live in a local
+  SQLite file. Favorites and "continue watching" live in your browser.
+- The server binds to `127.0.0.1`, has no authentication, and isn't meant to
+  be exposed to a network.
 
 ## What it doesn't do
 
-Open TV is, deliberately, only a free-to-air player:
+Open TV is, on purpose, only a free-to-air player:
 
-- No premium or paid channels.
-- No DRM, and no breaking it either.
-- No geo-bypass and no VPN: if your region blocks a stream, it stays
-  blocked here.
-- No third-party credentials requested or managed.
-- No hosting or rebroadcasting: it only plays URLs you add yourself.
-  Responsibility for those sources is yours.
+- No premium or paid channels, no DRM and no DRM circumvention.
+- No geo-bypass or VPN: if your region blocks a stream, it stays blocked.
+- No hosting or rebroadcasting: it only plays URLs that you add. Those
+  sources are your responsibility.
+
+## Known limitations
+
+- **Some codecs never play in a browser.** A few channels broadcast MPEG-2
+  video, which no browser decodes. Open TV detects them and says so; use VLC
+  for those.
+- **Channels come and go.** Public lists change daily. A single channel not
+  playing is almost always the stream, not the app.
+- **Geo-blocking** is enforced by broadcasters and Open TV doesn't work
+  around it.
+- **Unsigned binaries.** Neither the macOS nor the Windows build is signed
+  yet (see the macOS note under [Install](#install)).
+- **No Chromecast yet.** AirPlay works; Chromecast is planned.
+- **No Docker image yet.** The proxy is deliberately locked to loopback, which
+  a container network breaks. A safe design for it is on the roadmap.
 
 ## FAQ
 
-**Does it ship with channels?** No. A clean install starts empty; you add
-your own M3U list or pick one of the six suggested iptv-org sources.
+**Does it come with channels?** No. It starts empty; you add your own M3U
+list or one of the suggested iptv-org lists.
 
-**Is it legal?** Open TV hosts and distributes nothing: it's a player for
-lists you choose to add. The legality of those lists depends on you and your
-jurisdiction.
+**Is it legal?** Open TV hosts and distributes nothing. It's a player for
+lists you choose to add, and the legality of those lists depends on you and
+your jurisdiction. The suggested lists are iptv-org's community collection of
+publicly available free-to-air streams.
 
-**Does it collect any of my data?** No. See [Privacy](#privacy).
+**Does it collect any data?** No. See [Privacy](#privacy).
 
-**Why don't some channels play in the browser?** Some streams use codecs or
-CORS headers the browser rejects even though the channel is alive. The
-installed binary detects this and falls back to a local (loopback-only)
-proxy as a second attempt; if that still fails, the message says so plainly
-instead of pretending it works.
-
-**How do I uninstall it?** Remove the binary (or `brew uninstall open-tv`)
-and, if you also want to delete the catalog, the data directory:
+**How do I uninstall it?** Remove the binary (or `brew uninstall --cask
+open-tv`). To also delete the catalog, remove the data directory:
 `~/Library/Application Support/Korven Open TV` on macOS,
 `$XDG_DATA_HOME/korven-open-tv` (or `~/.local/share/korven-open-tv`) on
 Linux, `%APPDATA%\Korven Open TV` on Windows.
 
-**macOS says the binary "can't be opened". What do I do?** See the
-quarantine note in [Install](#install).
-
 ## Commands and variables
 
 ```bash
-open-tv               # starts the gateway (`serve` subcommand is implicit)
-open-tv serve          # same, explicit
-open-tv --no-browser   # don't open the browser on startup
-open-tv --version      # which version you have, without starting anything
+open-tv                # start the server and open the browser
+open-tv --no-browser   # start without opening the browser
+open-tv --version      # print the version
 ```
+
+Running `open-tv` again while one is already running just opens the browser
+on the existing one. Ctrl-C stops it.
 
 | Variable | Default | What it's for |
 |---|---|---|
-| `LISTEN_ADDR` | `127.0.0.1:8080` | Listen address. **Don't expose it to the network**: the API has no authentication. |
-| `DB_PATH` | system data directory | Path to the catalog's SQLite file. If unset, uses the platform's standard directory (see uninstall above). |
-| `SYNC_INTERVAL` | `12h` | Cadence of the automatic re-sync of active sources. |
-| `HEALTH_INTERVAL` | `60m` | Cadence of the stream health-check. |
+| `LISTEN_ADDR` | `127.0.0.1:8080` | Listen address. **Don't expose it to a network**: the API has no authentication. If the port is taken, the next free one is used. |
+| `DB_PATH` | system data directory | Path to the catalog's SQLite file. |
+| `SYNC_INTERVAL` | `12h` | How often sources are re-synced. |
+| `HEALTH_INTERVAL` | `60m` | How often streams are health-checked. |
 
-## License and brand
+## Contributing and support
 
-Code under the **MIT** license — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+- Bugs and ideas: [GitHub Issues](https://github.com/gdberysan/open-tv/issues).
+- Sending code? Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first; it says what
+  fits the project and what doesn't.
+- Security issue? Don't open a public issue; see [`SECURITY.md`](SECURITY.md).
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) covers how people are treated
+  here.
 
-The "Korven" and "Korven Open TV" names, the wordmark, the emblem and the
-application icon are **not** covered by that license — see
-[`assets/brand/LICENSE`](assets/brand/LICENSE). The code is free; the
-identity is not: if you publish a fork, use your own name and emblem.
-
-## Support
-
-[GitHub Issues](https://github.com/gdberysan/open-tv/issues) for bugs or ideas.
-No support over personal email.
-
-Before opening one: **a specific channel not playing** is almost never a bug in
-the program. You supply the lists, and broadcasters change their URLs, go down,
-or geo-block by region.
-
-- Sending code? [`CONTRIBUTING.md`](CONTRIBUTING.md) says what fits and what
-  doesn't, so you don't spend an afternoon for nothing.
-- A **security** bug? Don't open a public issue:
-  [`SECURITY.md`](SECURITY.md).
-- How people are treated around here:
-  [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
-
-## For developers
-
-The native macOS app (Flutter, libmpv, AirPlay) lives in `mobile/`. It is
-**frozen**: it still builds and isn't going away, but it isn't part of v1.0
-and receives no active development. To build and run it:
+### Building from source
 
 ```bash
-cd mobile
-flutter run -d macos
-```
-
-Points at `http://127.0.0.1:8080` by default; for a different gateway:
-
-```bash
-flutter run -d macos --dart-define=GATEWAY_URL=http://192.168.1.50:8080
-```
-
-### Building the gateway + web client from source
-
-```bash
-cd web && npm install && npm run build   # generates internal/ui/dist, embedded via go:embed
+cd web && npm ci && npm run build   # builds the client into internal/ui/dist
 cd .. && go build -o open-tv ./cmd/open-tv
 ```
 
-### Tests and gates
+Tests: `go test -race ./...` and `cd web && npm run check && npm test`. CI
+runs the full set, plus security scans, on every push.
 
-```bash
-go test -race ./... && go vet ./... && gofmt -l .
-cd web && npm run check && npm test
-cd mobile && flutter test && flutter analyze
-```
+The native macOS app in `mobile/` (Flutter) is frozen: it still builds, but
+the web client is the product. `IPTV_ORG_URL` is a development shortcut that
+registers a source on startup, and `tools/` has a macOS LaunchAgent template
+for running the server during development.
 
-CI runs the same on every push (`.github/workflows/ci.yml`).
+## License and brand
 
-### Notes for gateway developers
+Code under the **MIT** license — see [`LICENSE`](LICENSE) and
+[`NOTICE`](NOTICE). The "Korven" and "Korven Open TV" names, wordmark, emblem
+and app icon are **not** covered by it
+([`assets/brand/LICENSE`](assets/brand/LICENSE)): if you publish a fork, use
+your own name and emblem.
 
-- `IPTV_ORG_URL` is an opt-in development shortcut: if set, it registers that
-  URL as a source on startup, skipping the onboarding form by hand. It's not
-  for normal use — a real install always starts from zero sources.
-- To avoid starting the gateway by hand on every dev session, there's a
-  macOS LaunchAgent template at `tools/dev.korven.opentv.gateway.plist`
-  (instructions in [`tools/README.md`](tools/README.md)).
+A work by **[Korven](https://korven.dev)** — *from the core to the work*.
