@@ -12,19 +12,20 @@ func TestLimitadorCortaTrasElMaximoYSeRecupera(t *testing.T) {
 	l := acceso.NuevoLimitador(3, time.Minute, func() time.Time { return ahora })
 
 	for i := 0; i < 3; i++ {
-		if !l.Permitir("10.0.0.2") {
-			t.Fatalf("intento %d cortado antes del máximo", i+1)
+		if l.Agotado("10.0.0.2") {
+			t.Fatalf("fallo %d: ya se daba por agotado antes del máximo", i+1)
 		}
+		l.Fallo("10.0.0.2")
 	}
-	if l.Permitir("10.0.0.2") {
-		t.Error("el cuarto intento en la misma ventana pasó")
+	if !l.Agotado("10.0.0.2") {
+		t.Error("tras el tercer fallo en la misma ventana debería estar agotado")
 	}
-	if !l.Permitir("10.0.0.3") {
-		t.Error("otra IP paga los intentos de la primera")
+	if l.Agotado("10.0.0.3") {
+		t.Error("otra IP paga los fallos de la primera")
 	}
 
 	ahora = ahora.Add(time.Minute + time.Second)
-	if !l.Permitir("10.0.0.2") {
+	if l.Agotado("10.0.0.2") {
 		t.Error("no se recupera al pasar la ventana")
 	}
 }

@@ -77,7 +77,8 @@ func Pagina(s *Sesiones, l *Limitador) http.Handler {
 }
 
 func entrar(s *Sesiones, l *Limitador, w http.ResponseWriter, r *http.Request) {
-	if !l.Permitir(ipDe(r)) {
+	ip := ipDe(r)
+	if l.Agotado(ip) {
 		http.Error(w, "demasiados intentos; espera un minuto", http.StatusTooManyRequests)
 		return
 	}
@@ -89,6 +90,10 @@ func entrar(s *Sesiones, l *Limitador, w http.ResponseWriter, r *http.Request) {
 	// La clave guardada ya está recortada al cargarla; pegar una clave con un
 	// espacio final es habitual y no debe fallar el login por eso.
 	if !s.ClaveCorrecta(strings.TrimSpace(r.PostForm.Get("clave"))) {
+		// Solo los fallos gastan cupo: un login correcto (o varios dispositivos
+		// detrás del mismo NAT entrando cada uno con éxito) no debe acercar a
+		// nadie al 429.
+		l.Fallo(ip)
 		pintar(w, r, http.StatusUnauthorized, true)
 		return
 	}

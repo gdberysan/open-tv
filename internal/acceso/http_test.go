@@ -160,6 +160,21 @@ func TestDemasiadosIntentosDan429(t *testing.T) {
 	}
 }
 
+// TestLoginsCorrectosNoGastanIntentos cubre el hallazgo del e2e de la Tarea
+// 8: el limitador solo debe contar fallos. Antes contaba TODO POST a /acceso,
+// clave correcta incluida, así que un solo login exitoso repetido (varios
+// dispositivos detrás del mismo NAT, o Playwright corriendo varios proyectos
+// de navegador contra la misma instancia) terminaba en 429 sin que hubiera
+// habido un solo intento malo.
+func TestLoginsCorrectosNoGastanIntentos(t *testing.T) {
+	h, _ := montar(t)
+	for i := 0; i < 10; i++ {
+		if rec := postClave(h, "la-clave", "10.0.0.4"); rec.Code != http.StatusSeeOther {
+			t.Fatalf("login correcto %d = %d, quiero 303", i+1, rec.Code)
+		}
+	}
+}
+
 func TestPaginaDeAccesoEnInglesYConCSPSinScripts(t *testing.T) {
 	h, _ := montar(t)
 	req := httptest.NewRequest(http.MethodGet, acceso.RutaAcceso, nil)
