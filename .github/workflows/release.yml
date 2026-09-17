@@ -42,6 +42,10 @@ jobs:
         run: |
           npm ci
           npm run build
+          # Vite vacía internal/ui/dist (emptyOutDir) y se lleva el .gitkeep
+          # versionado: sin restaurarlo, goreleaser ve el árbol «sucio» y
+          # aborta el release antes de empezar.
+          git checkout -- ../internal/ui/dist/.gitkeep
 
       - uses: actions/setup-go@v7
         with:

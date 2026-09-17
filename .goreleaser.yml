@@ -15,6 +15,8 @@ before:
     # `cd web &&` para correrlos en el subdirectorio del cliente.
     - sh -c "cd web && npm ci"
     - sh -c "cd web && npm run build"
+    # El build vacía internal/ui/dist y borra el .gitkeep versionado.
+    - git checkout -- internal/ui/dist/.gitkeep
 
 builds:
   - id: open-tv
